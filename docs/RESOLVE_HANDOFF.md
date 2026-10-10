@@ -8,7 +8,7 @@ The integration loads original Media Pool clips into the local Video Analyzer co
 
 ## Windows installation
 
-The [October 10 Windows build](https://github.com/ijduncan/video-analyzer/actions/runs/38072683172) passed at commit `b2be764`. [Download the verified Windows preview](https://github.com/ijduncan/video-analyzer/actions/runs/38072683172/artifacts/11677945174) while signed into GitHub. It includes the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums. All five downloaded checksums matched. This unsigned development preview expires October 24, 2026; later builds are available through the workflow below.
+The [October 10 Windows build](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019) passed at commit `d355f09`, including all 83 Resolve checks and the fixes found during native testing. [Download the verified Windows preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019/artifacts/11678780721) while signed into GitHub. It includes the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums. All five downloaded checksums matched, and the public Resolve resources matched current source. This unsigned development preview expires October 24, 2026; later builds are available through the workflow below.
 
 1. Get the updated **Video Analyzer companion** and public integration ZIP from a successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer, open browser **Settings**, configure your own Gemini key, and choose **Copy editor pairing code**. The tray's **Pair with editor** command provides the same code through a local file.
 2. Install Resolve Studio 20.1+ and **close Resolve** before installing or updating the integration.
@@ -55,7 +55,7 @@ Original media is referenced without creating a full import copy. The companion 
 
 ## Apple Silicon Mac installation
 
-The companion targets **native arm64 on macOS 15+**. The [October 10 Mac build](https://github.com/ijduncan/video-analyzer/actions/runs/38072683086) passed native automated checks at commit `b2be764`. [Download the verified Apple Silicon preview](https://github.com/ijduncan/video-analyzer/actions/runs/38072683086/artifacts/11676949690) while signed into GitHub. Its app ZIP, DMG, Premiere CCX, and Resolve ZIP checksums matched after download. The artifact expires October 24, 2026; use later successful runs from the [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml) after that date.
+The companion targets **native arm64 on macOS 15+**. The [October 10 Mac build](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014) passed native automated checks at commit `d355f09`, including all 83 Resolve contract checks and the Windows-discovered runtime fixes. [Download the verified Apple Silicon preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014/artifacts/11678469463) while signed into GitHub. Its app ZIP, DMG, Premiere CCX, and Resolve ZIP checksums matched after download; the executable header independently confirmed arm64 and the embedded public integration matched current source. The artifact expires October 24, 2026; use later successful runs from the [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml) after that date.
 
 1. Install the updated `Video Analyzer.app` in Applications and prepare FFmpeg through **Install FFmpeg.command**.
 2. Run **Prepare Premiere on Mac.command** if local HTTPS is not already configured. Despite its existing name, this setup prepares the companion's shared editor endpoint for both Premiere and Resolve. It uses mkcert and may request an administrator password. Do not disable certificate or hostname verification.
@@ -94,11 +94,19 @@ build/desktop/venv-arm64/bin/python scripts/package-resolve.py
 
 The output is `dist/installers/VideoAnalyzer-Resolve-0.1.0.zip`. Packaging uses an explicit public resource allowlist, excludes local media/keys/vendor binaries, validates entry points and version agreement, and replaces the deliverable only after ZIP verification. See [companion build instructions](../packaging/README.md) for the Windows installer and native Mac app/DMG.
 
-## Native acceptance still required
+## Native acceptance
 
-The Windows workstation has Resolve 21.0.1 and its Developer SDK. Its supplied manifest and Promise APIs were inspected, and the installer copied the matching x64 bridge and ten public files into an isolated temporary destination with a matching bridge hash. Resolve's application/plugin folders were not changed by that check. Interactive plugin execution remains untested: automated backend, panel, and host checks use isolated data and mocked Resolve calls, and do not establish native editing behavior.
+On October 10, the integration was installed in Resolve Studio 21.0.1's actual Windows plugin folder using its matching local SDK. All ten installed public resources and the native bridge matched their source hashes. Native desktop testing used a separate Resolve project, an isolated companion database, and a six-second, verified 24 fps synthetic original. Its shot metadata and dialogue were explicitly seeded test data; provider calls were disabled.
 
-On Windows first, then on the Mac:
+The Workspace menu opened the integration, pairing and Media Pool registration succeeded, and the original was referenced without a full media copy. Shot and dialogue searches highlighted matching words, clip selection was confirmed in Resolve, and copying the blue shot produced `00:02.000 – 00:04.000`. Native subtitle Save cancellation worked; the saved SRT contained all three expected cues even with a search active. Reopening required the pairing code again and restored the selected clip and search. Switching to a separate empty test project cleared prior results and disabled unavailable actions. Closing Resolve also closed the plugin automatically.
+
+Three fresh source markers were added successfully. Native dialogs confirmed starts at 0, 2, and 4 seconds, each lasting 2 seconds. A repeat added none and skipped all three duplicates. A temporary cue aimed directly at the manual marker's 1-second position was skipped as an occupied frame; native inspection confirmed that marker's name, time, one-frame duration, and empty notes were unchanged. The temporary cue was then removed from the isolated test data.
+
+Testing found and fixed Electron's ESM entry-point behavior, SDK initialization before timeout configuration, and shifted marker dictionary keys. Marker positions are now checked with direct frame queries; guarded cleanup identifies unchanged app-owned markers through custom data. The Resolve contract suite passes 83 checks. See [the verification record](VERIFICATION.md) for remaining coverage.
+
+The normal localhost companion was restored after testing. Both existing footage projects, analysis cache revisions/counts, and configured key presence matched the original baseline. Test data was kept separate and no paid calls were made.
+
+Broader Windows acceptance and native Mac acceptance still include:
 
 1. Verify installation, the Workspace menu entry, connection, close/reopen behavior, and Resolve shutdown. Confirm that the local SDK matches the running Resolve version.
 2. Load a few original clips, including dialogue and a common fractional frame rate. Confirm that loading starts no analysis and preserves the originals' bytes, paths, and modification times.

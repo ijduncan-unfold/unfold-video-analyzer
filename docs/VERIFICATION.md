@@ -2,7 +2,7 @@
 
 ## Result
 
-The rebuild passes its local automated suite and live Gemini compatibility checks. The browser workflow was exercised with actual synthetic media from import through analysis, review and export. Comparative accuracy on customer footage and installed-editor round trips remain unverified.
+The rebuild passes its local automated suite and live Gemini compatibility checks. The browser workflow was exercised with actual synthetic media from import through analysis, review and export. Resolve Studio on Windows has also been exercised through its native plugin using an isolated synthetic fixture, as recorded below. Comparative accuracy on customer footage and broader editor round trips remain unverified.
 
 ## Automated checks
 
@@ -141,11 +141,29 @@ The [Resolve-enabled Apple Silicon build](https://github.com/ijduncan/video-anal
 
 The source companion was restarted only after its analysis and indexing jobs were idle. Its authenticated Resolve endpoint became available, while both saved footage projects, completed shape/composition caches, and configured Gemini key remained intact. These checks were read-only and made no provider calls.
 
+## Windows native Resolve acceptance, October 10
+
+Desktop testing with Astra installed the integration into the actual Windows Workflow Integration folder and opened it in Resolve Studio 21.0.1. The ten public resources matched source hashes and the native bridge matched the local SDK. A separate Resolve project and companion database contained one six-second, verified 24 fps synthetic original, three seeded color shots, and three explicitly synthetic dialogue cues. Provider calls were disabled. The source's SHA-256, size, and modification time remained unchanged.
+
+The Workspace menu, pairing, Media Pool registration, highlighted shot/dialogue search, confirmed clip selection, and source-relative copying worked. Copying the blue shot produced `00:02.000 – 00:04.000`. Native subtitle cancellation worked, and the saved SRT matched all three expected cues while a search was active. Close/reopen required pairing again and restored the selected clip and query. Closing Resolve while the integration remained open also closed the plugin automatically, confirmed through fresh desktop window inspection after ten seconds.
+
+Fresh markers were written at source frames 0, 48, and 96. Native dialogs confirmed starts of 0, 2, and 4 seconds and two-second durations. Repeating the batch added zero and skipped three duplicates. A cue aimed at the manual marker's exact frame 24 added zero and skipped one occupied frame; the manual marker retained its name, one-frame duration, time, and empty notes. The temporary collision cue was restored to the original fixture data. Switching to a separate empty QA project cleared the prior actionable results and disabled Analyze/marker export.
+
+These tests exposed three runtime defects: Electron's ESM launcher did not satisfy the old CommonJS entry guard, SDK timeout setup required initialization first, and the Promise SDK's marker dictionary keys differed from the actual source frames. Commit `87e2e10` fixed startup/initialization; `d355f09` verifies marker occupancy and position through exact frame queries and rolls back only uniquely identified unchanged app-owned markers through custom data. All 83 Resolve Node checks pass, including regressions for the observed shifted keys, empty manual-marker identities, partial writes, concurrent edits, and incomplete cleanup.
+
+After QA, the normal localhost companion was restored. A read-only comparison confirmed the same two original library assets and statuses, zero active jobs, unchanged visual/shape/composition cache counts and revisions, and configured-key presence. No test assets were registered into the user's original library. Credentials and native diagnostic captures were excluded from Git and public packages.
+
+All workflows passed at `d355f09`: [application checks](https://github.com/ijduncan/video-analyzer/actions/runs/38076147028), [Windows preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019), and [Apple Silicon preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014). Windows passed 319 Python tests and 75 subtests; Mac passed 294 and 75 subtests with 25 platform skips. Both passed five packaging guards, 83 Resolve and 57 Premiere checks, frontend lint/build, and isolated frozen-engine checks. Windows verified HTTP and both editor APIs; Mac verified HTTPS, arm64, signatures, and public resources.
+
+The [final Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019/artifacts/11678780721) and [final Apple Silicon artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014/artifacts/11678469463) were downloaded after success. All five Windows and four Mac file checksums matched. The installer had a valid PE header; the Mac executable header confirmed arm64. Both public Resolve ZIPs contained the fifteen expected entries, executable Mac helpers, and all ten resources matching current source after line-ending normalization. The Mac app's embedded Resolve resources also matched source. Neither public package included the vendor bridge. These builds supersede the earlier `b2be764` downloads above.
+
+Native testing establishes this limited Windows 24 fps workflow. It does not establish fractional rates, nonzero embedded timecode, native failure-injection rollback, recognition accuracy, or Mac SDK compatibility. Exact source-viewer seeking remains unavailable. Earlier isolated installer and mocked-browser checks above predate this actual installation and execution.
+
 ## Remaining validation
 
 - Recognition/retrieval quality on representative agency and filmmaking footage, including difficult audio, fast montage and multilingual material.
 - True word-aligned transcription and exact cut/frame verification.
 - Drop-frame and variable-frame-rate NLE adapters; broader fractional-rate editor compatibility.
-- Round-trip imports in installed Premiere, Resolve and Final Cut Pro.
+- Round-trip imports in installed Premiere and Final Cut Pro, plus broader Resolve footage/timebase coverage and Mac native acceptance.
 - Shared-workspace authentication/authorization, distributed queue recovery and archive-scale load testing.
 - Hosted deployment validation; repository CI runs application checks plus Windows x64 and Apple Silicon preview builds.
