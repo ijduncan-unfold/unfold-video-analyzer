@@ -6,6 +6,7 @@ configured before Settings is initialized. No developer database or key is used.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -14,12 +15,14 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import threading
 import time
 import urllib.request
 import webbrowser
+from app.desktop_tls import TLSSetupRequired, configured_tls, smoke_tls
 
 
 def default_data_dir() -> Path:
@@ -31,7 +34,7 @@ def default_data_dir() -> Path:
 
 
 def configure_environment(data_dir: Path) -> None:
-    data_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.environ["VIDEO_ANALYZER_DESKTOP"] = "1"
     os.environ["DATABASE_PATH"] = str(data_dir / "library.sqlite3")
     os.environ["UPLOAD_DIR"] = str(data_dir / "media")
@@ -76,8 +79,8 @@ def show_pairing_token() -> None:
         webbrowser.open(token_path.as_uri())
 
 
-def _get_json(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=1) as response:
+def _get_json(url: str, context: ssl.SSLContext | None = None) -> dict:
+    with urllib.request.urlopen(url, timeout=5, context=context) as response:
         return json.load(response)
 
 
@@ -97,6 +100,49 @@ def _open_data_folder(data_dir: Path) -> None:
         subprocess.Popen(["xdg-open", str(data_dir)])
 
 
+def _resource_path(relative: str) -> Path:
+    root = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]
+    return root / relative
+
+
+def _setup_premiere_mac(data_dir: Path) -> None:
+    if sys.platform != 'darwin':
+        raise ValueError('This setup action is available on macOS.')
+    helper = _resource_path('desktop-docs/setup-premiere-macos.command') if getattr(sys, 'frozen', False) else _resource_path('packaging/macos/setup-premiere.command')
+    if not helper.is_file():
+        raise ValueError('The Mac setup helper is missing. Run scripts/setup-desktop-macos.command from a checkout.')
+    # The helper needs a visible Terminal for Homebrew and macOS trust prompts.
+    script = '''on run argv
+tell application "Terminal"
+activate
+do script "/bin/bash " & quoted form of (item 1 of argv) & " " & quoted form of (item 2 of argv)
+end tell
+end run'''
+    subprocess.Popen(['/usr/bin/osascript', '-e', script, str(helper), str(data_dir)])
+
+
+def _offer_mac_setup(message: str, data_dir: Path) -> None:
+    script = '''on run argv
+display dialog (item 1 of argv) with title "Video Analyzer" buttons {"Quit", "Set up Premiere"} default button "Set up Premiere"
+return button returned of result
+end run'''
+    reply = subprocess.run(['/usr/bin/osascript', '-e', script, message], capture_output=True, text=True, check=False)
+    if reply.returncode == 0 and reply.stdout.strip() == 'Set up Premiere':
+        _setup_premiere_mac(data_dir)
+
+
+def _install_premiere_panel() -> None:
+    package = _resource_path('plugins/VideoAnalyzer-Premiere-0.1.0.ccx') if getattr(sys, 'frozen', False) else _resource_path('dist/installers/VideoAnalyzer-Premiere-0.1.0.ccx')
+    if not package.is_file() and getattr(sys, 'frozen', False) and sys.platform == 'win32':
+        package = Path(sys.executable).parent / 'plugins' / 'VideoAnalyzer-Premiere-0.1.0.ccx'
+    if not package.is_file():
+        raise ValueError('The Premiere package is missing. Build the plugin package first.')
+    if sys.platform == 'darwin':
+        subprocess.Popen(['/usr/bin/open', str(package)])
+    elif sys.platform == 'win32':
+        os.startfile(str(package))
+
+
 def _tray_image():
     from PIL import Image, ImageDraw
     image = Image.new("RGBA", (64, 64), (15, 23, 42, 255))
@@ -109,12 +155,23 @@ def _tray_image():
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Video Analyzer desktop companion")
     parser.add_argument("--data-dir", type=Path, default=default_data_dir())
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=None)
+    parser.add_argument("--https", action="store_true", help="Use verified local HTTPS")
+    parser.add_argument("--http", action="store_true", help="Use HTTP for standalone/development (Mac Premiere requires HTTPS)")
+    parser.add_argument("--tls-cert", type=Path)
+    parser.add_argument("--tls-key", type=Path)
+    parser.add_argument("--tls-ca", type=Path)
     parser.add_argument("--pair-premiere", action="store_true", help="Open your local Premiere pairing token")
+    parser.add_argument("--setup-premiere", action="store_true", help="Open explicit Mac HTTPS setup in Terminal")
+    parser.add_argument("--install-premiere-panel", action="store_true", help="Open the bundled panel in Creative Cloud")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--no-tray", action="store_true", help="Run until interrupted, without a tray icon")
     parser.add_argument("--smoke-test", action="store_true", help="Start, check health and frontend, then stop")
     args = parser.parse_args(argv)
+    if args.http and (args.https or args.tls_cert or args.tls_key or args.tls_ca):
+        parser.error('--http cannot be combined with HTTPS certificate options')
+    use_https = not args.http and (sys.platform == 'darwin' or args.https or any((args.tls_cert, args.tls_key, args.tls_ca)))
+    args.port = args.port if args.port is not None else (8443 if use_https else 8000)
     if not 1024 <= args.port <= 65535:
         parser.error("Port must be between 1024 and 65535")
     data_dir = args.data_dir.expanduser().resolve()
@@ -128,7 +185,36 @@ def main(argv: list[str] | None = None) -> int:
     log = logging.getLogger("desktop")
     if args.pair_premiere:
         show_pairing_token()
+        handler.close()
         return 0
+    if args.setup_premiere:
+        _setup_premiere_mac(data_dir)
+        handler.close()
+        return 0
+    if args.install_premiere_panel:
+        _install_premiere_panel()
+        handler.close()
+        return 0
+
+    resources = ExitStack()
+    tls = None
+    try:
+        if use_https:
+            tls = smoke_tls(resources) if args.smoke_test and not any((args.tls_cert, args.tls_key, args.tls_ca)) else configured_tls(data_dir, args.tls_cert, args.tls_key, args.tls_ca)
+        tls_options = tls.server_options() if tls else {}
+        client_context = tls.client_context() if tls else None
+    except TLSSetupRequired as exc:
+        resources.close()
+        log.error('Local HTTPS setup is required')
+        if sys.platform == 'darwin' and not args.smoke_test:
+            _offer_mac_setup(str(exc), data_dir)
+        elif not args.smoke_test:
+            show_message(str(exc), error=True)
+        handler.close()
+        return 1
+    except Exception:
+        resources.close()
+        raise
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -139,13 +225,16 @@ def main(argv: list[str] | None = None) -> int:
         listener.listen(128)
     except OSError:
         listener.close()
+        resources.close()
         message = (f"Port {args.port} is already in use. If Video Analyzer is already running, "
                    "open it from the system tray. Otherwise close the development server or "
                    "other app using this port, then open Video Analyzer again.")
         if args.smoke_test:
             log.error(message)
+            handler.close()
             return 1
         show_message(message, error=True)
+        handler.close()
         return 1
 
     import uvicorn
@@ -155,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     from app.services.editor_bridge import get_pairing_token
     get_pairing_token()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port,
-                                         log_config=None, access_log=False, timeout_graceful_shutdown=15))
+                                         log_config=None, access_log=False, timeout_graceful_shutdown=15, **tls_options))
     failures: list[BaseException] = []
 
     def serve():
@@ -167,28 +256,31 @@ def main(argv: list[str] | None = None) -> int:
 
     worker = threading.Thread(target=serve, name="video-analyzer-engine", daemon=True)
     worker.start()
-    base_url = f"http://127.0.0.1:{args.port}"
+    base_url = f"{'https://localhost' if tls else 'http://127.0.0.1'}:{args.port}"
     try:
         deadline = time.monotonic() + 30
         while not server.started and not failures and worker.is_alive() and time.monotonic() < deadline:
             time.sleep(0.1)
         if not server.started or failures:
             raise RuntimeError("The local engine could not start. See desktop.log in your Video Analyzer data folder.")
+        if tls:
+            _get_json(base_url + '/api/health', client_context)
         if args.smoke_test:
-            health = _get_json(base_url + "/api/health")
-            capabilities = _get_json(base_url + "/api/capabilities")
-            with urllib.request.urlopen(base_url + "/", timeout=5) as response:
+            health = _get_json(base_url + "/api/health", client_context)
+            capabilities = _get_json(base_url + "/api/capabilities", client_context)
+            with urllib.request.urlopen(base_url + "/", timeout=5, context=client_context) as response:
                 html = response.read()
                 if b'<div id="root">' not in html:
                     raise RuntimeError("Bundled frontend was not served")
             for asset_path in re.findall(rb'(?:src|href)="(/assets/[^\"]+)"', html):
-                with urllib.request.urlopen(base_url + asset_path.decode("utf-8"), timeout=5) as response:
+                with urllib.request.urlopen(base_url + asset_path.decode("utf-8"), timeout=5, context=client_context) as response:
                     if not response.read() or response.headers.get_content_type() == "text/html":
                         raise RuntimeError("A bundled frontend asset is missing")
             if health.get("status") != "ok":
                 raise RuntimeError("Health check failed")
             report = {"status": "ok", "frontend": "ok", "local_media": capabilities.get("local_media"),
-                      "google_configured": capabilities.get("google_configured")}
+                      "google_configured": capabilities.get("google_configured"),
+                      "transport": 'https' if tls else 'http', 'certificate_verified': bool(tls)}
             (data_dir / "smoke-test.json").write_text(json.dumps(report), encoding="utf-8")
             if sys.stdout:
                 print(json.dumps(report))
@@ -218,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
             icon = pystray.Icon("video-analyzer", _tray_image(), "Video Analyzer", menu=pystray.Menu(
                 pystray.MenuItem("Open Video Analyzer", lambda icon, item: _open_ui(base_url), default=True),
                 pystray.MenuItem("Pair with Premiere", pair),
+                pystray.MenuItem("Install Premiere panel", lambda icon, item: _install_premiere_panel(), visible=sys.platform == 'darwin'),
+                pystray.MenuItem("Set up Premiere HTTPS", lambda icon, item: _setup_premiere_mac(data_dir), visible=sys.platform == 'darwin'),
                 pystray.MenuItem("Open data folder", lambda icon, item: _open_data_folder(data_dir)),
                 pystray.MenuItem("Quit", quit_app),
             ))
@@ -234,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         server.should_exit = True
         worker.join(timeout=20)
         listener.close()
+        resources.close()
         handler.close()
     return 0
 

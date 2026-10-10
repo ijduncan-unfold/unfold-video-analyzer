@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { createPanel } = require("../panel.js");
+const { createPanel, normalizeServer } = require("../panel.js");
 
 const TOKEN = "test-local-panel-token-1234567890";
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -176,7 +176,7 @@ function harness(options = {}) {
     if (match[2] === "/subtitles") return { ok: true, status: 200, async text() { return "1\n00:00:02,000 --> 00:00:04,000\nLook at that circle.\n\n2\n00:00:10,250 --> 00:00:12,500\nMeet me in the center.\n\n3\n00:00:18,000 --> 00:00:20,000\nKeep moving.\n"; } };
     throw new Error("Unmocked request " + url);
   }
-  const panel = createPanel({ document, host, fetch,
+  const panel = createPanel({ document, host, fetch, platform: options.platform,
     uxp: { storage: stored.storage, shell: { async openExternal(url) { browser.push(url); return ""; } } },
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -493,4 +493,76 @@ test("disconnect or query change while native preflight is pending prevents host
     await rejection;
     assert.equal(h.markers.length, 0);
   }
+});
+
+test("new Mac profiles use authenticated local HTTPS and open the secure analyzer", async t => {
+  const h = harness({ platform: "darwin" });
+  t.after(() => h.panel.destroy());
+  await h.start();
+  assert.equal(h.el("server").value, "https://localhost:8443");
+  assert.match(h.el("connection-hint").textContent, /certificate setup/);
+  for (const request of h.requests) {
+    assert.equal(new URL(request.url).origin, "https://localhost:8443");
+    assert.equal(request.init.headers.Authorization, "Bearer " + TOKEN);
+  }
+  await h.el("open-library").fire("click");
+  assert.deepEqual(h.browser, ["https://localhost:8443/"]);
+});
+
+test("explicit secure endpoint preferences survive reopening on Mac", async t => {
+  const stored = persistentStorage();
+  const first = harness({ platform: "darwin", stored });
+  t.after(() => first.panel.destroy());
+  await first.panel.init();
+  first.el("server").value = "https://127.0.0.1:8443";
+  first.el("token").value = TOKEN;
+  await first.panel.connect();
+  first.panel.destroy();
+  const second = harness({ platform: "darwin", stored });
+  t.after(() => second.panel.destroy());
+  await second.panel.init();
+  assert.equal(second.el("server").value, "https://127.0.0.1:8443");
+  assert.equal(second.panel.getState().connected, true);
+  assert.ok(second.requests.every(request => new URL(request.url).origin === "https://127.0.0.1:8443"));
+});
+
+test("saved HTTP endpoint stays visible on Mac but cannot send a token before HTTPS setup", async t => {
+  const stored = persistentStorage();
+  stored.files.set("premiere-panel.json", JSON.stringify({ server: "http://localhost:8000", mode: "flash_only", projects: {} }));
+  const h = harness({ platform: "darwin", stored });
+  t.after(() => h.panel.destroy());
+  await h.panel.init();
+  assert.equal(h.el("server").value, "http://localhost:8000");
+  h.el("token").value = TOKEN;
+  await h.el("connect").fire("click");
+  assert.equal(h.requests.length, 0);
+  assert.match(h.el("message").textContent, /Mac requires HTTPS/);
+  assert.match(h.el("message").textContent, /localhost:8443/);
+});
+
+test("TLS failures give certificate guidance without disabling verification or falling back to HTTP", async t => {
+  const h = harness({ platform: "darwin" });
+  t.after(() => h.panel.destroy());
+  await h.panel.init();
+  h.el("token").value = TOKEN;
+  h.intercept(() => { throw new TypeError("Certificate trust failure"); });
+  await h.el("connect").fire("click");
+  assert.equal(h.panel.getState().connected, false);
+  assert.match(h.el("message").textContent, /certificate setup/);
+  assert.equal(h.requests.length, 1);
+  assert.equal(new URL(h.requests[0].url).origin, "https://localhost:8443");
+  assert.equal(h.requests[0].init.rejectUnauthorized, undefined);
+});
+
+test("endpoint validation and manifest allow exactly the local HTTP and HTTPS transport pairs", () => {
+  const endpoints = ["http://127.0.0.1:8000", "http://localhost:8000", "https://localhost:8443", "https://127.0.0.1:8443"];
+  for (const endpoint of endpoints) assert.equal(normalizeServer(endpoint + "/"), endpoint);
+  for (const endpoint of ["https://localhost:8000", "http://localhost:8443", "https://localhost:8444",
+    "https://localhost.evil.test:8443", "https://localhost@evil.test:8443", "https://127.0.0.1:8443/redirect",
+    "https://127.0.0.1:8443?token=leak", "https://[::1]:8443", "http://0.0.0.0:8000"]) {
+    assert.throws(() => normalizeServer(endpoint), /only to the local analyzer/);
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../manifest.json"), "utf8"));
+  assert.deepEqual(manifest.requiredPermissions.network.domains.sort(), endpoints.sort());
+  assert.deepEqual(manifest.requiredPermissions.launchProcess.schemes.sort(), ["http", "https"]);
 });

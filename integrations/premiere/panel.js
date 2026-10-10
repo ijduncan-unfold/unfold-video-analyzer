@@ -1,5 +1,6 @@
 /* UXP uses CommonJS. This panel deliberately has no build step or webview. */
 const DEFAULT_SERVER = "http://127.0.0.1:8000";
+const MAC_SERVER = "https://localhost:8443";
 const TOKEN_KEY = "video-analyzer-premiere-token";
 const PREFS_FILE = "premiere-panel.json";
 const MAX_RESULTS = 500;
@@ -7,9 +8,11 @@ const PAGE_SIZE = 100;
 const ACTIVE_STATUSES = ["pending", "queued", "uploading", "processing", "analyzing", "running"];
 
 function normalizeServer(value) {
-  const match = /^http:\/\/(127\.0\.0\.1|localhost):8000\/?$/i.exec(String(value || "").trim());
-  if (!match) throw new Error("Use http://127.0.0.1:8000 or http://localhost:8000. This panel connects only to the local analyzer.");
-  return "http://" + match[1].toLowerCase() + ":8000";
+  const match = /^(http|https):\/\/(127\.0\.0\.1|localhost):(8000|8443)\/?$/i.exec(String(value || "").trim());
+  if (!match || match[1].toLowerCase() === "http" && match[3] !== "8000" || match[1].toLowerCase() === "https" && match[3] !== "8443") {
+    throw new Error("Use HTTP port 8000 on Windows or HTTPS port 8443 on Mac, with localhost or 127.0.0.1. This panel connects only to the local analyzer.");
+  }
+  return match[1].toLowerCase() + "://" + match[2].toLowerCase() + ":" + match[3];
 }
 
 function parseSeconds(value) {
@@ -125,12 +128,13 @@ function createPanel(dependencies) {
   const fetch = dependencies.fetch;
   const schedule = dependencies.setTimeout || setTimeout;
   const unschedule = dependencies.clearTimeout || clearTimeout;
+  const defaultServer = dependencies.platform === "darwin" ? MAC_SERVER : DEFAULT_SERVER;
   const el = id => document.getElementById(id);
   const state = {
-    connected: false, token: "", server: DEFAULT_SERVER, project: null, assets: [], asset: null,
+    connected: false, token: "", server: defaultServer, project: null, assets: [], asset: null,
     tab: "shots", queries: { shots: "", transcript: "" }, shots: [], shotTotal: 0, shown: PAGE_SIZE,
     scope: 0, resultRevision: 0, resultsPending: false, nativeBlocked: true, polling: false, timer: null, searchTimer: null, initialized: false,
-    busy: {}, preferences: { projects: {}, mode: "flash_only", server: DEFAULT_SERVER },
+    busy: {}, preferences: { projects: {}, mode: "flash_only", server: defaultServer },
   };
   let initialization;
   let preferenceWrites = Promise.resolve();
@@ -198,7 +202,12 @@ function createPanel(dependencies) {
           reject(new Error("The local service did not respond. Check that it is running, then reconnect."));
         }, 30000);
       }),
-    ]).finally(() => { if (timer) unschedule(timer); });
+    ]).catch(error => {
+      if (endpoint.indexOf("https://") === 0 && error && error.name === "TypeError") {
+        throw new Error("Could not reach the local HTTPS service. Complete the Mac certificate setup, trust its local certificate, and start the companion app on port 8443.");
+      }
+      throw error;
+    }).finally(() => { if (timer) unschedule(timer); });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       const reason = body && typeof body.detail === "string" ? body.detail : "Local service request failed (" + response.status + ").";
@@ -490,6 +499,9 @@ function createPanel(dependencies) {
   async function connect() {
     if (state.busy.connect) return;
     const server = normalizeServer(el("server").value);
+    if (dependencies.platform === "darwin" && server.indexOf("http://") === 0) {
+      throw new Error("Premiere on Mac requires HTTPS. Use https://localhost:8443 after completing the local certificate setup.");
+    }
     const token = String(el("token").value || state.token).trim();
     if (!token || !/^[\x21-\x7e]{16,512}$/.test(token)) throw new Error("Paste a valid panel token from the Premiere setup command.");
     state.busy.connect = true;
@@ -713,12 +725,16 @@ function createPanel(dependencies) {
         });
       }
       for (const id of ["server", "token"]) el(id).addEventListener("keydown", event => { if (event.key === "Enter") run(connect); });
+      el("server").value = state.server;
+      if (dependencies.platform === "darwin") {
+        el("connection-hint").textContent = "Mac uses local HTTPS on port 8443. Complete certificate setup, open the companion app, then copy the Premiere pairing code from Settings.";
+      }
       try {
         const folder = await uxp.storage.localFileSystem.getDataFolder();
         const file = await folder.getEntry(PREFS_FILE);
         const preferences = JSON.parse(await file.read());
         if (preferences && typeof preferences === "object") {
-          state.preferences = { server: normalizeServer(preferences.server || DEFAULT_SERVER), mode: preferences.mode === "flash_pro" ? "flash_pro" : "flash_only", projects: preferences.projects && typeof preferences.projects === "object" ? preferences.projects : {} };
+          state.preferences = { server: normalizeServer(preferences.server || defaultServer), mode: preferences.mode === "flash_pro" ? "flash_pro" : "flash_only", projects: preferences.projects && typeof preferences.projects === "object" ? preferences.projects : {} };
           state.server = state.preferences.server;
           el("server").value = state.server;
           el("mode").value = state.preferences.mode;
@@ -754,7 +770,10 @@ module.exports = { createPanel, normalizeServer, parseSeconds, validRange, trans
 if (typeof document !== "undefined") {
   const uxp = require("uxp");
   const host = require("./host");
-  const panel = createPanel({ document, uxp, host, fetch });
+  let platform;
+  try { platform = require("os").platform(); }
+  catch (error) { /* The editable endpoint remains available if host OS detection fails. */ }
+  const panel = createPanel({ document, uxp, host, fetch, platform });
   uxp.entrypoints.setup({
     plugin: { destroy() { panel.destroy(); } },
     panels: {

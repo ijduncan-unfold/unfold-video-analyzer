@@ -29,10 +29,12 @@ function guidString(value) {
   if (!result || result === "[object Object]") fail("INVALID_PROJECT", "Premiere did not return a stable project identifier.");
   return result;
 }
-function normalizedPath(path) {
+function isWindowsPath(path) { return /^[a-z]:[\\/]/i.test(path) || path.startsWith("\\\\"); }
+function normalizedPath(path, windowsSource = false) {
   if (typeof path !== "string" || !path.trim()) return "";
-  const result = path.replace(/\\/g, "/");
-  return /^[a-z]:\//i.test(result) || result.startsWith("//") ? result.toLowerCase() : result;
+  // POSIX paths are case-sensitive and may contain literal backslashes. Only
+  // Windows drive/UNC paths use interchangeable separators and case folding.
+  return windowsSource || isWindowsPath(path) ? path.replace(/\\/g, "/").toLowerCase() : path;
 }
 function finiteSeconds(value, label) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 864000) {
@@ -195,7 +197,8 @@ function createHost(injectedApi) {
       return true;
     });
     if (!found || !found.descriptor) fail("SOURCE_UNAVAILABLE", found && found.warning || "This source clip is no longer available in the Premiere project. Refresh the selection.");
-    if (normalizedPath(found.descriptor.media_path) !== normalizedPath(binding.media_path)) {
+    const windowsSource = isWindowsPath(found.descriptor.media_path);
+    if (normalizedPath(found.descriptor.media_path, windowsSource) !== normalizedPath(binding.media_path, windowsSource)) {
       fail("MEDIA_CHANGED", "This clip now points to different media. Refresh and analyze the new source before opening results or adding markers.");
     }
     if (binding.source_fps != null) {

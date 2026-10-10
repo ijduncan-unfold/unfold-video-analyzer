@@ -2,7 +2,7 @@
 
 An installable UXP panel for **Premiere Pro 26.3 or newer**. It connects to the local Video Analyzer companion, loads selected original clips or bins from the Project panel, analyzes on explicit request, searches saved shots and dialogue, opens source moments, adds source markers, and exports SRT.
 
-The panel and Windows companion are a development preview. Native API behavior is covered by injected host tests; installation, Source Monitor timing, and marker round trips have not yet been tested inside Premiere on this workstation. The Premiere application is not installed here. Do that acceptance pass before distributing to other editors.
+The panel and desktop companions are a development preview. Native API behavior is covered by injected host tests; installation, Source Monitor timing, and marker round trips still require acceptance inside Premiere. The Premiere application is not installed on this Windows workstation.
 
 ## Install and pair on Windows
 
@@ -15,6 +15,14 @@ The panel and Windows companion are a development preview. Native API behavior i
 7. Search, click a result to open it in the **Source Monitor**, or click **Add markers** to write markers for the currently displayed results. Markers are one undoable operation; repeated identical exports skip existing Video Analyzer markers. **Export SRT** includes all available dialogue, regardless of search.
 
 Imported sources are referenced by their original local paths. They are never copied, renamed, or deleted by this integration. Removing a project removes its library record and app-owned derived files. Project/item IDs and source paths are checked before native actions. Changed/offline media must be loaded again.
+
+## Install and pair on Apple Silicon Mac
+
+Use the Apple Silicon ZIP/DMG from the [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml). The companion defaults to **https://localhost:8443** and the panel automatically selects that endpoint on Mac. Run the supplied FFmpeg setup and **Prepare Premiere on Mac** commands, which create a locally trusted certificate on your computer, then open the companion, configure Gemini, install the CCX, and copy the pairing code into Premiere.
+
+If first launch finds missing certificates, the app offers to open the explicit setup helper in Terminal. macOS controls the trust prompt. The app never disables certificate verification, falls back to insecure HTTP for Premiere, or ships another computer's certificates. Intel builds are outside this preview.
+
+The complete install, source-build, and native acceptance steps are in [the Mac handoff](../../docs/MAC_HANDOFF.md).
 
 ## Run from a checkout
 
@@ -36,8 +44,8 @@ The package contains only five allowlisted public panel resources. It contains n
 
 ## Scope and limits
 
-- This preview supports Windows localhost on port 8000. The companion must run separately; the UXP panel does not bundle Python or run the engine inside Premiere. A hosted browser service would require a separate deployment and access model.
-- macOS companion build scripts exist, but macOS panel networking and installation need validation. Adobe documents restrictions on plain HTTP there; a trusted local HTTPS setup is still needed before claiming Mac plugin support.
+- Windows uses HTTP loopback port 8000; Apple Silicon Mac uses trusted HTTPS loopback port 8443. The companion must run separately; the UXP panel does not bundle Python or run the engine inside Premiere. A hosted browser service would require a separate deployment and access model.
+- Mac HTTPS setup is included using mkcert and an explicit local trust action. Mac panel networking, Creative Cloud installation, and native editing behavior still require acceptance on the user's Mac. Developer ID signing and notarization remain release work.
 - Premiere 26.3 is required because Source Monitor seeking was added in that release. The adapter feature-detects required APIs and reports failures instead of claiming a successful edit.
 - Original Project media only: timeline clips, nested sequences, merged clips, multicam items, and changed frame-rate interpretation are not supported in this first pass. Source-media seconds are used, not timeline offsets. Proxy/original alignment and nonzero source timecode must be checked in Premiere acceptance testing.
 - Shot boundaries and Gemini dialogue timing remain approximate. Native navigation does not make the analysis frame accurate. Review source markers/subtitles before delivery.

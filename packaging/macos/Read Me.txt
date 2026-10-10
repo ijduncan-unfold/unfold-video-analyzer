@@ -1,0 +1,17 @@
+Video Analyzer - Apple Silicon preview
+
+Requires macOS 15 or newer on Apple Silicon. The Premiere panel requires Premiere Pro 26.3 or newer and Creative Cloud.
+
+1. Drag Video Analyzer.app to Applications.
+2. Install native Homebrew from https://brew.sh if it is not installed. Open Install FFmpeg.command to install FFmpeg and ffprobe. These tools are not bundled in this preview. Their license and source information is at https://formulae.brew.sh/formula/ffmpeg and https://ffmpeg.org/legal.html.
+3. Open Prepare Premiere on Mac.command. It uses mkcert to prepare trusted HTTPS for localhost. macOS may request an administrator password. The app also offers this command through its menu bar. Only the public CA certificate is copied into the app's data folder; the private CA key stays in mkcert storage.
+4. Open Video Analyzer.app. It stays in the menu bar and opens the analyzer in your browser at https://localhost:8443. Quit from its menu bar menu when finished.
+5. Double-click VideoAnalyzer-Premiere-0.1.0.ccx to install the panel through Creative Cloud. Open it from Premiere's Plugins menu. Save your own Gemini key in analyzer Settings, then copy the pairing token into the panel. Use https://localhost:8443 as its server address.
+
+This preview is ad hoc signed, not Developer ID signed or notarized. macOS may require normal approval in System Settings > Privacy & Security before opening it. Do not disable Gatekeeper. A signed and notarized public release is still pending.
+
+Your database, thumbnails, imported uploads, settings and certificates are in ~/Library/Application Support/VideoAnalyzer. Removing the application does not remove that folder or your original media. The Premiere integration references original source media rather than copying it into the app.
+
+Automated build smoke tests use a temporary HTTPS certificate and isolated empty data. They do not install a CA or modify Keychain. Real Premiere import, seek, sequence edits, marker actions and the install/setup interface still need testing on your Mac.
+
+Source and handoff instructions: https://github.com/ijduncan/video-analyzer

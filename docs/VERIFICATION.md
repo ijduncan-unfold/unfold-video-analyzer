@@ -115,7 +115,9 @@ The frontend production build and lint passed. Browser checks with mocked UXP/na
 
 The Windows frozen executable passed an isolated startup/shutdown smoke check with an empty temporary database. It served the frontend and each referenced JS/CSS asset, detected FFmpeg, and did not inherit a configured developer key. The installer includes the allowlisted CCX package. Development data, environment files, API keys, tokens, and source media are excluded from the package resources.
 
-Premiere is not installed on this workstation: CCX installation, native Source Monitor timing, and actual marker round trips still require acceptance in Premiere 26.3+. The Windows installer is an unsigned preview. macOS build scripts are provided; Mac builds, signing/notarization, and trusted local HTTPS for the panel remain unverified. Build and install guidance is in `integrations/premiere/README.md` and `packaging/README.md`.
+Premiere is not installed on this workstation: CCX installation, native Source Monitor timing, and actual marker round trips still require acceptance in Premiere 26.3+. The Windows installer is an unsigned preview. Build and install guidance is in `integrations/premiere/README.md` and `packaging/README.md`.
+
+The Apple Silicon Mac preparation adds verified HTTPS on loopback port 8443, an explicit machine-local mkcert setup action, first-start setup guidance, and Mac panel endpoint selection. Portable desktop tests include real TLS handshakes: valid localhost/127.0.0.1 connections succeed; an untrusted CA and wrong hostname are rejected. Tests also cover TLS validation before binding, missing/partial/invalid configuration, temporary certificate cleanup without modifying user certificates, and per-test environment restoration. POSIX path regressions preserve case, Unicode, and literal backslashes in Mac filenames while retaining Windows path normalization. These tests ran on Windows; Mac execution is separately reported by the native build workflow. GUI trust/setup behavior and actual Premiere round trips remain for the user on Mac. See `docs/MAC_HANDOFF.md`.
 
 ## Remaining validation
 

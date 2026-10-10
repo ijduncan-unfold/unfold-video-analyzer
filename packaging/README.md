@@ -43,27 +43,43 @@ Premiere 26.3+ and Creative Cloud must already be installed. Plugin installation
 is a separate user action. **Pair Video Analyzer with Premiere** opens the local
 token for the panel's connection settings.
 
-## macOS build path
+## Apple Silicon Mac preview
 
-Build separately on an Apple Silicon or Intel Mac for that architecture:
+The Mac preview targets native **arm64** on macOS 15 or newer. Intel and Rosetta builds are excluded.
+The [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml)
+produces a ZIP and DMG containing `Video Analyzer.app`, the Premiere CCX, and explicit
+FFmpeg/HTTPS setup commands. Downloads require signing into GitHub. See the
+[Mac handoff](../docs/MAC_HANDOFF.md) for installation and native acceptance.
+
+From a checkout on an Apple Silicon Mac, use a native Terminal:
 
 ```sh
-python3 -m venv .venv
-npm --prefix frontend ci
-brew install ffmpeg
-bash scripts/build-desktop-macos.sh
+bash scripts/setup-desktop-macos.command
 ```
 
-The script produces a development `Video Analyzer.app` and zip, with the same
-engine and tray/menu-bar lifecycle. Install the app by copying it into Applications.
-User data goes into `~/Library/Application Support/VideoAnalyzer`. The companion
-also searches `/opt/homebrew/bin` and `/usr/local/bin` for FFmpeg because a Finder
-launch does not inherit the terminal's PATH.
+This installs native build dependencies, runs the checks, and produces the preview.
+For subsequent builds, run `bash scripts/build-desktop-macos.sh`; its default Python
+environment is `build/desktop/venv-arm64`.
 
-**macOS packaging has not been tested on this Windows workstation.** A Mac build
-runner, Developer ID signing, notarization, and an installer dependency flow are
-required for a public Mac release. The Windows preview is unsigned as well;
-public distribution should wait for signing and a full dependency notice audit.
+The companion runs in the menu bar and uses **https://localhost:8443**. Its first
+launch offers explicit HTTPS setup if certificates are missing. **Prepare Premiere
+on Mac** uses mkcert to trust a local development CA and create this computer's
+localhost certificate. This may require a macOS administrator password. The build
+and CI never install a CA, change the Keychain, or package certificates/private keys.
+The app retains certificate chain and hostname verification. FFmpeg is a separate
+Homebrew prerequisite, with its own supplied setup helper.
+
+User data is in `~/Library/Application Support/VideoAnalyzer`; resources are inside
+the app. Finder launches search Homebrew's tool locations. Removing the app retains
+user data and original footage. The package includes the public setup helpers and
+CCX before signing, so post-build copying cannot invalidate the app signature.
+
+Automated Mac builds perform a frozen HTTPS smoke test with an ephemeral certificate
+and empty temporary database, check arm64/signature/resource structure, and produce
+checksums. GUI/menu-bar behavior, Keychain trust, and native Premiere operations still
+need acceptance on the user's Mac. These development builds use ad hoc signing;
+Developer ID signing and notarization remain required for public release. Local
+signing configuration is supported without storing signing credentials in the repo.
 
 ## Development and diagnostics
 

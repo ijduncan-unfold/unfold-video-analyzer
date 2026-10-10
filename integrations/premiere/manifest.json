@@ -16,8 +16,8 @@
     }
   ],
   "requiredPermissions": {
-    "network": { "domains": ["http://127.0.0.1:8000", "http://localhost:8000"] },
+    "network": { "domains": ["http://127.0.0.1:8000", "http://localhost:8000", "https://localhost:8443", "https://127.0.0.1:8443"] },
     "localFileSystem": "request",
-    "launchProcess": { "schemes": ["http"], "extensions": [] }
+    "launchProcess": { "schemes": ["http", "https"], "extensions": [] }
   }
 }

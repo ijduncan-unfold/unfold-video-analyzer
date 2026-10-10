@@ -73,7 +73,9 @@ A Windows companion installer packages the local engine and browser interface, w
 
 The **Premiere Pro 26.3+ UXP panel** loads selected original Project clips without copying them, lets you choose Shots and tags or Full analysis, searches progressive shot/dialogue results, opens source moments, adds undoable source markers, and exports SRT. Saved analysis stays in the companion; panel searches and clip choice persist per Premiere project. Original source files are never deleted by the integration.
 
-See [installation, pairing, and integration scope](integrations/premiere/README.md) and [desktop build instructions](packaging/README.md). This is a development preview: native Premiere installation and playback still need an acceptance pass in Premiere. macOS build scripts are provided; a tested, signed Mac package and local HTTPS networking remain to be completed on a Mac.
+The **Apple Silicon Mac preview** includes an app/DMG build, menu bar lifecycle, the Premiere panel, and explicit FFmpeg/local HTTPS setup. Mac uses `https://localhost:8443` with certificate verification; Windows uses HTTP loopback port 8000. Native Mac builds and downloadable artifacts are provided through [GitHub Actions](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml).
+
+See [installation, pairing, and integration scope](integrations/premiere/README.md), [desktop build instructions](packaging/README.md), and [the Apple Silicon Mac handoff](docs/MAC_HANDOFF.md). This is a development preview: GUI/menu-bar behavior, local certificate trust, and native Premiere operations still need acceptance on the user's Mac. Developer ID signing and notarization remain release work.
 
 ### From source
 

@@ -159,6 +159,52 @@ test("Windows paths match case and slash variations", async () => {
   assert.equal((await f.host.openSource({ ...f.binding, media_path: "c:/footage/CAMERA-A.MP4" }, 1)).opened, true);
 });
 
+test("Windows UNC identity accepts slash and case variations", async () => {
+  const f = fixture();
+  f.clip.getMediaFilePath = async () => "\\\\MediaServer\\Film\\Camera A.mov";
+  assert.equal((await f.host.openSource({ ...f.binding, media_path: "//mediaserver/film/camera a.mov" }, 1)).opened, true);
+});
+
+test("Mac volume paths preserve spaces, Unicode and native UUID identities", async () => {
+  const f = fixture();
+  const projectId = "d9f9c8b6-5f1c-4b4b-b3bb-17833e94d7d9";
+  const itemId = "c6b15b87-b6d4-44d0-a0ca-9cda4f3d5b32";
+  const mediaPath = "/Volumes/Footage/Cámara A/Take #1.mov";
+  f.project.guid = { toString: () => projectId };
+  f.project.path = "/Users/editor/Documents/Film edit.prproj";
+  f.clip.getId = () => itemId;
+  f.clip.getMediaFilePath = async () => mediaPath;
+  const selection = await f.host.getSelection();
+  assert.equal(selection.project_id, projectId);
+  assert.equal(selection.clips[0].media_path, mediaPath);
+  const binding = { project_id: projectId, item_id: itemId, media_path: mediaPath, source_fps: 24 };
+  assert.equal((await f.host.openSource(binding, 12.75)).opened, true);
+  assert.deepEqual(await f.host.addMarkers(binding, [{ start: 12.75, end: 13.5, name: "Cámara A" }]), { added: 1, skipped: 0 });
+  assert.equal(f.markers[0].getStart().seconds, 12.75);
+});
+
+test("Mac path identity rejects case changes before native seeks or markers", async () => {
+  const f = fixture();
+  f.clip.getMediaFilePath = async () => "/Volumes/Footage/Camera A.mov";
+  const binding = { ...f.binding, media_path: "/Volumes/footage/Camera A.mov" };
+  await assert.rejects(f.host.openSource(binding, 1), errorCode("MEDIA_CHANGED"));
+  await assert.rejects(f.host.addMarkers(binding, [{ start: 1 }]), errorCode("MEDIA_CHANGED"));
+  assert.deepEqual(f.calls, []);
+});
+
+test("POSIX literal backslashes and double-slash paths are not Windows aliases", async () => {
+  const f = fixture();
+  const original = "/Volumes/Film/Take\\1.mov";
+  f.clip.getMediaFilePath = async () => original;
+  const binding = { ...f.binding, media_path: original };
+  assert.equal((await f.host.openSource(binding, 1)).opened, true);
+  f.calls.length = 0;
+  await assert.rejects(f.host.openSource({ ...binding, media_path: "/Volumes/Film/Take/1.mov" }, 1), errorCode("MEDIA_CHANGED"));
+  f.clip.getMediaFilePath = async () => "//Volumes/Film/Take.mov";
+  await assert.rejects(f.host.openSource({ ...binding, media_path: "//volumes/film/take.mov" }, 1), errorCode("MEDIA_CHANGED"));
+  assert.deepEqual(f.calls, []);
+});
+
 test("Changed footage interpretation is rejected before source seeks or marker transactions", async () => {
   const f = fixture();
   const binding = { ...f.binding, source_fps: 24 };

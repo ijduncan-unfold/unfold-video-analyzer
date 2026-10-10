@@ -1,0 +1,94 @@
+name: Apple Silicon desktop preview
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/macos-build.yml'
+      - 'scripts/*macos*'
+      - 'packaging/macos/**'
+      - 'packaging/desktop.spec'
+      - 'packaging/verify_macos_build.py'
+      - 'packaging/test_verify_macos_build.py'
+      - 'packaging/build_inventory.py'
+      - 'packaging/README.md'
+      - 'packaging/THIRD_PARTY.md'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'integrations/premiere/**'
+      - 'scripts/package-premiere.py'
+      - 'requirements-desktop.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apple-silicon:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      GOOGLE_API_KEY: ''
+      VIDEO_ANALYZER_DESKTOP: '1'
+      VIDEO_ANALYZER_TARGET_ARCH: arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          architecture: arm64
+          cache: pip
+          cache-dependency-path: |
+            requirements-desktop.txt
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          architecture: arm64
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check native Apple Silicon and script syntax
+        run: |
+          source packaging/macos/macos-common.sh
+          va_require_macos
+          va_require_native_python "$(command -v python)"
+          va_require_native_node
+          for script in scripts/*macos.sh scripts/*macos.command packaging/macos/*.sh packaging/macos/*.command; do
+            bash -n "$script"
+          done
+      - name: Install build dependencies
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 /opt/homebrew/bin/brew install ffmpeg
+          python -m venv build/desktop/venv-arm64
+          build/desktop/venv-arm64/bin/python -m pip install -r requirements-desktop.txt -r backend/requirements-dev.txt
+          npm --prefix frontend ci
+      - name: Verify backend and Premiere contract
+        run: |
+          build/desktop/venv-arm64/bin/python -m pytest -q
+          build/desktop/venv-arm64/bin/python -m unittest discover -s packaging -p test_verify_macos_build.py
+          node --test integrations/premiere/tests/*.test.cjs
+      - name: Build frontend
+        run: |
+          npm --prefix frontend run lint
+          npm --prefix frontend run build
+      - name: Freeze app, verify isolated HTTPS and package DMG
+        run: bash scripts/build-desktop-macos.sh --skip-dependencies --skip-frontend
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VideoAnalyzer-macos-arm64-preview
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            dist/installers/*-preview-macos-arm64.zip
+            dist/installers/*-preview-macos-arm64.dmg
+            dist/installers/VideoAnalyzer-Premiere-*.ccx
+            dist/installers/SHA256SUMS-macos-arm64.txt
+            dist/installers/build-environment-macos-arm64.json
+            dist/installers/smoke-test-macos-arm64.json

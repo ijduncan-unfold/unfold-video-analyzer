@@ -1,5 +1,7 @@
 """Build from the repository root; only allowlisted public resources enter the app."""
 from pathlib import Path
+import os
+import platform
 import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
@@ -29,6 +31,24 @@ for package in ("google-genai", "pydantic", "pydantic-settings", "fastapi", "uvi
 datas += copy_metadata("pyinstaller")
 datas += [(str(root / "packaging" / "README.md"), "desktop-docs"),
           (str(root / "packaging" / "THIRD_PARTY.md"), "desktop-docs")]
+
+mac_exe_options = {}
+if sys.platform == "darwin":
+    if platform.machine() != "arm64" or os.getenv("VIDEO_ANALYZER_TARGET_ARCH", "arm64") != "arm64":
+        raise SystemExit("The macOS preview must be built natively on Apple Silicon.")
+    panel = root / "dist" / "installers" / "VideoAnalyzer-Premiere-0.1.0.ccx"
+    if not panel.is_file():
+        raise SystemExit("Package the Premiere panel before freezing the Mac app.")
+    datas += [(str(panel), "plugins"),
+              (str(root / "packaging" / "macos" / "setup-premiere-macos.command"), "desktop-docs"),
+              (str(root / "packaging" / "macos" / "macos-common.sh"), "desktop-docs")]
+    for package in ("pyobjc-core", "pyobjc-framework-Cocoa", "pyobjc-framework-Quartz"):
+        datas += copy_metadata(package)
+    mac_exe_options = {
+        "target_arch": "arm64",
+        "codesign_identity": os.getenv("VIDEO_ANALYZER_CODESIGN_IDENTITY") or None,
+        "entitlements_file": str(root / "packaging" / "macos" / "entitlements.plist"),
+    }
 a = Analysis([str(root / "backend" / "app" / "desktop.py")],
              pathex=[str(root / "backend")], binaries=binaries, datas=datas,
              hiddenimports=hiddenimports, hookspath=[], hooksconfig={},
@@ -36,8 +56,14 @@ a = Analysis([str(root / "backend" / "app" / "desktop.py")],
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VideoAnalyzer",
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
-          console=False, disable_windowed_traceback=False)
+          console=False, disable_windowed_traceback=False, **mac_exe_options)
 collection = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="VideoAnalyzer")
 if sys.platform == "darwin":
     app = BUNDLE(collection, name="Video Analyzer.app", bundle_identifier="com.ijduncan.videoanalyzer",
-                 info_plist={"CFBundleShortVersionString": "0.1.0", "LSUIElement": True})
+                 info_plist={"CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "0.1.0",
+                             "CFBundleName": "Video Analyzer", "CFBundleDisplayName": "Video Analyzer",
+                             "LSUIElement": True, "LSMinimumSystemVersion": "15.0",
+                             "LSArchitecturePriority": ["arm64"], "NSHighResolutionCapable": True,
+                             "NSDocumentsFolderUsageDescription": "Analyze source media you select from Documents.",
+                             "NSDownloadsFolderUsageDescription": "Analyze source media you select from Downloads.",
+                             "NSDesktopFolderUsageDescription": "Analyze source media you select from Desktop."})
