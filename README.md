@@ -22,6 +22,12 @@ Search shot descriptions, colors, shot types, camera work, transcripts, section 
 
 Text search uses keywords over saved metadata and highlights matching words in shot details and source excerpts.
 
+## Read and search dialogue
+
+Open a video’s **Transcript** tab to read its saved spoken dialogue beside the player. Search the dialogue to highlight matching words, then click a line to play from that moment. The current timed line is highlighted during playback, and the search stays in place when you switch tabs.
+
+Use **Download SRT** in this tab to export all saved dialogue as subtitles. Search filters the displayed lines; it does not trim the subtitle export. Dialogue appears progressively during analysis. Gemini transcription uses approximate shot-level timing, so review the wording and subtitle timing before delivery.
+
 ## Explore visual match cuts
 
 Open **Match cuts** to connect shots through shape, composition, and color. Use the searchable project picker to choose which videos to search by title or filename, and adjust the weight of each matching dimension.

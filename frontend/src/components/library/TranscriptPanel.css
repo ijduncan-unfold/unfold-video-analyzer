@@ -1,0 +1,42 @@
+.tp-panel { max-width: 1000px; margin: 0 auto; color: #d7e0ec; }
+.tp-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.tp-header h2 { margin: 0; font-size: 20px; font-weight: 500; }
+.tp-panel .tp-download { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 10px 14px; border: 1px solid #93c5fd; border-radius: 5px; background: #93c5fd; color: #162233; font: inherit; font-size: 12px; line-height: 1.4; font-weight: 600; cursor: pointer; }
+.tp-download:hover:not(:disabled) { background: #bfdbfe; border-color: #bfdbfe; }
+.tp-download:disabled { opacity: .45; cursor: not-allowed; }
+.tp-search { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 1px solid #424953; border-radius: 5px; background: #191c1f; color: #99abc3; }
+.tp-search input { min-width: 0; flex: 1; padding: 12px 0; border: 0; outline: 0; background: transparent; color: #d7e0ec; font: inherit; font-size: 13px; }
+.tp-search input::-webkit-search-cancel-button { appearance: none; }
+.tp-search input::placeholder { color: #8b9ab0; }
+.tp-search button { display: grid; place-items: center; padding: 5px; border: 0; border-radius: 3px; background: transparent; color: #a7b5c8; cursor: pointer; }
+.tp-search:focus-within { outline: 2px solid #93c5fd; outline-offset: 2px; }
+.tp-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 20px; color: #a0aec2; font-size: 12px; }
+.tp-hint, .tp-footnote { color: #91a0b4; font-size: 12px; line-height: 1.7; }
+.tp-hint { margin: 12px 0; }
+.tp-alert { margin: 12px 0; padding: 12px 14px; border: 1px solid #875941; border-radius: 5px; background: #372823; color: #f1b89b; font-size: 12px; line-height: 1.7; }
+.tp-alert p { margin: 0 0 8px; }
+.tp-panel .tp-alert button, .tp-panel .tp-empty button { border: 1px solid #4b586a; border-radius: 4px; background: #272d34; color: #cfdae8; padding: 8px 12px; font: inherit; cursor: pointer; }
+.tp-panel .tp-alert button { color: #f1b89b; border-color: #875941; }
+.tp-notice { color: #93c5fd; font-size: 12px; line-height: 1.7; }
+.tp-cues { list-style: none; margin: 0; padding: 0; }
+.tp-cue { border-bottom: 1px solid #333a44; content-visibility: auto; contain-intrinsic-size: auto 86px; }
+.tp-cue:first-child { border-top: 1px solid #333a44; }
+.tp-panel .tp-cue > button { display: grid; grid-template-columns: 94px minmax(0, 1fr) 16px; align-items: start; gap: 16px; width: 100%; padding: 17px 12px; border: 0; border-left: 3px solid transparent; border-radius: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.tp-cue > button:hover:not(:disabled) { background: #252e3a; }
+.tp-cue > button:disabled { cursor: default; }
+.tp-cue.is-current > button { border-left-color: #93c5fd; background: #243247; }
+.tp-cue-time { display: flex; flex-direction: column; gap: 5px; padding-top: 3px; color: #a6c8f2; font: 11px/1.5 Consolas, monospace; }
+.tp-cue-time small { color: #7e90aa; font: inherit; }
+.tp-cue-time .tp-now { margin-top: 3px; color: #93c5fd; font-size: 10px; line-height: 1.5; }
+.tp-cue-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.8; }
+.tp-cue-text strong { color: #97acc9; font-size: 11px; font-weight: 500; }
+.tp-cue-text mark { background: #93c5fd; color: #161a20; border-radius: 2px; padding: 0 1px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.tp-cue-play { margin-top: 7px; color: #93c5fd; opacity: .45; }
+.tp-cue > button:hover:not(:disabled) .tp-cue-play, .tp-cue.is-current .tp-cue-play { opacity: 1; }
+.tp-cue > button:disabled .tp-cue-play { visibility: hidden; }
+.tp-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 42px 18px; min-height: 220px; color: #94a3b8; text-align: center; }
+.tp-empty p { margin: 0; font-size: 14px; line-height: 1.8; }
+.tp-footnote { margin: 24px 0 0; }
+.tp-panel button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
+@media (max-width: 1050px) { .tp-header { align-items: flex-start; flex-direction: column; gap: 12px; } }
+@media (max-width: 540px) { .tp-download { width: 100%; } .tp-panel .tp-cue > button { grid-template-columns: 80px minmax(0, 1fr); gap: 12px; padding: 15px 8px; } .tp-cue-play { display: none; } .tp-cue-text { font-size: 13px; } }

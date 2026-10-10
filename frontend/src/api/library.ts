@@ -60,6 +60,16 @@ export interface AnalysisProgress {
   total_seconds?: number | null
   updated_at?: string | null
 }
+export interface TranscriptSegment {
+  start_time?: string
+  end_time?: string
+  start_seconds?: number
+  end_seconds?: number
+  start?: string | number
+  end?: string | number
+  text?: string
+  speaker?: string
+}
 export interface AssetDetail extends LibraryAsset {
   flash: FlashAnalysis | null
   deep: SceneDeepAnalysis[] | null
@@ -72,7 +82,7 @@ export interface AssetDetail extends LibraryAsset {
   warnings?: string[]
   analysis_config?: { provider?: string; analysis_model?: string; deep_model?: string; fps?: number; mode?: string; started_at?: string; timestamp_accuracy?: string; grouping?: string }
   cost_estimate?: { estimated_cost_usd: number | null; pricing_status?: string; pricing_as_of?: string; warnings?: string[]; total_input_tokens?: number; total_output_tokens?: number } | null
-  transcript: { start_time?: string; end_time?: string; start_seconds?: number; text?: string; speaker?: string }[]
+  transcript: TranscriptSegment[]
 }
 export interface LibraryProject {
   id: string

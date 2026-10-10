@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeAsset, cancelAnalysis, deleteAsset, getShots, saveMetadata, saveShot } from '../../api/library'
 import type { AssetDetail, AssetMetadata, Capabilities, LibraryShot, ReviewStatus, ShotAnnotation } from '../../api/library'
 import type { Shot } from '../../api/types'
@@ -11,6 +11,10 @@ import { SearchHighlight } from './SearchHighlight'
 import './VideoWorkspace.css'
 import { MatchCutPanel } from './MatchCutPanel'
 import { forgetMatchCutSession } from './matchCutSession'
+import { TranscriptPanel } from './TranscriptPanel'
+
+const ASSET_TABS = ['shots', 'match cuts', 'transcript', 'analysis', 'metadata', 'export'] as const
+type AssetTab = typeof ASSET_TABS[number]
 
 interface Props {
   asset: AssetDetail
@@ -24,7 +28,8 @@ interface Props {
 }
 
 export function AssetInspector({ asset, initialSeconds, initialShot, capabilities, onClose, onRefresh, onConfigure, onRemoved }: Props) {
-  const [tab, setTab] = useState<'metadata' | 'shots' | 'analysis' | 'export' | 'match cuts'>('shots')
+  const [tab, setTab] = useState<AssetTab>('shots')
+  const [playbackSeconds, setPlaybackSeconds] = useState(initialSeconds ?? 0)
   const [matchCutFromShot, setMatchCutFromShot] = useState(false)
   const [draft, setDraft] = useState<AssetMetadata>(() => ({ ...asset.metadata }))
   const [baseline, setBaseline] = useState(() => JSON.stringify(asset.metadata))
@@ -63,7 +68,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const warnings = [...new Set([...(asset.warnings || []), ...(asset.flash?.analysis_warnings || [])])]
   const metadata = { ...draft, tags: splitTags(tags), collections: splitTags(collections) }
   const dirty = JSON.stringify(metadata) !== baseline
-  const shots = asset.flash?.scenes.flatMap(scene => scene.shots.map(shot => ({ ...shot, scene_number: scene.scene_number, scene_title: scene.scene_title }))) || []
+  const shots = useMemo(() => asset.flash?.scenes.flatMap(scene => scene.shots.map(shot => ({ ...shot, scene_number: scene.scene_number, scene_title: scene.scene_title }))) || [], [asset.flash])
   const validSelection = shots.filter(shot => selection.shots.some(item => sameShot(item, shot)))
   const staleSelection = selection.shots.length > 0 && (selection.run !== asset.analysis_config?.started_at || validSelection.length !== selection.shots.length)
   function toggleShot(shot: Shot) {
@@ -122,10 +127,24 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       if (player?.isConnected && asset.preview_url) { player.src = asset.preview_url; player.load() }
     } finally { setRemoving(false) }
   }
-  function seek(seconds: number) {
+  const seek = useCallback((seconds: number) => {
     if (video.current) { video.current.currentTime = seconds; video.current.play().catch(() => {}) }
-  }
+  }, [])
   function playShot(shot: Shot) { setPreviewedShot(shot.shot_number); seek(timestamp(shot.start_time)) }
+  const playDialogue = useCallback((seconds: number) => {
+    const shot = shots.find(item => timestamp(item.start_time) <= seconds && timestamp(item.end_time) > seconds)
+    if (shot) setPreviewedShot(shot.shot_number)
+    setPlaybackSeconds(seconds)
+    seek(seconds)
+  }, [shots, seek])
+  function chooseTab(next: AssetTab) {
+    setMatchCutFromShot(false)
+    if (next === 'export') { openExport(); return }
+    if (next === 'match cuts') video.current?.pause()
+    if (next === 'transcript') setPlaybackSeconds(video.current?.currentTime ?? 0)
+    setTab(next)
+    body.current?.scrollTo({ top: 0 })
+  }
   return <main className="lw-inspector lw-video-workspace" aria-label="Video workspace">
     <header className="vw-header">
       <button className="lw-text-button vw-back" data-video-back aria-label="Back to library" onClick={onClose}><Icon name="back" />Library</button>
@@ -144,9 +163,9 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     <div className={`vw-layout ${(tab === 'export' || tab === 'match cuts') ? 'is-export' : ''}`}>
       <div className="vw-viewer" hidden={tab === 'export' || tab === 'match cuts'}>
         <div className="lw-preview">
-          {asset.preview_url ? <video ref={video} src={asset.preview_url} poster={asset.thumbnail_url || undefined} controls preload="metadata" onLoadedMetadata={() => { if (video.current && initialSeconds != null) video.current.currentTime = initialSeconds }} /> : <div className="lw-no-preview"><Icon name="film" size={32} /><span>{asset.youtube_url ? 'Source video on YouTube' : 'Preview unavailable for this format'}</span>{asset.youtube_url && <a href={asset.youtube_url} target="_blank" rel="noreferrer">Open source ↗</a>}</div>}
+          {asset.preview_url ? <video ref={video} src={asset.preview_url} poster={asset.thumbnail_url || undefined} controls preload="metadata" onLoadedMetadata={() => { if (video.current && initialSeconds != null) video.current.currentTime = initialSeconds }} onTimeUpdate={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} onSeeked={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} /> : <div className="lw-no-preview"><Icon name="film" size={32} /><span>{asset.youtube_url ? 'Source video on YouTube' : 'Preview unavailable for this format'}</span>{asset.youtube_url && <a href={asset.youtube_url} target="_blank" rel="noreferrer">Open source ↗</a>}</div>}
         </div>
-        {selectedShot && <div className="vw-shot-context">
+        {selectedShot && tab !== 'transcript' && <div className="vw-shot-context">
           <div className="vw-shot-transport"><strong>Shot {String(selectedShot.shot_number).padStart(2, '0')}</strong><time>{selectedShot.start_time} – {selectedShot.end_time}</time><div><button className="lw-icon-button" aria-label="Previous shot" disabled={selectedIndex === 0 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex - 1])}><Icon name="chevron" style={{ transform: 'rotate(180deg)' }} /></button><button className="lw-icon-button" aria-label="Next shot" disabled={selectedIndex >= shots.length - 1 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex + 1])}><Icon name="chevron" /></button></div></div>
           <p>{selectedShot.visual_description}</p><button className="lw-text-button" onClick={() => { video.current?.pause(); setMatchCutFromShot(true); setTab('match cuts') }}>Explore match cuts</button>
         </div>}
@@ -154,7 +173,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
         {asset.error && <div className="lw-inline-error" role="alert">{asset.error}</div>}
       </div>
       <div className="vw-data">
-    <div className="lw-inspector-tabs" role="tablist" aria-label="Asset information">{(['shots', 'match cuts', 'analysis', 'metadata', 'export'] as const).map(value => <button id={`asset-tab-${value.replaceAll(' ', '-')}`}  aria-controls={`asset-panel-${value.replaceAll(' ', '-')}`}  role="tab" tabIndex={tab === value ? 0 : -1} onKeyDown={event => { const items = ['shots', 'match cuts', 'analysis', 'metadata', 'export'] as const; const current = items.indexOf(tab); const next = event.key === 'ArrowRight' ? (current + 1) % items.length : event.key === 'ArrowLeft' ? (current + items.length - 1) % items.length : event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : -1; if (next >= 0) { event.preventDefault(); setMatchCutFromShot(false); if (items[next] === 'export') openExport(); else { if (items[next] === 'match cuts') video.current?.pause(); setTab(items[next]); } document.getElementById(`asset-tab-${items[next].replaceAll(' ', '-')}`)?.focus() } }} aria-selected={tab === value} onClick={() => { setMatchCutFromShot(false); if (value === 'export') openExport(); else { if (value === 'match cuts') video.current?.pause(); setTab(value) } }} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
+    <div className="lw-inspector-tabs" role="tablist" aria-label="Asset information">{ASSET_TABS.map(value => <button id={`asset-tab-${value.replaceAll(' ', '-')}`} aria-controls={`asset-panel-${value.replaceAll(' ', '-')}`} role="tab" tabIndex={tab === value ? 0 : -1} onKeyDown={event => { const current = ASSET_TABS.indexOf(tab); const next = event.key === 'ArrowRight' ? (current + 1) % ASSET_TABS.length : event.key === 'ArrowLeft' ? (current + ASSET_TABS.length - 1) % ASSET_TABS.length : event.key === 'Home' ? 0 : event.key === 'End' ? ASSET_TABS.length - 1 : -1; if (next >= 0) { event.preventDefault(); chooseTab(ASSET_TABS[next]); document.getElementById(`asset-tab-${ASSET_TABS[next].replaceAll(' ', '-')}`)?.focus() } }} aria-selected={tab === value} onClick={() => chooseTab(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
     <div ref={body} className="lw-inspector-body" role="tabpanel" id={`asset-panel-${tab.replaceAll(' ', '-')}`}  aria-labelledby={`asset-tab-${tab.replaceAll(' ', '-')}`} >
       {error && <div className="lw-inline-error" role="alert">{error}</div>}{notice && <div className="lw-inline-success" role="status">{notice}</div>}
       {tab === 'analysis' && warnings.length > 0 && <details className="lw-details"><summary>Analysis notes<Icon name="down" size={14} /></summary><div className="lw-analysis-warning">{warnings.map(warning => <p key={warning}>{warning}</p>)}</div></details>}
@@ -179,11 +198,11 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       </div>
       {tab === 'match cuts' && <MatchCutPanel key={asset.analysis_config?.started_at || 'unindexed'} asset={asset} shots={shots} initialShot={selectedShot} useInitialShot={matchCutFromShot} />}
       {tab === 'export' && <ExportPanel key={exportVisit} asset={asset} shots={shots} selectedShots={validSelection} staleSelection={staleSelection} onChooseShots={() => setTab('shots')} onClearSelection={() => setSelection({ run: asset.analysis_config?.started_at, shots: [] })} initialScope={exportScope} />}
+      <div hidden={tab !== 'transcript'}><TranscriptPanel asset={asset} active={tab === 'transcript'} currentTime={playbackSeconds} onSeek={playDialogue} /></div>
       {tab === 'analysis' && <>
         {asset.video_summary && <details className="lw-details" open><summary>Summary<Icon name="down" size={14} /></summary><AnalysisFields value={asset.video_summary} /></details>}
         {!!asset.flash?.scenes.length && <details className="lw-details" open><summary>{usesSections ? 'Sections' : 'Scenes'}<Icon name="down" size={14} /></summary>{asset.flash.scenes.map(scene => <details className="lw-details" key={scene.scene_number}><summary>{usesSections ? 'Section' : 'Scene'} {scene.scene_number} · {scene.scene_title}<Icon name="down" size={14} /></summary><p className="lw-panel-description">{scene.scene_description}</p><time>{scene.start_time} – {scene.end_time}</time><AnalysisFields value={asset.deep?.find(item => item.scene_number === scene.scene_number)} /><button className="lw-button" onClick={() => { setSectionFilter(scene.scene_number); setTab('shots') }}>View {scene.shots.length} shots</button></details>)}</details>}
         {asset.custom_result && <details className="lw-details"><summary>Custom analysis<Icon name="down" size={14} /></summary><AnalysisFields value={asset.custom_result} /></details>}
-        {!!asset.transcript?.length && <details className="lw-details"><summary>Transcript<Icon name="down" size={14} /></summary>{asset.transcript.map((segment, index) => <button className="lw-transcript-line" key={index} onClick={() => seek(segment.start_seconds ?? timestamp(segment.start_time || '0'))}><time>{segment.start_time || duration(segment.start_seconds)}</time><span>{segment.speaker && <strong>{segment.speaker}: </strong>}{segment.text}</span></button>)}</details>}
         <details className="lw-details vw-analysis-settings" open={!asset.flash}><summary>Analysis settings<Icon name="down" size={14} /></summary><div className="vw-settings-content">
         <details className="lw-details"><summary>Options<Icon name="down" size={14} /></summary><div style={{ paddingTop: 14 }}>
           <label className="lw-field">Sampling<select value={fps} onChange={event => setFps(Number(event.target.value))}>{![0.5, 1, 2, 3, 4, 5].includes(fps) && <option value={fps}>{fps} fps</option>}{[0.5, 1, 2, 3, 4, 5].map(value => <option value={value} key={value}>{value} fps{value === 4 ? ' · fast action' : ''}</option>)}</select><span className="lw-field-hint">Higher sampling uses more tokens. Short cuts may be missed.</span></label>
