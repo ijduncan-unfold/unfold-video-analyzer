@@ -10,7 +10,9 @@ const MAX_BYTES = 8192;
 const UNAVAILABLE = "Start Video Analyzer. This panel connects automatically.";
 function discoveryPath({ platform = process.platform, env = process.env, home = os.homedir(), development = !process.versions.electron } = {}) {
   if (development && env.EDITOR_DISCOVERY_PATH) return path.resolve(env.EDITOR_DISCOVERY_PATH);
-  if (platform === "win32" && env.LOCALAPPDATA) return path.win32.join(env.LOCALAPPDATA, "VideoAnalyzer", "editor-service.json");
+  // The profile location is shared with unpackaged Resolve even when a
+  // development companion inherits Windows packaged-app AppData virtualization.
+  if (platform === "win32") return path.win32.join(home, ".video-analyzer", "editor-service.json");
   if (platform === "darwin") return path.posix.join(home, "Library", "Application Support", "VideoAnalyzer", "editor-service.json");
   throw new Error(UNAVAILABLE);
 }

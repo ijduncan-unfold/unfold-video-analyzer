@@ -15,7 +15,7 @@ async function fixture(callback) {
 }
 test("production paths are fixed per user and ignore development overrides", () => {
   const env = { LOCALAPPDATA: "C:\\Users\\Editor\\AppData\\Local", EDITOR_DISCOVERY_PATH: "C:\\elsewhere\\secret.json" };
-  assert.equal(discoveryPath({ platform: "win32", env, development: false }), "C:\\Users\\Editor\\AppData\\Local\\VideoAnalyzer\\editor-service.json");
+  assert.equal(discoveryPath({ platform: "win32", env, home: "C:\\Users\\Editor", development: false }), "C:\\Users\\Editor\\.video-analyzer\\editor-service.json");
   assert.equal(discoveryPath({ platform: "darwin", env, home: "/Users/editor", development: false }), "/Users/editor/Library/Application Support/VideoAnalyzer/editor-service.json");
   assert.equal(discoveryPath({ env: { EDITOR_DISCOVERY_PATH: path.resolve("test-only.json") }, development: true }), path.resolve("test-only.json"));
 });

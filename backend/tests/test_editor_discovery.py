@@ -47,7 +47,7 @@ async def wait_until(predicate):
 
 
 @pytest.mark.parametrize('platform,suffix', [
-    ('win32', ('AppData', 'Local', 'VideoAnalyzer', 'editor-service.json')),
+    ('win32', ('.video-analyzer', 'editor-service.json')),
     ('darwin', ('Library', 'Application Support', 'VideoAnalyzer', 'editor-service.json')),
     ('linux', ('.local', 'share', 'video-analyzer', 'editor-service.json')),
 ])

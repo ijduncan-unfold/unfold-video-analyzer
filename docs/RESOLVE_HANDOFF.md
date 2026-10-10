@@ -23,6 +23,7 @@ The installer copies these eleven public files into the plugin folder: `manifest
 | Resolve SDK | `%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Developer` |
 | Installed plugin | `%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\Workflow Integration Plugins\com.ijduncan.videoanalyzer` |
 | Companion data and logs | `%LOCALAPPDATA%\VideoAnalyzer` |
+| Private running-service discovery | `%USERPROFILE%\.video-analyzer\editor-service.json` |
 | Plugin preferences | `%APPDATA%\VideoAnalyzer\Resolve\preferences.json` |
 
 The helper looks for the matching x64 bridge in the SDK's `Workflow Integrations\Examples\SamplePromisePlugin` or `SamplePlugin` folder. It verifies the Windows x64 binary header, refuses linked installation paths and unrelated existing destinations, and requires Resolve to be closed. It updates only this plugin's known files, preserving other files and plugins. Missing or incompatible SDK resources stop installation with an explanation.
@@ -51,7 +52,7 @@ Resolve does not expose a documented marker transaction/undo API for this previe
 
 Analysis continues in the companion while its process runs, even when the plugin closes. Saved analysis and nonsecret clip/search preferences persist. The panel reconnects automatically after reopening or a companion restart. If the companion is closed, start Video Analyzer; the panel retries automatically.
 
-Local API authentication still runs behind the scenes. The companion publishes a private `editor-service.json` in its per-user data folder only after its authenticated endpoint is ready. The plugin's native main process reads that file and verifies the running instance. Credentials never enter the interface or saved preferences, and credential changes invalidate old results rather than replaying actions. Keep this file and Gemini keys out of Git, screenshots, and support logs. Premiere still uses its existing manual pairing flow.
+Local API authentication still runs behind the scenes. The companion publishes a private `editor-service.json` only after its authenticated endpoint is ready. Windows uses `%USERPROFILE%\.video-analyzer`; Mac uses `~/Library/Application Support/VideoAnalyzer`. The Windows profile location keeps discovery accessible across packaged development apps and the native editor. The plugin's native main process reads that file and verifies the running instance. Credentials never enter the interface or saved preferences, and credential changes invalidate old results rather than replaying actions. Keep this file and Gemini keys out of Git, screenshots, and support logs. Premiere still uses its existing manual pairing flow.
 
 Original media is referenced without creating a full import copy. The companion can create thumbnails and derived analysis caches; it does not rename or delete original files. Removing a library project deletes its saved records and app-owned cache files. Uninstalling the companion preserves its user data folder.
 

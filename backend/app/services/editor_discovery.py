@@ -29,7 +29,9 @@ ROTATION_INTERVAL = 1
 
 def default_discovery_path():
     if sys.platform == 'win32':
-        directory = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local')) / 'VideoAnalyzer'
+        # AppData writes can be virtualized when a source server is launched by
+        # an MSIX host. This same-user profile directory is visible to Resolve.
+        directory = Path.home() / '.video-analyzer'
     elif sys.platform == 'darwin':
         directory = Path.home() / 'Library' / 'Application Support' / 'VideoAnalyzer'
     else:
