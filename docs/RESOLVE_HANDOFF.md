@@ -25,6 +25,8 @@ The installer copies these ten public files into the plugin folder: `manifest.xm
 
 The helper looks for the matching x64 bridge in the SDK's `Workflow Integrations\Examples\SamplePromisePlugin` or `SamplePlugin` folder. It verifies the Windows x64 binary header, refuses linked installation paths and unrelated existing destinations, and requires Resolve to be closed. It updates only this plugin's known files, preserving other files and plugins. Missing or incompatible SDK resources stop installation with an explanation.
 
+Extract the ZIP to an ordinary local folder if a cloud or linked source location is rejected. The installed companion's resources live in its local application folder.
+
 For a nonstandard SDK location, run the extracted helper in PowerShell:
 
 ```powershell
@@ -92,7 +94,7 @@ The output is `dist/installers/VideoAnalyzer-Resolve-0.1.0.zip`. Packaging uses 
 
 ## Native acceptance still required
 
-Resolve is not installed on the development Windows machine. Backend, panel, host, packaging, and companion smoke tests use isolated data and mocked Resolve calls; they do not establish that the installed vendor runtime accepts every API or that native editing behavior is correct.
+The Windows workstation has Resolve 21.0.1 and its Developer SDK. Its supplied manifest and Promise APIs were inspected, and the installer copied the matching x64 bridge and ten public files into an isolated temporary destination with a matching bridge hash. Resolve's application/plugin folders were not changed by that check. Interactive plugin execution remains untested: automated backend, panel, and host checks use isolated data and mocked Resolve calls, and do not establish native editing behavior.
 
 On Windows first, then on the Mac:
 

@@ -6,10 +6,12 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -50,6 +52,23 @@ def installer_fixture(tmp_path):
     return source, developer, bridge, destination
 
 
+def powershell_error_text(stderr):
+    """Read captured diagnostics independently of console width and CLIXML."""
+    if stderr.startswith("#< CLIXML\n"):
+        try:
+            document = ET.fromstring(stderr.partition("\n")[2])
+        except ET.ParseError:
+            pass
+        else:
+            errors = [item.text or "" for item in document.iter()
+                      if item.tag.rsplit("}", 1)[-1] == "S" and item.get("S") == "Error"]
+            if errors:
+                stderr = "".join(errors)
+    # PowerShell serializes line endings as _x000D__x000A_ in CLIXML.
+    stderr = re.sub(r"_x([0-9a-fA-F]{4})_", lambda match: chr(int(match.group(1), 16)), stderr)
+    return " ".join(stderr.split())
+
+
 def run_install(fixture, extra=(), env=None, prefix=""):
     source, developer, _, destination = fixture
     args = ["-PluginPath", str(source), "-DeveloperPath", str(developer), "-Destination", str(destination), "-NoUI", *extra]
@@ -63,7 +82,24 @@ def run_install(fixture, extra=(), env=None, prefix=""):
         command = [executable, "-NoProfile", "-EncodedCommand", encoded]
     else:
         command = [executable, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(INSTALLER), *args]
-    return subprocess.run(command, capture_output=True, text=True, timeout=30, env=env)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=30, env=env)
+    result.stderr = powershell_error_text(result.stderr)
+    return result
+
+
+@pytest.mark.parametrize("stderr, expected", [
+    ('#< CLIXML\n<Objs xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+     '<Obj S="progress"><S>Preparing modules.</S></Obj>'
+     '<S S="Error">The plugin folder is not writable._x000D__x000A_</S>'
+     '<S S="Error">Run the Windows installer as Administrator._x000D__x000A_</S>'
+     '</Objs>', "The plugin folder is not writable. Run the Windows installer as Administrator."),
+    ("D:\\a\\video-analyzer\\packaging\\resolve\\install-resolve.ps1 : "
+     "The Resolve SDK bridge has an invalid\r\nPE header.\r\n",
+     "D:\\a\\video-analyzer\\packaging\\resolve\\install-resolve.ps1 : "
+     "The Resolve SDK bridge has an invalid PE header."),
+])
+def test_powershell_diagnostics_ignore_clixml_and_console_wrapping(stderr, expected):
+    assert powershell_error_text(stderr) == expected
 
 
 @WINDOWS_ONLY

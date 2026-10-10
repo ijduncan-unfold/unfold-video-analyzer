@@ -2,7 +2,7 @@
 
 Continue from the personal repository's `feat/footage-library` branch. This preview targets native Apple Silicon (arm64) on macOS 15 or newer. Premiere Pro 26.3+ and Creative Cloud Desktop are required for the Premiere panel. Resolve's integration requires Resolve Studio 20.1+ and an arm64-compatible bridge from the installed SDK; see [the Windows-first Resolve handoff](RESOLVE_HANDOFF.md).
 
-The earlier [October 10 native build](https://github.com/ijduncan/video-analyzer/actions/runs/38069889259) passed backend, Premiere panel, frontend, frozen HTTPS, arm64, signature, and resource checks. That build predates the Resolve integration. Use a newer successful run containing `VideoAnalyzer-Resolve-0.1.0.zip` for Resolve. Native GUI and editor acceptance remain pending.
+The [October 10 Resolve-enabled native build](https://github.com/ijduncan/video-analyzer/actions/runs/38072319120) passed backend, both editor contracts, frontend, frozen HTTPS, arm64, signature, and resource checks. [Download its preview artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38072319120/artifacts/11677470985) while signed into GitHub. It contains the app ZIP/DMG, Premiere CCX, and public Resolve ZIP and expires October 24, 2026. All four downloaded checksums matched. Native GUI, the installed Mac SDK bridge, and editor acceptance remain pending.
 
 ## Install the preview
 
