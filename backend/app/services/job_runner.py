@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from fastapi import HTTPException
 from app.config import settings
 from app.services.analyzer import run_analysis
 from app.services.file_manager import ensure_remote_file
@@ -29,6 +30,10 @@ async def _run(job_id, request, api_key):
             job = get_job(job_id)
             if job is None:
                 return
+            # A source can change while this job is waiting for an analysis slot.
+            if job.media_origin == 'external':
+                from app.services.editor_bridge import ensure_source_unchanged
+                ensure_source_unchanged(job)
             _stage(job_id, 'uploading', status='analyzing', error=None, warnings=[],
                    progress='Preparing video for analysis')
             await ensure_remote_file(job, api_key)
@@ -53,6 +58,8 @@ async def _run(job_id, request, api_key):
         logger.warning('Analysis job failed (%s)', type(exc).__name__)
         # Avoid including provider exception payloads, which can contain URLs/credentials.
         message = 'Video preparation failed. Check the source file, provider access and quota, then retry.'
+        if isinstance(exc, HTTPException) and exc.status_code == 409:
+            message = 'The original source is offline or changed. Load the Premiere selection again before analyzing.'
         _stage(job_id, 'error', status='error', error=message, progress='Analysis failed; completed sections preserved')
 
 

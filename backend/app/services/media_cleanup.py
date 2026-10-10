@@ -19,7 +19,11 @@ def deletion_paths(job):
     # Only the upload endpoint's exact naming convention establishes ownership.
     # External originals and other projects' copies must never be unlinked.
     candidate = Path(job.local_path).resolve() if job.local_path else None
-    owned_copy = candidate if candidate and candidate.parent == root and candidate.stem == job.job_id else None
+    owned_copy = candidate if (getattr(job, 'media_origin', 'upload') != 'external'
+                              and candidate and candidate.parent == root and candidate.stem == job.job_id) else None
+    if getattr(job, 'media_origin', 'upload') == 'external' and candidate and candidate.is_relative_to(asset_dir):
+        # Even an unusual original located inside this directory cannot be removed.
+        asset_dir = None
     return owned_copy, asset_dir
 
 
@@ -53,6 +57,8 @@ def remove_record(job, pending):
             db.execute('INSERT OR REPLACE INTO media_cleanup VALUES (?, ?)', (job.job_id, str(owned_copy) if owned_copy else ''))
         else:
             db.execute('DELETE FROM media_cleanup WHERE job_id=?', (job.job_id,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='editor_sources'").fetchone():
+            db.execute('DELETE FROM editor_sources WHERE job_id=?', (job.job_id,))
         db.execute('DELETE FROM jobs WHERE job_id=?', (job.job_id,))
 
 

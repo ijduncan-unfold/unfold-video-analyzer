@@ -3,6 +3,7 @@ import asyncio
 import json
 from fractions import Fraction
 from pathlib import Path
+from app.utils.media_process import hidden_process_kwargs
 
 
 async def _stop_process(proc):
@@ -58,6 +59,7 @@ async def _probe_packet_cadence(path: str, video: dict) -> dict:
         "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_packets",
         "-show_entries", "packet=pts", "-of", "json", path,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        **hidden_process_kwargs(),
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
@@ -79,6 +81,7 @@ async def probe_media(path: str) -> dict:
     proc = await asyncio.create_subprocess_exec(
         "ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", path,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        **hidden_process_kwargs(),
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
@@ -121,6 +124,7 @@ async def create_poster(path: str, output: str, duration: float):
         "ffmpeg", "-v", "error", "-ss", str(min(1, max(0, duration / 3))), "-i", path,
         "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", "-y", output,
         stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        **hidden_process_kwargs(),
     )
     try:
         await asyncio.wait_for(proc.wait(), timeout=45)

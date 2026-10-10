@@ -6,6 +6,7 @@ from pathlib import Path
 _test_root = tempfile.TemporaryDirectory(prefix='video-analyzer-tests-')
 os.environ['DATABASE_PATH'] = str(Path(_test_root.name) / 'library.sqlite3')
 os.environ['UPLOAD_DIR'] = str(Path(_test_root.name) / 'uploads')
+os.environ['EDITOR_TOKEN_PATH'] = str(Path(_test_root.name) / 'premiere-token.txt')
 os.environ['GOOGLE_API_KEY'] = ''
 
 import pytest
@@ -18,6 +19,7 @@ from app.main import app
 def client(tmp_path):
     settings.database_path = str(tmp_path / 'library.sqlite3')
     settings.upload_dir = str(tmp_path / 'uploads')
+    settings.editor_token_path = str(tmp_path / 'premiere-token.txt')
     settings.google_api_key = ''
     with TestClient(app) as client:
         yield client

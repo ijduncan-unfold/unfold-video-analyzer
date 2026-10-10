@@ -1,0 +1,4 @@
+-r backend/requirements.txt
+pyinstaller>=6.22,<7
+pystray>=0.19,<1
+Pillow>=12,<13

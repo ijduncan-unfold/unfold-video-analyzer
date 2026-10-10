@@ -45,7 +45,7 @@ app.add_middleware(
 )
 
 # Import and include routers
-from app.routers import upload, analyze, status, results, export, files, thumbnails, compare, library, visual
+from app.routers import upload, analyze, status, results, export, files, thumbnails, compare, library, visual, premiere
 
 app.include_router(upload.router)
 app.include_router(analyze.router)
@@ -57,6 +57,7 @@ app.include_router(thumbnails.router)
 app.include_router(compare.router)
 app.include_router(library.router)
 app.include_router(visual.router)
+app.include_router(premiere.router)
 
 
 @app.get("/api/health")
@@ -91,7 +92,8 @@ async def validate_key(body: dict):
 
 
 # Serve frontend build in production (when frontend/dist exists)
-_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+_frontend_dist = Path(os.environ.get('VIDEO_ANALYZER_FRONTEND_DIR',
+    str(Path(__file__).parent.parent.parent / "frontend" / "dist")))
 if _frontend_dist.is_dir():
     from fastapi.responses import FileResponse
 

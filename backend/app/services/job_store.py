@@ -45,6 +45,9 @@ class Job:
     progress: str = "Ready to analyze"
     warnings: list[str] = field(default_factory=list)
     file_uploaded_at: str | None = None
+    # External editor sources are referenced read-only, never owned by the library.
+    media_origin: str = "upload"
+    source_fingerprint: str = ""
 
 
 @contextmanager

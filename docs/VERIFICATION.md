@@ -107,6 +107,16 @@ The existing teaser's average frame-rate fraction was `100755000/4202323`, sligh
 
 New imports perform a local packet-timing check with a 60-second timeout. Incomplete counts, missing timestamps, drift or irregular timing remain unverified; the NLE adapter blocks them rather than rounding an arbitrary average rate. Fixture tests cover these failure modes and exact rational timing. Installed-editor round trips remain outstanding.
 
+## Premiere panel and desktop companion preview
+
+The UXP adapter and panel passed 48 Node checks covering Project selections, source seeks, undoable markers, duplicate skipping, search and transcript navigation, explicit analysis, progressive polling, persistence, source interpretation, relinks, and stale-response guards. The authenticated loopback API registers originals by reference and blocks changed/offline media before reading results, starting analysis, and entering the provider upload stage after queueing. Deletion tests confirm that original media is retained and editor bindings are removed.
+
+The frontend production build and lint passed. Browser checks with mocked UXP/native operations exercised highlighted shot searches, source jumps, visible-result markers, and transcript switching at widths of 300, 420, and 640 pixels without horizontal overflow or page errors. Separate browser checks exercised desktop key save success/failure, clearing, explicit clipboard pairing, launch-fragment removal, and session-only token storage. These checks made no Gemini calls and used no real credentials.
+
+The Windows frozen executable passed an isolated startup/shutdown smoke check with an empty temporary database. It served the frontend and each referenced JS/CSS asset, detected FFmpeg, and did not inherit a configured developer key. The installer includes the allowlisted CCX package. Development data, environment files, API keys, tokens, and source media are excluded from the package resources.
+
+Premiere is not installed on this workstation: CCX installation, native Source Monitor timing, and actual marker round trips still require acceptance in Premiere 26.3+. The Windows installer is an unsigned preview. macOS build scripts are provided; Mac builds, signing/notarization, and trusted local HTTPS for the panel remain unverified. Build and install guidance is in `integrations/premiere/README.md` and `packaging/README.md`.
+
 ## Remaining validation
 
 - Recognition/retrieval quality on representative agency and filmmaking footage, including difficult audio, fast montage and multilingual material.

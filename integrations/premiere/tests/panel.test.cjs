@@ -1,0 +1,496 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { createPanel } = require("../panel.js");
+
+const TOKEN = "test-local-panel-token-1234567890";
+const clone = value => JSON.parse(JSON.stringify(value));
+const flush = () => new Promise(resolve => setImmediate(resolve));
+
+class Element {
+  constructor(tagName = "div", id = "") {
+    this.tagName = tagName;
+    this.id = id;
+    this.children = [];
+    this.attributes = {};
+    this.listeners = {};
+    this.className = "";
+    this.value = "";
+    this.disabled = false;
+    this._text = "";
+    this.classList = {
+      toggle: (name, force) => {
+        const classes = new Set(this.className.split(/\s+/).filter(Boolean));
+        const enabled = force === undefined ? !classes.has(name) : force;
+        if (enabled) classes.add(name); else classes.delete(name);
+        this.className = Array.from(classes).join(" ");
+        return enabled;
+      },
+    };
+  }
+  set textContent(value) { this._text = String(value); this.children = []; }
+  get textContent() { return this._text + this.children.map(child => child.textContent).join(""); }
+  set innerHTML(value) { throw new Error("Untrusted content must not use innerHTML: " + value); }
+  appendChild(child) { this.children.push(child); return child; }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] === undefined ? null : this.attributes[name]; }
+  addEventListener(event, callback) { (this.listeners[event] || (this.listeners[event] = [])).push(callback); }
+  focus() { this.focused = true; }
+  async fire(event, values = {}) {
+    if (event === "click" && this.disabled) return;
+    const payload = Object.assign({ target: this, key: "", preventDefault() {} }, values);
+    await Promise.all((this.listeners[event] || []).map(callback => callback(payload)));
+    await flush();
+  }
+}
+
+function mockDocument() {
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  const elements = {};
+  for (const match of html.matchAll(/<([\w-]+)\b([^>]*?)\bid="([^"]+)"([^>]*)>/g)) {
+    const element = new Element(match[1], match[3]);
+    const attributes = match[2] + match[4];
+    for (const attr of attributes.matchAll(/([\w-]+)="([^"]*)"/g)) {
+      element.setAttribute(attr[1], attr[2]);
+      if (attr[1] === "class") element.className = attr[2];
+      if (attr[1] === "value") element.value = attr[2];
+    }
+    if (/\bdisabled\b/.test(attributes)) element.disabled = true;
+    elements[element.id] = element;
+  }
+  elements.mode.value = "flash_only";
+  return {
+    elements,
+    getElementById(id) { assert.ok(elements[id], "Unknown UI element " + id); return elements[id]; },
+    createElement(tag) { return new Element(tag); },
+  };
+}
+
+function shot(number, text, extra = {}) {
+  return Object.assign({ shot_number: number, start_seconds: (number - 1) * 3, end_seconds: number * 3,
+    visual_description: text, shot_type: "close-up", camera_movement: "static", mood: "quiet", tags: [] }, extra);
+}
+
+function asset(id = "clip-a", project = "project-a", item = "item-a", name = "Desert footage") {
+  return {
+    job_id: id, filename: "desert.mp4", metadata: { title: name }, status: "complete", shot_count: 3,
+    technical: { duration_seconds: 1000, frame_rate: 24, has_audio: true }, flash: {},
+    editor_sources: [{ host: "premiere", project_id: project, item_id: item, media_path: "C:\\footage\\" + id + ".mp4", name }],
+    transcript: [
+      { start_seconds: 2, end_seconds: 4, text: "Look at that circle.", speaker: "Alex" },
+      { start_time: "00:10.250", end_time: "00:12.500", text: "Meet me in the center.", speaker: "Rae" },
+      { start_seconds: 18, end_seconds: 20, text: "Keep moving.", speaker: "Alex" },
+    ],
+  };
+}
+
+function persistentStorage() {
+  const files = new Map();
+  const secrets = new Map();
+  const saves = [];
+  const file = name => ({
+    async read() { if (!files.has(name)) throw new Error("Missing file"); return files.get(name); },
+    async write(content) { files.set(name, content); },
+  });
+  const storage = {
+    secureStorage: {
+      async getItem(key) { if (!secrets.has(key)) throw new Error("Missing token"); return secrets.get(key); },
+      async setItem(key, value) { secrets.set(key, Uint8Array.from(Buffer.from(value))); },
+      async removeItem(key) { secrets.delete(key); },
+    },
+    localFileSystem: {
+      async getDataFolder() { return {
+        async getEntry(name) { if (!files.has(name)) throw new Error("Missing file"); return file(name); },
+        async createFile(name) { return file(name); },
+      }; },
+      async getFileForSaving(filename, options) {
+        const saved = { filename, options, content: null };
+        saves.push(saved);
+        return { async write(content) { saved.content = content; } };
+      },
+    },
+  };
+  return { files, secrets, saves, storage };
+}
+
+function harness(options = {}) {
+  const document = mockDocument();
+  const stored = options.stored || persistentStorage();
+  const service = options.service || {
+    assets: [asset()],
+    shots: [shot(1, "A circular scope in a dark frame.", { tags: ["circle"] }),
+      shot(2, "A person stands in the center.", { tags: ["center"] }),
+      shot(3, "A desert dam beneath a blue sky.", { tags: ["dam"] })],
+  };
+  const current = { project: "project-a", clips: [{ item_id: "item-a", media_path: "C:\\footage\\clip-a.mp4", name: "Desert footage", source_fps: 24 }] };
+  const requests = [];
+  const opens = [];
+  const markers = [];
+  const browser = [];
+  const timers = new Map();
+  let nextTimer = 0;
+  let interceptor;
+  const host = {
+    async getSelection() {
+      return { project_id: current.project, project_name: current.project === "project-a" ? "Film A" : "Film B",
+        project_path: "C:\\edits\\film.prproj", clips: clone(current.clips), warnings: [], capabilities: { source_seek: true, source_markers: true } };
+    },
+    async openSource(binding, seconds) {
+      if (binding.project_id !== current.project) throw new Error("The active Premiere project changed. Refresh the selection.");
+      opens.push({ binding: clone(binding), seconds });
+      return { opened: true };
+    },
+    async addMarkers(binding, cues) {
+      if (binding.project_id !== current.project) throw new Error("The active Premiere project changed. Refresh the selection.");
+      markers.push({ binding: clone(binding), cues: clone(cues) });
+      return { added: cues.length, skipped: 0 };
+    },
+  };
+  function json(data, status = 200) { return { ok: status >= 200 && status < 300, status, async json() { return clone(data); }, async text() { return String(data); } }; }
+  async function fetch(url, init) {
+    const parsed = new URL(url);
+    const record = { url, pathname: parsed.pathname, query: parsed.searchParams, init: clone(init), body: init.body ? JSON.parse(init.body) : undefined };
+    requests.push(record);
+    if (interceptor) {
+      const override = await interceptor(record);
+      if (override !== undefined) return override;
+    }
+    const pathname = parsed.pathname.replace("/api/editor/premiere", "");
+    if (pathname === "/health") return json({ status: "ok", google_configured: true });
+    if (pathname === "/assets") {
+      const assets = service.assets.filter(item => item.editor_sources.some(source => source.project_id === parsed.searchParams.get("project_id")));
+      return json({ assets, total: assets.length });
+    }
+    if (pathname === "/register") return json(service.assets.find(item => item.editor_sources.some(source => source.item_id === record.body.item_id && source.project_id === record.body.project_id)));
+    const match = /^\/assets\/([^/]+)(\/[^/]+)?$/.exec(pathname);
+    const item = match && service.assets.find(value => value.job_id === match[1]);
+    if (!item) return json({ detail: "Unknown clip" }, 404);
+    if (!match[2]) return json(item);
+    if (match[2] === "/shots") {
+      const q = (parsed.searchParams.get("q") || "").toLowerCase();
+      const shots = service.shots.filter(value => JSON.stringify(value).toLowerCase().includes(q));
+      return json({ shots: shots.slice(0, 500), total: shots.length });
+    }
+    if (match[2] === "/analyze") { item.status = "analyzing"; return json({ status: "analyzing", job_id: item.job_id }, 202); }
+    if (match[2] === "/subtitles") return { ok: true, status: 200, async text() { return "1\n00:00:02,000 --> 00:00:04,000\nLook at that circle.\n\n2\n00:00:10,250 --> 00:00:12,500\nMeet me in the center.\n\n3\n00:00:18,000 --> 00:00:20,000\nKeep moving.\n"; } };
+    throw new Error("Unmocked request " + url);
+  }
+  const panel = createPanel({ document, host, fetch,
+    uxp: { storage: stored.storage, shell: { async openExternal(url) { browser.push(url); return ""; } } },
+    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  return {
+    panel, document, stored, service, current, requests, opens, markers, browser, timers, json,
+    el: id => document.getElementById(id),
+    intercept(callback) { interceptor = callback; },
+    async start() { await panel.init(); document.elements.token.value = TOKEN; await panel.connect(); },
+    async poll() {
+      const entry = Array.from(timers).find(([, timer]) => timer.callback.name === "poll");
+      assert.ok(entry, "There is a scheduled progress refresh");
+      timers.delete(entry[0]);
+      await entry[1].callback();
+    },
+  };
+}
+
+function descendants(element, predicate) {
+  return element.children.flatMap(child => (predicate(child) ? [child] : []).concat(descendants(child, predicate)));
+}
+
+test("connects only to the authenticated local service and never analyzes while loading clips", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  assert.equal(h.el("workspace").className.includes("hidden"), false);
+  assert.equal(h.el("project-name").textContent, "Film A");
+  assert.equal(h.el("results").children.length, 3);
+  await h.panel.loadSelection();
+  assert.ok(h.requests.some(request => request.pathname.endsWith("/register")));
+  assert.equal(h.requests.filter(request => request.pathname.endsWith("/analyze")).length, 0);
+  const registration = h.requests.find(request => request.pathname.endsWith("/register"));
+  assert.equal(registration.body.media_path, "C:\\footage\\clip-a.mp4");
+  assert.equal(registration.body.source_fps, 24);
+  for (const request of h.requests) {
+    assert.equal(request.init.headers.Authorization, "Bearer " + TOKEN);
+    assert.equal(request.init.redirect, "error");
+    assert.equal(new URL(request.url).host, "127.0.0.1:8000");
+  }
+  const serialized = Array.from(h.stored.files.values()).join("");
+  assert.equal(serialized.includes(TOKEN), false);
+  assert.equal(h.stored.secrets.size, 1);
+});
+
+test("rejects remote endpoints and explains rejected credentials without leaking the token", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.panel.init();
+  h.el("server").value = "http://127.0.0.1.evil.test:8000";
+  h.el("token").value = TOKEN;
+  await assert.rejects(h.panel.connect(), /only to the local analyzer/);
+  assert.equal(h.requests.length, 0);
+  h.el("server").value = "http://127.0.0.1:8000";
+  h.intercept(request => request.pathname.endsWith("/health") ? h.json({ detail: "Invalid token" }, 401) : undefined);
+  await h.el("connect").fire("click");
+  assert.match(h.el("message").textContent, /token rejected/i);
+  assert.equal(h.el("message").textContent.includes(TOKEN), false);
+  assert.equal(h.panel.getState().connected, false);
+});
+
+test("starts the explicitly chosen full analysis and receives incremental results", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  h.el("mode").value = "flash_pro";
+  await h.panel.analyze();
+  const request = h.requests.find(request => request.pathname.endsWith("/analyze"));
+  assert.deepEqual(request.body, { mode: "flash_pro" });
+  assert.equal(h.el("analyze").disabled, true);
+  h.service.assets[0].analysis_progress = { stage: "analyzing_sections", completed_sections: 2, total_sections: 4, completed_shots: 4 };
+  h.service.shots.push(shot(4, "Newly analyzed wheel at the center."));
+  await h.poll();
+  assert.equal(h.el("results").children.length, 4);
+  assert.match(h.el("progress").textContent, /2\/4 sections/);
+  assert.equal(h.requests.filter(request => request.pathname.endsWith("/analyze")).length, 1);
+  h.service.assets[0].status = "complete";
+  await h.poll();
+  assert.equal(h.el("analyze").disabled, false);
+  assert.match(h.el("progress").textContent, /complete/);
+});
+
+test("search reveals safe literal highlights and result clicks navigate native source time", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  h.service.shots[1].visual_description = "A person centered near <img src=x onerror=bad()>";
+  await h.start();
+  await h.panel.search("center");
+  assert.equal(h.el("results").children.length, 1);
+  const result = h.el("results").children[0];
+  assert.ok(result.textContent.includes("<img src=x onerror=bad()>"));
+  const highlights = descendants(result, value => value.className === "highlight");
+  assert.ok(highlights.some(value => value.textContent.toLowerCase() === "center"));
+  assert.equal(descendants(result, value => value.tagName === "img").length, 0);
+  await result.fire("click");
+  assert.equal(h.opens.length, 1);
+  assert.equal(h.opens[0].seconds, 3);
+  assert.equal(h.opens[0].binding.item_id, "item-a");
+  assert.equal(h.opens[0].binding.project_id, "project-a");
+});
+
+test("markers include only visible valid results and remain bounded for long films", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  h.service.shots = Array.from({ length: 120 }, (_, i) => shot(i + 1, "Frame " + i));
+  h.service.shots.push(shot(121, "Invalid end", { end_seconds: -1 }));
+  await h.start();
+  assert.equal(h.el("results").children.length, 100);
+  await h.panel.addMarkers();
+  assert.equal(h.markers[0].cues.length, 100);
+  assert.equal(h.markers[0].cues[99].start, 297);
+  await h.el("show-more").fire("click");
+  await h.panel.addMarkers();
+  assert.equal(h.markers[1].cues.length, 120);
+  assert.equal(h.markers[1].cues.some(cue => cue.end < cue.start), false);
+  await h.panel.setTab("transcript");
+  await h.panel.search("center");
+  await h.panel.addMarkers();
+  assert.equal(h.markers[2].cues.length, 1);
+  assert.equal(h.markers[2].cues[0].start, 10.25);
+  assert.match(h.markers[2].cues[0].comment, /Meet me in the center/);
+});
+
+test("transcript navigation skips malformed timing and SRT exports all saved lines despite filtering", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  h.service.assets[0].transcript.push({ start_seconds: "invalid", start_time: "00:02", end_seconds: 5, text: "Invalid cue" });
+  h.service.assets[0].transcript.push({ start_seconds: 999, end_seconds: 1001, text: "Out of source bounds" });
+  await h.start();
+  await h.panel.setTab("transcript");
+  assert.equal(h.el("results").children.length, 3);
+  await h.panel.search("center");
+  assert.equal(h.el("results").children.length, 1);
+  await h.el("results").children[0].fire("click");
+  assert.equal(h.opens[0].seconds, 10.25);
+  await h.panel.exportSubtitles();
+  assert.equal(h.stored.saves.length, 1);
+  assert.equal(h.stored.saves[0].filename, "Desert footage_subtitles.srt");
+  assert.match(h.stored.saves[0].content, /Look at that circle/);
+  assert.match(h.stored.saves[0].content, /Keep moving/);
+  const request = h.requests.find(value => value.pathname.endsWith("/subtitles"));
+  assert.equal(request.query.get("q"), null);
+});
+
+test("an older search response cannot overwrite newer matches or create stale markers", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  let release;
+  h.intercept(request => {
+    if (request.pathname.endsWith("/shots") && request.query.get("q") === "circle") {
+      return new Promise(resolve => { release = () => resolve(h.json({ shots: [h.service.shots[0]], total: 1 })); });
+    }
+  });
+  const oldSearch = h.panel.search("circle");
+  await flush();
+  assert.equal(h.el("add-markers").disabled, true);
+  await h.panel.addMarkers();
+  assert.equal(h.markers.length, 0);
+  await h.panel.search("center");
+  release();
+  await oldSearch;
+  assert.equal(h.el("results").children.length, 1);
+  assert.match(h.el("results").textContent, /person stands in the center/);
+  await h.panel.addMarkers();
+  assert.equal(h.markers[0].cues[0].start, 3);
+});
+
+test("switching projects discards stale responses and prevents markers against the wrong project", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  h.service.assets.push(asset("clip-b", "project-b", "item-b", "Film B footage"));
+  await h.start();
+  let release;
+  h.intercept(request => {
+    if (request.pathname.endsWith("/assets") && request.query.get("project_id") === "project-a") {
+      return new Promise(resolve => { release = () => resolve(h.json({ assets: [h.service.assets[0]], total: 1 })); });
+    }
+  });
+  const oldRefresh = h.panel.refreshProject();
+  await flush();
+  h.current.project = "project-b";
+  h.current.clips = [];
+  await h.el("add-markers").fire("click");
+  assert.equal(h.markers.length, 0);
+  assert.match(h.el("message").textContent, /project changed/);
+  await h.panel.refreshProject();
+  release();
+  await oldRefresh;
+  assert.equal(h.el("project-name").textContent, "Film B");
+  assert.match(h.el("asset-toggle").textContent, /Film B footage/);
+  await h.panel.addMarkers();
+  assert.equal(h.markers[0].binding.project_id, "project-b");
+});
+
+test("disconnect during a pending response cannot restore the clip or restart polling", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  let release;
+  h.intercept(request => {
+    if (request.pathname.endsWith("/assets/clip-a")) {
+      return new Promise(resolve => { release = () => resolve(h.json(h.service.assets[0])); });
+    }
+  });
+  const pending = h.panel.selectAsset("clip-a");
+  await flush();
+  await h.panel.disconnect();
+  release();
+  await pending;
+  assert.equal(h.panel.getState().connected, false);
+  assert.equal(h.panel.getState().asset, null);
+  assert.equal(h.el("workspace").className.includes("hidden"), true);
+  assert.equal(h.stored.secrets.size, 0);
+  assert.equal(h.timers.size, 0);
+});
+
+test("reopening restores project clip, analysis mode, tab, and dialogue search without rerunning analysis", async t => {
+  const stored = persistentStorage();
+  const first = harness({ stored });
+  t.after(() => first.panel.destroy());
+  await first.start();
+  first.el("mode").value = "flash_pro";
+  await first.panel.setTab("transcript");
+  await first.panel.search("center");
+  first.panel.destroy();
+  const reopened = harness({ stored, service: first.service });
+  t.after(() => reopened.panel.destroy());
+  await reopened.panel.init();
+  assert.equal(reopened.panel.getState().connected, true);
+  assert.equal(reopened.el("mode").value, "flash_pro");
+  assert.equal(reopened.el("transcript-tab").getAttribute("aria-selected"), "true");
+  assert.equal(reopened.el("search").value, "center");
+  assert.equal(reopened.el("results").children.length, 1);
+  assert.equal(reopened.requests.filter(request => request.pathname.endsWith("/analyze")).length, 0);
+  assert.match(reopened.el("asset-toggle").textContent, /Desert footage/);
+});
+
+test("empty project stays usable and browser opening never puts the panel token in a URL", async t => {
+  const h = harness({ service: { assets: [], shots: [] } });
+  t.after(() => h.panel.destroy());
+  await h.start();
+  assert.equal(h.el("analyze").disabled, true);
+  assert.equal(h.el("add-markers").disabled, true);
+  assert.match(h.el("results").textContent, /Load a clip/);
+  assert.equal(h.el("load-selection").disabled, false);
+  await h.el("open-library").fire("click");
+  assert.deepEqual(h.browser, ["http://127.0.0.1:8000/"]);
+});
+
+test("changed media blocks transcript navigation before any native action and stays blocked until reload", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  await h.panel.setTab("transcript");
+  h.intercept(request => request.pathname.endsWith("/assets/clip-a") ? h.json({ detail: "The source file changed." }, 409) : undefined);
+  await h.el("results").children[0].fire("click");
+  assert.equal(h.opens.length, 0);
+  assert.equal(h.el("add-markers").disabled, true);
+  assert.ok(h.el("results").children.every(result => result.disabled));
+  await h.panel.addMarkers();
+  assert.equal(h.markers.length, 0);
+  h.intercept(undefined);
+  await h.poll();
+  assert.equal(h.el("add-markers").disabled, true, "A successful poll alone must not silently clear the warning");
+  await h.panel.selectAsset("clip-a");
+  assert.equal(h.el("add-markers").disabled, false);
+  await h.el("results").children[0].fire("click");
+  assert.equal(h.opens.length, 1);
+});
+
+test("a source conflict discovered by progress polling disables cached native results", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  h.intercept(request => request.pathname.endsWith("/assets/clip-a") ? h.json({ detail: "The original media is offline." }, 409) : undefined);
+  await h.poll();
+  assert.equal(h.el("add-markers").disabled, true);
+  assert.match(h.el("message").textContent, /offline/);
+  assert.ok(h.el("results").children.every(result => result.disabled));
+  await h.el("results").children[0].fire("click");
+  assert.equal(h.opens.length, 0);
+});
+
+test("marker preflight rejects a replaced analysis session and relinked item binding", async t => {
+  for (const changed of ["session", "binding"]) {
+    const h = harness();
+    t.after(() => h.panel.destroy());
+    h.service.assets[0].analysis_config = { started_at: "2026-10-10T12:00:00Z" };
+    await h.start();
+    if (changed === "session") h.service.assets[0].analysis_config.started_at = "2026-10-10T12:30:00Z";
+    else h.service.assets[0].editor_sources[0].media_path = "C:\\footage\\replacement.mp4";
+    await assert.rejects(h.panel.addMarkers(), /source binding or analysis changed/);
+    assert.equal(h.markers.length, 0);
+    assert.equal(h.el("add-markers").disabled, true);
+  }
+});
+
+test("disconnect or query change while native preflight is pending prevents host mutations", async t => {
+  for (const change of ["disconnect", "query"]) {
+    const h = harness();
+    t.after(() => h.panel.destroy());
+    await h.start();
+    let release;
+    h.intercept(request => {
+      if (request.pathname.endsWith("/assets/clip-a")) return new Promise(resolve => { release = () => resolve(h.json(h.service.assets[0])); });
+    });
+    const adding = h.panel.addMarkers();
+    const rejection = assert.rejects(adding, /selected results changed/);
+    await flush();
+    if (change === "disconnect") await h.panel.disconnect();
+    else await h.panel.search("center");
+    release();
+    await rejection;
+    assert.equal(h.markers.length, 0);
+  }
+});

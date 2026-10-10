@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="panel" class="panel">
+      <div class="heading">
+        <h1>Video Analyzer</h1>
+        <button id="connection-toggle" class="quiet" type="button" aria-expanded="true">Connection</button>
+      </div>
+      <div id="connection" class="connection">
+        <span class="field-label" id="server-label">Local service</span>
+        <input id="server" type="text" value="http://127.0.0.1:8000" aria-labelledby="server-label" />
+        <span class="field-label" id="token-label">Panel token</span>
+        <input id="token" type="password" aria-labelledby="token-label" placeholder="Paste your Premiere pairing code" />
+        <div class="row">
+          <button id="connect" type="button" class="primary">Connect</button>
+          <button id="disconnect" type="button" disabled>Disconnect</button>
+        </div>
+        <p class="hint">Open the companion app. In Settings, copy the Premiere pairing code and paste it here.</p>
+      </div>
+      <p id="message" class="message" role="status" aria-live="polite">Connect to your local analyzer to begin.</p>
+      <div id="workspace" class="workspace hidden">
+        <p id="project-name" class="project-name"></p>
+        <button id="load-selection" type="button" class="full-width">Load selected Premiere clips</button>
+        <button id="asset-toggle" type="button" class="asset-toggle" aria-expanded="false">Choose a clip</button>
+        <div id="asset-picker" class="asset-picker hidden">
+          <input id="asset-search" type="text" aria-label="Search clips in this Premiere project" placeholder="Search clips" />
+          <div id="asset-list" class="asset-list" role="list" aria-label="Clips in this Premiere project"></div>
+        </div>
+        <div id="analysis-actions" class="row">
+          <select id="mode" aria-label="Analysis type">
+            <option value="flash_only">Shots and tags</option>
+            <option value="flash_pro">Full analysis</option>
+          </select>
+          <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+        </div>
+        <p id="progress" class="progress" role="status" aria-live="polite"></p>
+        <div class="tabs" role="tablist" aria-label="Analysis results">
+          <button id="shots-tab" type="button" role="tab" aria-selected="true" aria-controls="results">Shots</button>
+          <button id="transcript-tab" type="button" role="tab" aria-selected="false" aria-controls="results">Transcript</button>
+        </div>
+        <input id="search" type="text" aria-label="Search shots" placeholder="Search shots, tags, composition…" />
+        <div class="row result-tools">
+          <p id="result-count" class="hint"></p>
+          <button id="add-markers" type="button" disabled>Add markers</button>
+        </div>
+        <p id="timing-note" class="hint">Results use source-media time. AI timing is approximate; verify cuts in Premiere.</p>
+        <div id="results" class="results" role="tabpanel" aria-labelledby="shots-tab"></div>
+        <button id="show-more" type="button" class="full-width hidden">Show more</button>
+        <div class="footer row">
+          <button id="export-subtitles" type="button" disabled>Export SRT</button>
+          <button id="open-library" type="button" class="quiet">Open full analyzer</button>
+        </div>
+      </div>
+    </div>
+    <script src="panel.js"></script>
+  </body>
+</html>

@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 from uuid import uuid4
+from app.utils.media_process import hidden_process_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ async def _extract_frame(video_path: str, seconds: float, output_path: str) -> b
             str(temporary),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            **hidden_process_kwargs(),
         )
         try:
             await asyncio.wait_for(proc.wait(), timeout=45)

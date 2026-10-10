@@ -67,6 +67,16 @@ The original scene timeline, comparison, and report views remain available from 
 
 ## Run locally
 
+### Installed app and Premiere preview
+
+A Windows companion installer packages the local engine and browser interface, with a tray menu for opening the app, pairing Premiere, and quitting. User data stays in `%LOCALAPPDATA%/VideoAnalyzer`; API keys, databases, and footage are excluded from the installer. Setup can install the required FFmpeg tools separately through WinGet.
+
+The **Premiere Pro 26.3+ UXP panel** loads selected original Project clips without copying them, lets you choose Shots and tags or Full analysis, searches progressive shot/dialogue results, opens source moments, adds undoable source markers, and exports SRT. Saved analysis stays in the companion; panel searches and clip choice persist per Premiere project. Original source files are never deleted by the integration.
+
+See [installation, pairing, and integration scope](integrations/premiere/README.md) and [desktop build instructions](packaging/README.md). This is a development preview: native Premiere installation and playback still need an acceptance pass in Premiere. macOS build scripts are provided; a tested, signed Mac package and local HTTPS networking remain to be completed on a Mac.
+
+### From source
+
 Requirements: Python 3.11+, Node.js 20.19+ or 22.12+, and ffmpeg/ffprobe on PATH.
 
 ### Windows PowerShell

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getAsset, getCapabilities, getLibrary, getProjects, getShots } from '../api/library'
 import type { AssetDetail, Capabilities, LibraryAsset, LibraryResponse, LibraryShot } from '../api/library'
 import { uploadVideo } from '../api/upload'
+import { copyPremierePairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
 import { useSettingsStore } from '../stores/settingsStore'
 import { AssetInspector } from './library/AssetInspector'
 import { Icon } from './library/Icon'
@@ -269,15 +270,84 @@ function SettingsDialog({ capabilities, onClose, onOpenAnalyzer }: { capabilitie
   const apiKey = useSettingsStore(state => state.apiKey)
   const setApiKey = useSettingsStore(state => state.setApiKey)
   const [key, setKey] = useState(apiKey)
+  const desktopSession = Boolean(getDesktopToken())
+  const [desktopConfigured, setDesktopConfigured] = useState(Boolean(capabilities?.google_configured))
+  const [desktopReady, setDesktopReady] = useState(false)
+  const [checkingDesktop, setCheckingDesktop] = useState(desktopSession)
+  const [saving, setSaving] = useState(false)
+  const [settingsError, setSettingsError] = useState('')
+  const [feedback, setFeedback] = useState('')
+  const [copying, setCopying] = useState(false)
+  const configured = desktopSession ? desktopConfigured : Boolean(capabilities?.google_configured || apiKey)
   useEffect(() => { dialog.current?.showModal() }, [])
-  return <dialog ref={dialog} className="lw-settings-dialog" aria-labelledby="settings-title" onCancel={onClose} onClose={onClose}>
-    <div className="lw-dialog-heading"><h2 id="settings-title">Settings</h2><button className="lw-icon-button" aria-label="Close settings" onClick={onClose}><Icon name="close" /></button></div>
-    <div className={`lw-provider-status ${capabilities?.google_configured || apiKey ? 'is-connected' : ''}`}><i /><span>{capabilities?.google_configured || apiKey ? 'Gemini key configured' : 'Add a Gemini key to analyze video.'}</span></div>
-    <form onSubmit={event => { event.preventDefault(); setApiKey(key.trim()); onClose() }}>
-      <label className="lw-field">Gemini API key<input type="password" autoComplete="off" value={key} onChange={event => setKey(event.target.value)} placeholder={capabilities?.google_configured ? 'Use server key' : 'Paste API key'} /><span className="lw-field-hint">Saved in this browser. Leave blank to use the server key.</span></label>
+  useEffect(() => {
+    if (!desktopSession) return
+    const controller = new AbortController()
+    getDesktopHealth(controller.signal).then(result => {
+      if (controller.signal.aborted) return
+      setDesktopConfigured(result.google_configured)
+      setDesktopReady(true)
+      setSettingsError('')
+    }).catch(error => {
+      if (!controller.signal.aborted) setSettingsError(error instanceof Error ? error.message : 'The companion app is unavailable.')
+    }).finally(() => { if (!controller.signal.aborted) setCheckingDesktop(false) })
+    return () => controller.abort()
+  }, [desktopSession])
+
+  async function saveKey() {
+    if (saving) return
+    const trimmed = key.trim()
+    if (!desktopSession || !trimmed) {
+      // An empty desktop form keeps the companion key and removes any browser override.
+      setApiKey(desktopSession ? '' : trimmed)
+      onClose()
+      return
+    }
+    setSaving(true); setSettingsError(''); setFeedback('')
+    try {
+      const response = await fetch('/api/validate-key', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: trimmed }),
+      })
+      const validation = await response.json().catch(() => { throw new Error('Could not read API key validation. Try again.') })
+      if (!response.ok || validation.valid !== true) throw new Error('Google could not validate this API key. Check it and try again.')
+      const saved = await saveDesktopGoogleApiKey(trimmed)
+      setDesktopConfigured(saved.google_configured)
+      setApiKey(''); setKey('')
+      onClose()
+    } catch (error) {
+      setSettingsError(error instanceof Error && !/fetch|json/i.test(error.message) ? error.message : 'Could not validate or save the key. Check the companion app and try again.')
+    } finally { setSaving(false) }
+  }
+
+  async function clearKey() {
+    if (saving) return
+    setSaving(true); setSettingsError(''); setFeedback('')
+    try {
+      const saved = await saveDesktopGoogleApiKey('')
+      setDesktopConfigured(saved.google_configured)
+      setApiKey(''); setKey(''); setFeedback('Gemini key cleared.')
+    } catch (error) { setSettingsError(error instanceof Error ? error.message : 'Could not clear the key.') }
+    finally { setSaving(false) }
+  }
+
+  async function copyPairingCode() {
+    setCopying(true); setFeedback(''); setSettingsError('')
+    try { await copyPremierePairingCode(); setFeedback('Copied. Paste it into the Premiere panel.') }
+    catch (error) { setSettingsError(error instanceof Error ? error.message : 'Could not copy the pairing code.') }
+    finally { setCopying(false) }
+  }
+
+  return <dialog ref={dialog} className="lw-settings-dialog" aria-labelledby="settings-title" onCancel={event => { if (saving) event.preventDefault(); else onClose() }} onClose={onClose}>
+    <div className="lw-dialog-heading"><h2 id="settings-title">Settings</h2><button className="lw-icon-button" aria-label="Close settings" onClick={onClose} disabled={saving}><Icon name="close" /></button></div>
+    <div className={`lw-provider-status ${configured ? 'is-connected' : ''}`}><i /><span>{checkingDesktop ? 'Checking companion app…' : configured ? 'Gemini key configured' : 'Add a Gemini key to analyze video.'}</span></div>
+    <form onSubmit={event => { event.preventDefault(); void saveKey() }}>
+      <label className="lw-field">Gemini API key<input type="password" autoComplete="off" disabled={saving} value={key} onChange={event => { setKey(event.target.value); setSettingsError(''); setFeedback('') }} placeholder={configured ? 'Enter a new key to replace it' : 'Paste API key'} /><span className="lw-field-hint">{desktopSession ? 'Saved locally by the companion app and used in Premiere. Leave blank to keep the configured key.' : 'Saved in this browser. Leave blank to use the server key.'}</span></label>
+      {settingsError && <p className="lw-inline-error" role="alert">{settingsError}</p>}
+      {feedback && <p className="lw-field-hint" role="status">{feedback}</p>}
       <details className="lw-details"><summary>Models</summary><dl><div><dt>Indexing</dt><dd>{capabilities?.models.analysis || 'Server default'}</dd></div><div><dt>Deep analysis</dt><dd>{capabilities?.models.deep || 'Server default'}</dd></div></dl></details>
-      <div className="lw-dialog-actions"><button type="button" className="lw-button" onClick={onClose}>Cancel</button><button type="submit" className="lw-button lw-button-primary">Save</button></div>
+      {desktopReady && <button type="button" className="lw-button" onClick={() => void copyPairingCode()} disabled={saving || copying}>{copying ? 'Copying…' : 'Copy Premiere pairing code'}</button>}
+      <div className="lw-dialog-actions">{desktopReady && desktopConfigured && <button type="button" className="lw-button" onClick={() => void clearKey()} disabled={saving}>Clear key</button>}<button type="button" className="lw-button" onClick={onClose} disabled={saving}>Cancel</button><button type="submit" className="lw-button lw-button-primary" disabled={saving || checkingDesktop}>{saving ? 'Saving…' : 'Save'}</button></div>
     </form>
-    <button className="lw-text-button lw-analyzer-link" onClick={() => { onClose(); onOpenAnalyzer() }}>Open analyzer<Icon name="arrow" size={14} /></button>
+    <button className="lw-text-button lw-analyzer-link" disabled={saving} onClick={() => { onClose(); onOpenAnalyzer() }}>Open analyzer<Icon name="arrow" size={14} /></button>
   </dialog>
 }

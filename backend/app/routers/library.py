@@ -157,7 +157,10 @@ async def poster(job_id: str):
 
 @router.post('/{job_id}/analyze', status_code=202)
 async def analyze_asset(job_id: str, body: AnalyzeRequest, api_key: str | None = Depends(get_api_key)):
-    require_job(job_id)
+    job = require_job(job_id)
+    if job.media_origin == 'external':
+        from app.services.editor_bridge import ensure_source_unchanged
+        ensure_source_unchanged(job)
     if not (api_key or settings.google_api_key):
         raise HTTPException(400, 'Configure a Gemini key in Settings or GOOGLE_API_KEY in .env to analyze footage')
     if not claim_analysis(job_id):

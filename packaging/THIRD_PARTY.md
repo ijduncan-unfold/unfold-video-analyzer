@@ -1,0 +1,23 @@
+# Desktop dependency notices
+
+The desktop preview bundles Python, PyInstaller's bootloader, and the libraries
+declared in `backend/requirements.txt` and `requirements-desktop.txt`. Package
+license files and metadata are retained where provided by their distributions.
+The build writes an exact installed dependency list alongside the installer.
+
+Python: https://docs.python.org/3/license.html
+PyInstaller bootloader exception: https://pyinstaller.org/en/stable/license.html
+Pystray (LGPL-3.0): https://github.com/moses-palmer/pystray/blob/master/COPYING.LGPL
+Pillow (HPND): https://github.com/python-pillow/Pillow/blob/main/LICENSE
+OpenCV: https://github.com/opencv/opencv/blob/4.x/LICENSE
+NumPy: https://github.com/numpy/numpy/blob/main/LICENSE.txt
+Google Gen AI SDK: https://github.com/googleapis/python-genai/blob/main/LICENSE
+
+FFmpeg and FFprobe are **not bundled** in this preview. Users install them
+separately. A release bundling these tools needs a reviewed redistributable build,
+its licenses, and corresponding source for the build and its linked dependencies.
+See https://ffmpeg.org/legal.html. Merely copying a locally installed executable
+and linking to generic FFmpeg source is insufficient for a release checklist.
+
+Before public release, generate a complete software bill of materials and audit
+the actual frozen bundle's notices and licenses, then sign the installer/app.

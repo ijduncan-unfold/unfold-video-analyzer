@@ -1,0 +1,77 @@
+"""Authenticated loopback API for the Premiere UXP companion panel."""
+import os
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+
+from app.config import settings
+from app.models.library import AnalyzeRequest
+from app.routers.library import analyze_asset, require_job, search_shots
+from app.services.editor_bridge import (
+    PremiereSource, editor_view, ensure_source_unchanged, project_assets,
+    register_source, require_editor, DesktopSettings, save_desktop_settings,
+)
+from app.services.library_export import export_library
+
+router = APIRouter(prefix='/api/editor/premiere', dependencies=[Depends(require_editor)])
+
+
+@router.get('/health')
+async def health():
+    import shutil
+    return {'status': 'ok', 'protocol_version': 1, 'host': 'premiere',
+            'google_configured': bool(settings.google_api_key),
+            'google_api_key_configured': bool(settings.google_api_key),
+            'desktop_mode': os.environ.get('VIDEO_ANALYZER_DESKTOP') == '1',
+            'local_media': bool(shutil.which('ffmpeg') and shutil.which('ffprobe'))}
+
+
+@router.post('/settings')
+async def save_settings(body: DesktopSettings):
+    save_desktop_settings(body)
+    return await health()
+
+
+@router.post('/register')
+async def register(body: PremiereSource):
+    return await register_source(body)
+
+
+@router.get('/assets')
+async def assets(project_id: str = Query(min_length=1, max_length=500)):
+    result = project_assets(project_id)
+    return {'assets': result, 'total': len(result)}
+
+
+@router.get('/assets/{job_id}')
+async def asset(job_id: str):
+    job = require_job(job_id)
+    ensure_source_unchanged(job)
+    return editor_view(job)
+
+
+@router.get('/assets/{job_id}/shots')
+async def shots(job_id: str, q: str = Query(default='', max_length=500),
+                limit: int = Query(default=500, ge=1, le=500)):
+    ensure_source_unchanged(require_job(job_id))
+    return await search_shots(q=q, job_id=job_id, limit=limit, offset=0,
+                              project='', review_status='', tag='', rights_status='', collection='')
+
+
+@router.post('/assets/{job_id}/analyze', status_code=202)
+async def analyze(job_id: str, body: AnalyzeRequest):
+    return await analyze_asset(job_id, body, api_key=None)
+
+
+@router.get('/assets/{job_id}/subtitles')
+async def subtitles(job_id: str):
+    job = require_job(job_id)
+    ensure_source_unchanged(job)
+    try:
+        content, media_type, _ = export_library(job, 'srt')
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    name = quote(f'{job.filename.rsplit(".", 1)[0]}.srt')
+    return Response(content=content, media_type=media_type,
+                    headers={'Content-Disposition': f"attachment; filename*=UTF-8''{name}"})
