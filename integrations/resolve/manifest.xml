@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+  <Plugin>
+    <Id>com.ijduncan.videoanalyzer</Id>
+    <Name>Video Analyzer</Name>
+    <Version>0.1.0</Version>
+    <Description>Search shots and dialogue, analyze original footage, and add source markers.</Description>
+    <FilePath>main.js</FilePath>
+  </Plugin>
+</BlackmagicDesign>

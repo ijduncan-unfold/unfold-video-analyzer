@@ -1,6 +1,7 @@
 """Build from the repository root; only allowlisted public resources enter the app."""
 from pathlib import Path
 import os
+import json
 import platform
 import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
@@ -31,6 +32,16 @@ for package in ("google-genai", "pydantic", "pydantic-settings", "fastapi", "uvi
 datas += copy_metadata("pyinstaller")
 datas += [(str(root / "packaging" / "README.md"), "desktop-docs"),
           (str(root / "packaging" / "THIRD_PARTY.md"), "desktop-docs")]
+
+# Public Resolve UI only. The native bridge comes from the user's installed SDK.
+resolve_files = json.loads((root / 'packaging/resolve/public-files.json').read_text(encoding='utf-8'))
+for name in resolve_files:
+    path = root / 'integrations/resolve' / name
+    if path.is_symlink() or not path.is_file() or Path(name).name != name or '/' in name or '\\' in name or name.endswith('.node'):
+        raise SystemExit('A public Resolve panel resource is missing or unsafe.')
+    datas.append((str(path), 'resolve-panel'))
+for name in ('install-resolve.ps1', 'install-resolve-macos.command', 'public-files.json'):
+    datas.append((str(root / 'packaging/resolve' / name), 'desktop-docs'))
 
 mac_exe_options = {}
 if sys.platform == "darwin":
@@ -64,7 +75,7 @@ if sys.platform == "darwin":
                              "CFBundleName": "Video Analyzer", "CFBundleDisplayName": "Video Analyzer",
                              "LSUIElement": True, "LSMinimumSystemVersion": "15.0",
                              "LSArchitecturePriority": ["arm64"], "NSHighResolutionCapable": True,
-                             "NSAppleEventsUsageDescription": "Open Terminal when you choose to prepare the trusted local HTTPS connection for Premiere.",
+                             "NSAppleEventsUsageDescription": "Open Terminal when you choose to install the Resolve integration or prepare your editor's trusted local HTTPS connection.",
                              "NSDocumentsFolderUsageDescription": "Analyze source media you select from Documents.",
                              "NSDownloadsFolderUsageDescription": "Analyze source media you select from Downloads.",
                              "NSDesktopFolderUsageDescription": "Analyze source media you select from Desktop."})

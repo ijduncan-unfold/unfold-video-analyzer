@@ -14,6 +14,8 @@ def verify(app: Path, frontend: Path, smoke: Path) -> None:
                 "certificate_verified": True}
     if any(report.get(key) != value for key, value in expected.items()):
         raise ValueError("Isolated HTTPS smoke verification failed")
+    if 'resolve' not in report.get('editor_hosts', []):
+        raise ValueError('The bundled Resolve editor API is missing')
     with (app / "Contents/Info.plist").open("rb") as source:
         info = plistlib.load(source)
     if info.get("CFBundleIdentifier") != "com.ijduncan.videoanalyzer" or info.get("LSMinimumSystemVersion") != "15.0":
@@ -26,7 +28,8 @@ def verify(app: Path, frontend: Path, smoke: Path) -> None:
         raise ValueError("The app must be built natively for Apple Silicon")
     resources = app / "Contents/Resources"
     for relative in ("desktop-docs/setup-premiere-macos.command", "desktop-docs/macos-common.sh",
-                     "plugins/VideoAnalyzer-Premiere-0.1.0.ccx"):
+                     "plugins/VideoAnalyzer-Premiere-0.1.0.ccx", "desktop-docs/install-resolve-macos.command",
+                     "desktop-docs/public-files.json", "resolve-panel/manifest.xml"):
         if not (resources / relative).is_file():
             raise ValueError("A required public setup resource is missing")
     for source in frontend.rglob("*"):
@@ -35,7 +38,7 @@ def verify(app: Path, frontend: Path, smoke: Path) -> None:
             if not bundled.is_file() or hashlib.sha256(source.read_bytes()).digest() != hashlib.sha256(bundled.read_bytes()).digest():
                 raise ValueError("The bundled frontend does not match the build")
     forbidden_names = {"premiere-token.txt", "desktop-settings.json", "localhost.pem",
-                       "localhost-key.pem", "rootCA.pem", "rootCA-key.pem"}
+                       "localhost-key.pem", "rootCA.pem", "rootCA-key.pem", "WorkflowIntegration.node"}
     forbidden_extensions = {".db", ".sqlite", ".sqlite3", ".mp4", ".mov", ".mkv", ".avi", ".p12"}
     for source in app.rglob("*"):
         if source.is_file() and (source.name.startswith(".env") or source.name in forbidden_names or source.suffix.lower() in forbidden_extensions):

@@ -357,3 +357,107 @@ def test_mac_setup_and_panel_actions_report_missing_resources_without_launch(mon
     with pytest.raises(ValueError, match='package is missing'):
         desktop._install_premiere_panel()
     launch.assert_not_called()
+
+
+def _resolve_install_resources(tmp_path, suffix):
+    plugin = tmp_path / "App's $(touch ignored); & public plugin"
+    plugin.mkdir()
+    (plugin / 'manifest.xml').write_text('<test-fixture />', encoding='utf-8')
+    helper = tmp_path / ("Install's $(touch ignored); & Resolve" + suffix)
+    helper.write_text('# test placeholder', encoding='utf-8')
+    return plugin, helper
+
+
+def test_windows_resolve_launcher_passes_literal_argv_and_hides_its_process(monkeypatch, tmp_path):
+    plugin, helper = _resolve_install_resources(tmp_path, '.ps1')
+    monkeypatch.setattr(desktop.sys, 'platform', 'win32')
+    monkeypatch.setattr(desktop.sys, 'frozen', False, raising=False)
+    resource = Mock(side_effect=lambda relative: helper if relative.endswith('.ps1') else plugin)
+    monkeypatch.setattr(desktop, '_resource_path', resource)
+    monkeypatch.setattr(desktop.subprocess, 'CREATE_NO_WINDOW', 0x08000000, raising=False)
+    launch = Mock()
+    monkeypatch.setattr(desktop.subprocess, 'Popen', launch)
+    desktop._install_resolve_panel()
+    assert [call.args[0] for call in resource.call_args_list] == [
+        'integrations/resolve', 'packaging/resolve/install-resolve.ps1',
+    ]
+    launch.assert_called_once_with([
+        'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(helper.resolve()),
+        '-PluginPath', str(plugin.resolve()),
+    ], creationflags=0x08000000)
+    assert 'shell' not in launch.call_args.kwargs
+
+
+def test_mac_resolve_launcher_quotes_arguments_without_interpolating_paths(monkeypatch, tmp_path):
+    plugin, helper = _resolve_install_resources(tmp_path, '.command')
+    monkeypatch.setattr(desktop.sys, 'platform', 'darwin')
+    monkeypatch.setattr(desktop.sys, 'frozen', False, raising=False)
+    resource = Mock(side_effect=lambda relative: helper if relative.endswith('.command') else plugin)
+    monkeypatch.setattr(desktop, '_resource_path', resource)
+    launch = Mock()
+    monkeypatch.setattr(desktop.subprocess, 'Popen', launch)
+    desktop._install_resolve_panel()
+    assert [call.args[0] for call in resource.call_args_list] == [
+        'integrations/resolve', 'packaging/resolve/install-resolve-macos.command',
+    ]
+    argv = launch.call_args.args[0]
+    assert argv[:2] == ['/usr/bin/osascript', '-e']
+    assert argv[3:] == [str(helper.resolve()), str(plugin.resolve())]
+    assert 'quoted form of (item 1 of argv)' in argv[2]
+    assert 'quoted form of (item 2 of argv)' in argv[2]
+    assert str(helper) not in argv[2] and str(plugin) not in argv[2]
+    assert 'touch ignored' not in argv[2]
+    assert launch.call_args.kwargs == {}
+
+
+@pytest.mark.parametrize('platform, suffix', [('win32', '.ps1'), ('darwin', '.command')])
+def test_frozen_resolve_launcher_uses_bundle_resources_and_resolves_crosslinks(monkeypatch, tmp_path, platform, suffix):
+    plugin, helper = _resolve_install_resources(tmp_path, suffix)
+    monkeypatch.setattr(desktop.sys, 'platform', platform)
+    monkeypatch.setattr(desktop.sys, 'frozen', True, raising=False)
+    # Model PyInstaller Resources/Frameworks cross-links without creating links
+    # or running any platform command. The installer receives their resolved paths.
+    linked_plugin = SimpleNamespace(resolve=Mock(return_value=plugin))
+    linked_helper = SimpleNamespace(resolve=Mock(return_value=helper))
+    resource = Mock(side_effect=lambda relative: linked_helper if relative.endswith(suffix) else linked_plugin)
+    monkeypatch.setattr(desktop, '_resource_path', resource)
+    monkeypatch.setattr(desktop.subprocess, 'CREATE_NO_WINDOW', 0x08000000, raising=False)
+    launch = Mock()
+    monkeypatch.setattr(desktop.subprocess, 'Popen', launch)
+    desktop._install_resolve_panel()
+    assert [call.args[0] for call in resource.call_args_list] == [
+        'resolve-panel', 'desktop-docs/install-resolve' + ('-macos.command' if platform == 'darwin' else '.ps1'),
+    ]
+    linked_plugin.resolve.assert_called_once_with()
+    linked_helper.resolve.assert_called_once_with()
+    argv = launch.call_args.args[0]
+    assert str(helper) in argv and str(plugin) in argv
+
+
+@pytest.mark.parametrize('platform, suffix', [('win32', '.ps1'), ('darwin', '.command')])
+@pytest.mark.parametrize('missing', ['helper', 'manifest'])
+def test_resolve_launcher_missing_resources_fails_before_spawning(monkeypatch, tmp_path, platform, suffix, missing):
+    plugin, helper = _resolve_install_resources(tmp_path, suffix)
+    if missing == 'helper':
+        helper.unlink()
+    else:
+        (plugin / 'manifest.xml').unlink()
+    monkeypatch.setattr(desktop.sys, 'platform', platform)
+    monkeypatch.setattr(desktop.sys, 'frozen', False, raising=False)
+    monkeypatch.setattr(desktop, '_resource_path', Mock(side_effect=lambda relative: helper if relative.endswith(suffix) else plugin))
+    launch = Mock()
+    monkeypatch.setattr(desktop.subprocess, 'Popen', launch)
+    with pytest.raises(ValueError, match='Resolve integration resources are missing'):
+        desktop._install_resolve_panel()
+    launch.assert_not_called()
+
+
+def test_resolve_launcher_unsupported_platform_fails_without_spawning(monkeypatch, tmp_path):
+    monkeypatch.setattr(desktop.sys, 'platform', 'linux')
+    monkeypatch.setattr(desktop.sys, 'frozen', False, raising=False)
+    monkeypatch.setattr(desktop, '_resource_path', Mock(return_value=tmp_path / 'unused'))
+    launch = Mock()
+    monkeypatch.setattr(desktop.subprocess, 'Popen', launch)
+    with pytest.raises(ValueError, match='supports Windows and Apple Silicon Mac'):
+        desktop._install_resolve_panel()
+    launch.assert_not_called()

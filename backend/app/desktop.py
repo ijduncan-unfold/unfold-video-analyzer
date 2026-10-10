@@ -79,8 +79,9 @@ def show_pairing_token() -> None:
         webbrowser.open(token_path.as_uri())
 
 
-def _get_json(url: str, context: ssl.SSLContext | None = None) -> dict:
-    with urllib.request.urlopen(url, timeout=5, context=context) as response:
+def _get_json(url: str, context: ssl.SSLContext | None = None, headers=None) -> dict:
+    request = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(request, timeout=5, context=context) as response:
         return json.load(response)
 
 
@@ -143,6 +144,32 @@ def _install_premiere_panel() -> None:
         os.startfile(str(package))
 
 
+def _install_resolve_panel() -> None:
+    frozen = getattr(sys, 'frozen', False)
+    # PyInstaller cross-links Mac Resources/Frameworks. Pass the actual data
+    # directory so the installer can still refuse arbitrary filesystem links.
+    plugin = _resource_path('resolve-panel' if frozen else 'integrations/resolve').resolve()
+    if sys.platform == 'win32':
+        helper = _resource_path('desktop-docs/install-resolve.ps1' if frozen else 'packaging/resolve/install-resolve.ps1').resolve()
+        if not helper.is_file() or not (plugin / 'manifest.xml').is_file():
+            raise ValueError('The Resolve integration resources are missing. Build the current companion app.')
+        subprocess.Popen(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(helper),
+                          '-PluginPath', str(plugin)], creationflags=subprocess.CREATE_NO_WINDOW)
+    elif sys.platform == 'darwin':
+        helper = _resource_path('desktop-docs/install-resolve-macos.command' if frozen else 'packaging/resolve/install-resolve-macos.command').resolve()
+        if not helper.is_file() or not (plugin / 'manifest.xml').is_file():
+            raise ValueError('The Resolve integration resources are missing. Build the current companion app.')
+        script = '''on run argv
+tell application "Terminal"
+activate
+do script "/bin/bash " & quoted form of (item 1 of argv) & " " & quoted form of (item 2 of argv)
+end tell
+end run'''
+        subprocess.Popen(['/usr/bin/osascript', '-e', script, str(helper), str(plugin)])
+    else:
+        raise ValueError('This Resolve integration supports Windows and Apple Silicon Mac.')
+
+
 def _tray_image():
     from PIL import Image, ImageDraw
     image = Image.new("RGBA", (64, 64), (15, 23, 42, 255))
@@ -161,9 +188,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tls-cert", type=Path)
     parser.add_argument("--tls-key", type=Path)
     parser.add_argument("--tls-ca", type=Path)
-    parser.add_argument("--pair-premiere", action="store_true", help="Open your local Premiere pairing token")
+    parser.add_argument("--pair-premiere", "--pair-editor", "--pair-resolve", action="store_true", help="Open your local editor pairing token")
     parser.add_argument("--setup-premiere", action="store_true", help="Open explicit Mac HTTPS setup in Terminal")
     parser.add_argument("--install-premiere-panel", action="store_true", help="Open the bundled panel in Creative Cloud")
+    parser.add_argument("--install-resolve-panel", action="store_true", help="Install the Resolve Studio workflow integration")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--no-tray", action="store_true", help="Run until interrupted, without a tray icon")
     parser.add_argument("--smoke-test", action="store_true", help="Start, check health and frontend, then stop")
@@ -194,6 +222,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.install_premiere_panel:
         _install_premiere_panel()
         handler.close()
+        return 0
+    if args.install_resolve_panel:
+        try:
+            _install_resolve_panel()
+        finally:
+            handler.close()
         return 0
 
     resources = ExitStack()
@@ -278,9 +312,15 @@ def main(argv: list[str] | None = None) -> int:
                         raise RuntimeError("A bundled frontend asset is missing")
             if health.get("status") != "ok":
                 raise RuntimeError("Health check failed")
+            for editor_host in ('premiere', 'resolve'):
+                editor_health = _get_json(base_url + f'/api/editor/{editor_host}/health', client_context,
+                                          {'Authorization': 'Bearer ' + get_pairing_token()})
+                if editor_health.get('status') != 'ok' or editor_health.get('host') != editor_host:
+                    raise RuntimeError('A bundled editor API is missing')
             report = {"status": "ok", "frontend": "ok", "local_media": capabilities.get("local_media"),
                       "google_configured": capabilities.get("google_configured"),
-                      "transport": 'https' if tls else 'http', 'certificate_verified': bool(tls)}
+                      "transport": 'https' if tls else 'http', 'certificate_verified': bool(tls),
+                      'editor_hosts': ['premiere', 'resolve']}
             (data_dir / "smoke-test.json").write_text(json.dumps(report), encoding="utf-8")
             if sys.stdout:
                 print(json.dumps(report))
@@ -304,13 +344,21 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     show_pairing_token()
                 except Exception:
-                    log.exception("Unable to open Premiere pairing file")
+                    log.exception("Unable to open editor pairing file")
                     show_message("Could not open the pairing file. See desktop.log for details.", error=True)
+
+            def install_resolve(icon, item):
+                try:
+                    _install_resolve_panel()
+                except Exception:
+                    log.exception('Unable to start Resolve installation')
+                    show_message('Could not start Resolve installation. See desktop.log for details.', error=True)
 
             icon = pystray.Icon("video-analyzer", _tray_image(), "Video Analyzer", menu=pystray.Menu(
                 pystray.MenuItem("Open Video Analyzer", lambda icon, item: _open_ui(base_url), default=True),
-                pystray.MenuItem("Pair with Premiere", pair),
+                pystray.MenuItem("Pair with editor", pair),
                 pystray.MenuItem("Install Premiere panel", lambda icon, item: _install_premiere_panel(), visible=sys.platform == 'darwin'),
+                pystray.MenuItem("Install Resolve integration", install_resolve),
                 pystray.MenuItem("Set up Premiere HTTPS", lambda icon, item: _setup_premiere_mac(data_dir), visible=sys.platform == 'darwin'),
                 pystray.MenuItem("Open data folder", lambda icon, item: _open_data_folder(data_dir)),
                 pystray.MenuItem("Quit", quit_app),

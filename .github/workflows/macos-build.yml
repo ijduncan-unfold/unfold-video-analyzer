@@ -7,6 +7,7 @@ on:
       - '.github/workflows/macos-build.yml'
       - 'scripts/*macos*'
       - 'packaging/macos/**'
+      - 'packaging/resolve/**'
       - 'packaging/desktop.spec'
       - 'packaging/verify_macos_build.py'
       - 'packaging/test_verify_macos_build.py'
@@ -16,7 +17,9 @@ on:
       - 'backend/**'
       - 'frontend/**'
       - 'integrations/premiere/**'
+      - 'integrations/resolve/**'
       - 'scripts/package-premiere.py'
+      - 'scripts/package-resolve.py'
       - 'requirements-desktop.txt'
 
 permissions:
@@ -58,7 +61,7 @@ jobs:
           va_require_macos
           va_require_native_python "$(command -v python)"
           va_require_native_node
-          for script in scripts/*macos.sh scripts/*macos.command packaging/macos/*.sh packaging/macos/*.command; do
+          for script in scripts/*macos.sh scripts/*macos.command packaging/macos/*.sh packaging/macos/*.command packaging/resolve/*.command; do
             bash -n "$script"
           done
       - name: Install build dependencies
@@ -67,11 +70,12 @@ jobs:
           python -m venv build/desktop/venv-arm64
           build/desktop/venv-arm64/bin/python -m pip install -r requirements-desktop.txt -r backend/requirements-dev.txt
           npm --prefix frontend ci
-      - name: Verify backend and Premiere contract
+      - name: Verify backend and editor contracts
         run: |
           build/desktop/venv-arm64/bin/python -m pytest -q
           build/desktop/venv-arm64/bin/python -m unittest discover -s packaging -p test_verify_macos_build.py
           node --test integrations/premiere/tests/*.test.cjs
+          node --test integrations/resolve/tests/*.test.cjs
       - name: Build frontend
         run: |
           npm --prefix frontend run lint
@@ -88,6 +92,7 @@ jobs:
             dist/installers/*-preview-macos-arm64.zip
             dist/installers/*-preview-macos-arm64.dmg
             dist/installers/VideoAnalyzer-Premiere-*.ccx
+            dist/installers/VideoAnalyzer-Resolve-*.zip
             dist/installers/SHA256SUMS-macos-arm64.txt
             dist/installers/build-environment-macos-arm64.json
             dist/installers/smoke-test-macos-arm64.json

@@ -21,3 +21,8 @@ and linking to generic FFmpeg source is insufficient for a release checklist.
 
 Before public release, generate a complete software bill of materials and audit
 the actual frozen bundle's notices and licenses, then sign the installer/app.
+
+The Resolve integration's `WorkflowIntegration.node` is **not redistributed**.
+Its installation helper copies the matching bridge from the user's own installed
+Blackmagic Developer SDK. Resolve supplies the plugin's Electron runtime. Use the
+installed Resolve SDK documentation and license for that vendor component.

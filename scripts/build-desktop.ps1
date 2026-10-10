@@ -28,6 +28,8 @@ try {
         & npm.cmd --prefix frontend run build
         if ($LASTEXITCODE -ne 0) { throw "Frontend build failed." }
     }
+    & $PythonPath scripts/package-resolve.py
+    if ($LASTEXITCODE -ne 0) { throw "Resolve plugin packaging failed." }
     & $PythonPath -m PyInstaller --noconfirm --distpath dist/desktop --workpath build/desktop packaging/desktop.spec
     if ($LASTEXITCODE -ne 0) { throw "Frozen desktop build failed." }
     $bundleDir = Join-Path $repoRoot 'dist/desktop/VideoAnalyzer'
@@ -42,6 +44,7 @@ try {
     if ($smokeProcess.ExitCode -ne 0) { throw "Desktop smoke test failed; inspect build/desktop/smoke-data/desktop.log." }
     $smokeReport = Get-Content -LiteralPath (Join-Path $smokeDir 'smoke-test.json') -Raw | ConvertFrom-Json
     if ($smokeReport.google_configured) { throw "Smoke test discovered an inherited Gemini key; investigate desktop isolation." }
+    if ('resolve' -notin $smokeReport.editor_hosts) { throw "The frozen Resolve API is missing." }
     & $PythonPath scripts/package-premiere.py
     if ($LASTEXITCODE -ne 0) { throw "Premiere plugin packaging failed." }
     & $InnoPath ("/DAppVersion={0}" -f $Version) ("/DBundleDir={0}" -f $bundleDir) packaging/windows.iss

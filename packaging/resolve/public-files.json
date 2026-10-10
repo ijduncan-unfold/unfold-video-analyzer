@@ -1,0 +1,12 @@
+[
+  "manifest.xml",
+  "package.json",
+  "main.js",
+  "preload.js",
+  "host.js",
+  "service.js",
+  "controller.js",
+  "panel.js",
+  "index.html",
+  "styles.css"
+]

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
-import { copyPremierePairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
+import { copyEditorPairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
 
 export function SettingsMenu() {
   const [isOpen, setIsOpen] = useState(false)
@@ -31,8 +31,8 @@ export function SettingsMenu() {
   const handleCopyPairingCode = async () => {
     setPairingMessage('')
     try {
-      await copyPremierePairingCode()
-      setPairingMessage('Copied. Paste it into the Premiere panel.')
+      await copyEditorPairingCode()
+      setPairingMessage('Copied. Paste it into Premiere or Resolve.')
     } catch (error) {
       setPairingMessage(error instanceof Error ? error.message : 'Could not copy the pairing code.')
     }
@@ -83,7 +83,7 @@ export function SettingsMenu() {
               </button>
               {desktopReady && (
                 <button onClick={handleCopyPairingCode} className="w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-700/50 transition-colors">
-                  Copy Premiere pairing code
+                  Copy editor pairing code
                 </button>
               )}
               {desktopSession && (pairingMessage || desktopError) && (
@@ -199,7 +199,7 @@ function ApiKeyModal({ onClose, desktopSession, desktopConfigured, onDesktopConf
         </div>
 
         <p className="text-xs text-zinc-400 mb-3">
-          {desktopSession ? 'Your key is saved locally by the companion app and used for Gemini analysis in Premiere.' : "Enter your Google AI Studio API key to use Video Analyzer. Your key is stored in this browser and sent to this application's backend, which calls Google's API. A server-configured key can also be used."}
+          {desktopSession ? 'Your key is saved locally by the companion app and used for Gemini analysis in the browser, Premiere, and Resolve.' : "Enter your Google AI Studio API key to use Video Analyzer. Your key is stored in this browser and sent to this application's backend, which calls Google's API. A server-configured key can also be used."}
         </p>
         {desktopSession && desktopConfigured && !apiKey && (
           <p className="text-xs text-blue-400 mb-3">A key is configured in the companion app. Enter a new key to replace it.</p>

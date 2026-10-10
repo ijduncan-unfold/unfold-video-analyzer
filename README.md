@@ -67,13 +67,17 @@ The original scene timeline, comparison, and report views remain available from 
 
 ## Run locally
 
-### Installed app and Premiere preview
+### Installed app and editor previews
 
-A Windows companion installer packages the local engine and browser interface, with a tray menu for opening the app, pairing Premiere, and quitting. User data stays in `%LOCALAPPDATA%/VideoAnalyzer`; API keys, databases, and footage are excluded from the installer. Setup can install the required FFmpeg tools separately through WinGet.
+A Windows companion installer packages the local engine and browser interface, with a tray menu for opening the app, pairing editors, installing the Resolve integration, and quitting. User data stays in `%LOCALAPPDATA%/VideoAnalyzer`; API keys, databases, and footage are excluded from the installer. Setup can install the required FFmpeg tools separately through WinGet.
+
+Windows installers and integration ZIPs are produced by successful [Windows build workflow runs](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml). Downloads require signing into GitHub; choose a completed successful run.
 
 The **Premiere Pro 26.3+ UXP panel** loads selected original Project clips without copying them, lets you choose Shots and tags or Full analysis, searches progressive shot/dialogue results, opens source moments, adds undoable source markers, and exports SRT. Saved analysis stays in the companion; panel searches and clip choice persist per Premiere project. Original source files are never deleted by the integration.
 
-The **Apple Silicon Mac preview** includes an app/DMG build, menu bar lifecycle, the Premiere panel, and explicit FFmpeg/local HTTPS setup. Mac uses `https://localhost:8443` with certificate verification; Windows uses HTTP loopback port 8000. Native Mac builds and downloadable artifacts are provided through [GitHub Actions](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml).
+The **DaVinci Resolve Studio 20.1+ Workflow Integration preview** loads selected original Media Pool clips, analyzes on request, searches shots and dialogue, selects source clips, copies file-relative ranges, exports SRT, and adds guarded source markers to verified constant-rate originals. Windows x64 installation comes first; Apple Silicon installation requires an arm64-compatible bridge from the user's own Resolve SDK. The vendor bridge is excluded from downloads. Exact source-viewer seeking and native marker undo transactions are unavailable; actual Resolve installation and editing behavior still need acceptance. See [the Resolve integration](integrations/resolve/README.md) and [installation/test handoff](docs/RESOLVE_HANDOFF.md).
+
+The **Apple Silicon Mac preview** includes an app/DMG build, menu bar lifecycle, editor integration resources, and explicit FFmpeg/local HTTPS setup. Mac uses `https://localhost:8443` with certificate verification; Windows uses HTTP loopback port 8000. Native Mac builds and downloadable artifacts are provided through successful [GitHub Actions runs](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml).
 
 See [installation, pairing, and integration scope](integrations/premiere/README.md), [desktop build instructions](packaging/README.md), and [the Apple Silicon Mac handoff](docs/MAC_HANDOFF.md). This is a development preview: GUI/menu-bar behavior, local certificate trust, and native Premiere operations still need acceptance on the user's Mac. Developer ID signing and notarization remain release work.
 

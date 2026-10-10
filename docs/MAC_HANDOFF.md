@@ -1,8 +1,8 @@
 # Apple Silicon Mac handoff
 
-Continue from the personal repository's `feat/footage-library` branch. This preview targets native Apple Silicon (arm64) on macOS 15 or newer. Premiere Pro 26.3+ and Creative Cloud Desktop are required for the panel.
+Continue from the personal repository's `feat/footage-library` branch. This preview targets native Apple Silicon (arm64) on macOS 15 or newer. Premiere Pro 26.3+ and Creative Cloud Desktop are required for the Premiere panel. Resolve's integration requires Resolve Studio 20.1+ and an arm64-compatible bridge from the installed SDK; see [the Windows-first Resolve handoff](RESOLVE_HANDOFF.md).
 
-The [October 10 native build](https://github.com/ijduncan/video-analyzer/actions/runs/38069889259) passed backend, panel, frontend, frozen HTTPS, arm64, signature, and resource checks. [Download its preview artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38069889259/artifacts/11676610699) while signed into GitHub. This artifact expires October 24, 2026; later builds and the source build instructions below provide replacements. The downloaded DMG, ZIP and CCX checksums were also verified. Native GUI and Premiere acceptance are still pending.
+The earlier [October 10 native build](https://github.com/ijduncan/video-analyzer/actions/runs/38069889259) passed backend, Premiere panel, frontend, frozen HTTPS, arm64, signature, and resource checks. That build predates the Resolve integration. Use a newer successful run containing `VideoAnalyzer-Resolve-0.1.0.zip` for Resolve. Native GUI and editor acceptance remain pending.
 
 ## Install the preview
 
@@ -11,8 +11,10 @@ The [October 10 native build](https://github.com/ijduncan/video-analyzer/actions
 3. Run the supplied **Install FFmpeg** command if FFmpeg is missing. The helper uses native Homebrew; if Homebrew is missing, it explains how to install it first. FFmpeg is fetched separately and is not bundled in the app.
 4. Run **Prepare Premiere on Mac**. It creates a certificate for this Mac and installs its local development CA into the macOS system trust store using mkcert. macOS may ask for your administrator password. If you start setup from the app, macOS may also ask to let Video Analyzer open Terminal. This is an explicit local setup action; the build never changes your Keychain. The certificate covers `localhost`, `127.0.0.1`, and `::1`.
 5. Open **Video Analyzer**. Its menu bar icon owns the local engine. The browser UI opens at **https://localhost:8443**. If certificates are missing, the first-start dialog offers the same setup action. Once setup finishes, reopen the app.
-6. In the browser UI's **Settings**, save your Gemini key and click **Copy Premiere pairing code**.
+6. In the browser UI's **Settings**, save your Gemini key and click **Copy editor pairing code**.
 7. Open the accompanying `.ccx`, or use the app menu's **Install Premiere panel**. Creative Cloud handles installation. In Premiere, open **Window → UXP Plugins → Video Analyzer**. Confirm the panel's service is **https://localhost:8443**, paste the pairing code, and connect.
+
+For Resolve, close Resolve and open **Install Resolve on Mac.command**, or choose **Install Resolve integration** in the app menu. The helper copies this Mac's own SDK bridge and refuses Intel-only modules. Reopen Studio and choose **Workspace → Workflow Integrations → Video Analyzer**, then pair at **https://localhost:8443**. The existing **Prepare Premiere on Mac** command configures the companion's shared HTTPS endpoint for both editors.
 
 The preview uses ad hoc code signing rather than a Developer ID certificate and is not notarized. If Gatekeeper blocks this build, use Apple's per-app **System Settings → Privacy & Security → Open Anyway** flow after the first launch attempt. [Apple's instructions](https://support.apple.com/en-us/102445). Do not disable Gatekeeper globally or certificate verification.
 
@@ -56,4 +58,4 @@ User data is in `~/Library/Application Support/VideoAnalyzer`: `library.sqlite3`
 
 If the service cannot start, inspect `desktop.log` and check whether port 8443 is already used. The app never terminates another service. Certificate errors require rerunning the explicit setup and restarting both the companion and Premiere. If FFmpeg is not detected, quit and reopen the app after installing it. Check macOS file-access prompts when importing from Documents, Desktop, Downloads, or external storage.
 
-For a continuing Codex session on the Mac: **Read docs/MAC_HANDOFF.md and continue Apple Silicon acceptance for the desktop companion and Premiere panel. Preserve originals, credentials, and the user's existing library. Validate the installed app and native Premiere behavior before describing the preview as ready for public release.**
+For a continuing Codex session on the Mac: **Read docs/MAC_HANDOFF.md and docs/RESOLVE_HANDOFF.md and continue Apple Silicon acceptance for the desktop companion and editor integrations. Preserve originals, credentials, and the user's existing library. Validate the installed SDK, app, and native editor behavior before describing the preview as ready for public release.**

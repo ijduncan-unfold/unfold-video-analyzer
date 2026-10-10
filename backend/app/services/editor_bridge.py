@@ -22,7 +22,7 @@ _token_lock = threading.Lock()
 _registration_lock = asyncio.Lock()
 
 
-class PremiereSource(BaseModel):
+class EditorSource(BaseModel):
     model_config = ConfigDict(extra='forbid')
     project_id: str = Field(min_length=1, max_length=500)
     item_id: str = Field(min_length=1, max_length=500)
@@ -36,6 +36,16 @@ class PremiereSource(BaseModel):
         if not value.strip() or '\x00' in value:
             raise ValueError('Source identity and path must be nonempty and contain no null bytes')
         return value
+
+
+# Keep the first integration's public Python contract compatible.
+PremiereSource = EditorSource
+
+
+def _editor_host(host):
+    if host not in ('premiere', 'resolve'):
+        raise ValueError('Unsupported editor host')
+    return host
 
 
 def get_pairing_token(rotate=False):
@@ -62,7 +72,7 @@ def get_pairing_token(rotate=False):
                 pass
         token = path.read_text(encoding='utf-8').strip()
         if not re.fullmatch(r'[A-Za-z0-9_-]{43}', token):
-            raise ValueError('The local Premiere pairing token is invalid; rotate it with the pairing command')
+            raise ValueError('The local editor pairing token is invalid; rotate it with the pairing command')
         return token
 
 
@@ -73,9 +83,9 @@ async def require_editor(request: Request, authorization: str | None = Header(de
     try:
         expected = get_pairing_token()
     except (OSError, ValueError):
-        raise HTTPException(503, 'Local editor pairing is unavailable. Open Pair Premiere from the companion app.')
+        raise HTTPException(503, 'Local editor pairing is unavailable. Open editor pairing in the companion app.')
     if not supplied or not hmac.compare_digest(supplied.encode('utf-8'), expected.encode('utf-8')):
-        raise HTTPException(401, 'Pair this panel with the local app using its Premiere pairing token',
+        raise HTTPException(401, 'Pair this editor with the local app using its pairing token',
                             headers={'WWW-Authenticate': 'Bearer'})
 
 
@@ -103,56 +113,65 @@ def ensure_source_unchanged(job):
     try:
         fingerprint, _, _ = source_fingerprint(job.local_path)
     except (OSError, ValueError):
-        raise HTTPException(409, 'The original media is offline. Relink it in Premiere and load the selection again.')
+        raise HTTPException(409, 'The original media is offline. Relink it in your editor and load the selection again.')
     if not hmac.compare_digest(fingerprint, job.source_fingerprint):
-        raise HTTPException(409, 'The source file changed. Load the Premiere selection again before using this analysis.')
+        raise HTTPException(409, 'The source file changed. Load the editor selection again before using this analysis.')
 
 
-def editor_sources(job_id):
+def editor_sources(job_id, host=None):
+    if host is not None:
+        _editor_host(host)
     with connection() as db:
         _schema(db)
-        rows = db.execute('SELECT host,project_id,item_id,media_path,name FROM editor_sources WHERE job_id=?',
-                          (job_id,)).fetchall()
+        statement = 'SELECT host,project_id,item_id,media_path,name FROM editor_sources WHERE job_id=?'
+        parameters = (job_id,)
+        if host is not None:
+            statement += ' AND host=?'
+            parameters += (host,)
+        rows = db.execute(statement, parameters).fetchall()
     return [dict(zip(('host', 'project_id', 'item_id', 'media_path', 'name'), row)) for row in rows]
 
 
-def editor_view(job):
-    sources = editor_sources(job.job_id)
+def editor_view(job, host=None):
+    sources = editor_sources(job.job_id, host=host)
     if job.media_origin == 'external':
         sources = [{**source, 'source_fps': job.technical.get('frame_rate')} for source in sources]
     return {**asset_view(job, detail=True), 'editor_sources': sources}
 
 
-def project_assets(project_id):
+def project_assets(project_id, host='premiere'):
+    host = _editor_host(host)
     with connection() as db:
         _schema(db)
         rows = db.execute('''SELECT DISTINCT s.job_id FROM editor_sources s
-            JOIN jobs j ON j.job_id=s.job_id WHERE s.host='premiere' AND s.project_id=?
-            ORDER BY j.rowid DESC''', (project_id,)).fetchall()
-    return [editor_view(job) for row in rows if (job := get_job(row[0])) is not None]
+            JOIN jobs j ON j.job_id=s.job_id WHERE s.host=? AND s.project_id=?
+            ORDER BY j.rowid DESC''', (host, project_id)).fetchall()
+    return [editor_view(job, host=host) for row in rows if (job := get_job(row[0])) is not None]
 
 
-def _bind(job, body, path, fingerprint, new=False):
+def _bind(job, body, path, fingerprint, new=False, host='premiere'):
+    host = _editor_host(host)
     with connection() as db:
         _schema(db)
         if new:
             _save(db, job)
-        db.execute('''INSERT INTO editor_sources VALUES ('premiere',?,?,?,?,?,?)
+        db.execute('''INSERT INTO editor_sources VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(host,project_id,item_id) DO UPDATE SET job_id=excluded.job_id,
             media_path=excluded.media_path,name=excluded.name,fingerprint=excluded.fingerprint''',
-            (body.project_id, body.item_id, job.job_id, str(path), body.name, fingerprint))
+            (host, body.project_id, body.item_id, job.job_id, str(path), body.name, fingerprint))
 
 
-async def register_source(body):
+async def register_source(body, host='premiere'):
+    host = _editor_host(host)
     requested = Path(body.media_path)
     if not requested.is_absolute():
-        raise HTTPException(422, 'Premiere must supply an absolute local media path')
+        raise HTTPException(422, 'The editor must supply an absolute local media path')
     if not get_mime_type(requested.name):
         raise HTTPException(422, 'This source format is not supported yet. Select a local video file.')
     try:
         fingerprint, path, size = source_fingerprint(requested)
     except (OSError, ValueError):
-        raise HTTPException(422, 'The selected source is offline, inaccessible, or empty. Relink it in Premiere first.')
+        raise HTTPException(422, 'The selected source is offline, inaccessible, or empty. Relink it in your editor first.')
     # Serialize registration so selecting the same clip twice cannot create duplicate assets.
     async with _registration_lock:
         with connection() as db:
@@ -162,8 +181,8 @@ async def register_source(body):
         existing = get_job(row[0]) if row else None
         if existing and existing.status != 'deleting':
             _check_interpreted_rate(body.source_fps, existing.technical)
-            _bind(existing, body, path, fingerprint)
-            return editor_view(existing)
+            _bind(existing, body, path, fingerprint, host=host)
+            return editor_view(existing, host=host)
         try:
             technical = await probe_media(str(path))
         except FileNotFoundError:
@@ -188,8 +207,8 @@ async def register_source(body):
                                 technical['duration_seconds'])
         except (OSError, ValueError):
             job.warnings.append('The source was registered, but a preview thumbnail could not be created.')
-        _bind(job, body, path, fingerprint, new=True)
-        return editor_view(job)
+        _bind(job, body, path, fingerprint, new=True, host=host)
+        return editor_view(job, host=host)
 
 
 def _check_interpreted_rate(source_fps, technical):
@@ -197,9 +216,9 @@ def _check_interpreted_rate(source_fps, technical):
         return
     native = technical.get('frame_rate')
     if not isinstance(native, (int, float)) or native <= 0:
-        raise HTTPException(422, 'The source frame rate could not be verified for Premiere navigation.')
+        raise HTTPException(422, 'The source frame rate could not be verified for editor navigation.')
     if abs(source_fps - native) > 0.001:
-        raise HTTPException(422, 'Premiere has interpreted this clip at a different frame rate. '
+        raise HTTPException(422, 'Your editor has interpreted this clip at a different frame rate. '
                             'Use its original frame rate for this preview integration.')
 
 

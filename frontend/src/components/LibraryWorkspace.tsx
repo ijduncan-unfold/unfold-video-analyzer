@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getAsset, getCapabilities, getLibrary, getProjects, getShots } from '../api/library'
 import type { AssetDetail, Capabilities, LibraryAsset, LibraryResponse, LibraryShot } from '../api/library'
 import { uploadVideo } from '../api/upload'
-import { copyPremierePairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
+import { copyEditorPairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
 import { useSettingsStore } from '../stores/settingsStore'
 import { AssetInspector } from './library/AssetInspector'
 import { Icon } from './library/Icon'
@@ -332,7 +332,7 @@ function SettingsDialog({ capabilities, onClose, onOpenAnalyzer }: { capabilitie
 
   async function copyPairingCode() {
     setCopying(true); setFeedback(''); setSettingsError('')
-    try { await copyPremierePairingCode(); setFeedback('Copied. Paste it into the Premiere panel.') }
+    try { await copyEditorPairingCode(); setFeedback('Copied. Paste it into Premiere or Resolve.') }
     catch (error) { setSettingsError(error instanceof Error ? error.message : 'Could not copy the pairing code.') }
     finally { setCopying(false) }
   }
@@ -341,11 +341,11 @@ function SettingsDialog({ capabilities, onClose, onOpenAnalyzer }: { capabilitie
     <div className="lw-dialog-heading"><h2 id="settings-title">Settings</h2><button className="lw-icon-button" aria-label="Close settings" onClick={onClose} disabled={saving}><Icon name="close" /></button></div>
     <div className={`lw-provider-status ${configured ? 'is-connected' : ''}`}><i /><span>{checkingDesktop ? 'Checking companion app…' : configured ? 'Gemini key configured' : 'Add a Gemini key to analyze video.'}</span></div>
     <form onSubmit={event => { event.preventDefault(); void saveKey() }}>
-      <label className="lw-field">Gemini API key<input type="password" autoComplete="off" disabled={saving} value={key} onChange={event => { setKey(event.target.value); setSettingsError(''); setFeedback('') }} placeholder={configured ? 'Enter a new key to replace it' : 'Paste API key'} /><span className="lw-field-hint">{desktopSession ? 'Saved locally by the companion app and used in Premiere. Leave blank to keep the configured key.' : 'Saved in this browser. Leave blank to use the server key.'}</span></label>
+      <label className="lw-field">Gemini API key<input type="password" autoComplete="off" disabled={saving} value={key} onChange={event => { setKey(event.target.value); setSettingsError(''); setFeedback('') }} placeholder={configured ? 'Enter a new key to replace it' : 'Paste API key'} /><span className="lw-field-hint">{desktopSession ? 'Saved locally by the companion app and used in Premiere and Resolve. Leave blank to keep the configured key.' : 'Saved in this browser. Leave blank to use the server key.'}</span></label>
       {settingsError && <p className="lw-inline-error" role="alert">{settingsError}</p>}
       {feedback && <p className="lw-field-hint" role="status">{feedback}</p>}
       <details className="lw-details"><summary>Models</summary><dl><div><dt>Indexing</dt><dd>{capabilities?.models.analysis || 'Server default'}</dd></div><div><dt>Deep analysis</dt><dd>{capabilities?.models.deep || 'Server default'}</dd></div></dl></details>
-      {desktopReady && <button type="button" className="lw-button" onClick={() => void copyPairingCode()} disabled={saving || copying}>{copying ? 'Copying…' : 'Copy Premiere pairing code'}</button>}
+      {desktopReady && <button type="button" className="lw-button" onClick={() => void copyPairingCode()} disabled={saving || copying}>{copying ? 'Copying…' : 'Copy editor pairing code'}</button>}
       <div className="lw-dialog-actions">{desktopReady && desktopConfigured && <button type="button" className="lw-button" onClick={() => void clearKey()} disabled={saving}>Clear key</button>}<button type="button" className="lw-button" onClick={onClose} disabled={saving}>Cancel</button><button type="submit" className="lw-button lw-button-primary" disabled={saving || checkingDesktop}>{saving ? 'Saving…' : 'Save'}</button></div>
     </form>
     <button className="lw-text-button lw-analyzer-link" disabled={saving} onClick={() => { onClose(); onOpenAnalyzer() }}>Open analyzer<Icon name="arrow" size={14} /></button>

@@ -1,0 +1,179 @@
+name: Windows desktop preview
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/windows-build.yml'
+      - 'scripts/build-desktop.ps1'
+      - 'scripts/package-premiere.py'
+      - 'scripts/package-resolve.py'
+      - 'packaging/**'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'integrations/premiere/**'
+      - 'integrations/resolve/**'
+      - 'requirements-desktop.txt'
+      - 'tests/**'
+      - 'pytest.ini'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GOOGLE_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: |
+            requirements-desktop.txt
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          architecture: x64
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check native Windows x64 and installer syntax
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -c "import sys, struct, platform; assert sys.platform == 'win32' and struct.calcsize('P') == 8 and platform.machine().upper() in ('AMD64', 'X86_64'), 'Native Windows x64 Python is required'"
+          if ($LASTEXITCODE -ne 0) { throw 'Python architecture check failed.' }
+          node -e "if (process.platform !== 'win32' || process.arch !== 'x64') process.exit(1)"
+          if ($LASTEXITCODE -ne 0) { throw 'Node architecture check failed.' }
+          foreach ($file in @('scripts/build-desktop.ps1', 'packaging/resolve/install-resolve.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw "PowerShell syntax failed for $file." }
+          }
+      - name: Install media tools and installer compiler
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gitTools = 'C:/Program Files/Git/usr/bin'
+          if (Test-Path -LiteralPath $gitTools -PathType Container) {
+            $env:Path = "$env:Path;$gitTools"
+            $gitTools | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+          if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) { throw 'OpenSSL is required for the desktop TLS tests.' }
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'FFmpeg installation failed.' }
+            $env:Path = [string]::Join(';', @($env:Path, [Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User')))
+          }
+          $compilerCandidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6/ISCC.exe')
+          )
+          $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $compiler) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+            $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          }
+          if (-not $compiler) { throw 'The Inno Setup compiler could not be located.' }
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            throw 'FFmpeg and ffprobe must be available before building.'
+          }
+          @((Split-Path -Parent (Get-Command ffmpeg).Source), (Split-Path -Parent (Get-Command ffprobe).Source)) | Select-Object -Unique |
+            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "INNO_SETUP_COMPILER=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install build and test dependencies
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Virtual environment creation failed.' }
+          ./.venv/Scripts/python.exe -m pip install -r requirements-desktop.txt -r backend/requirements-dev.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency installation failed.' }
+          npm --prefix frontend ci
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
+      - name: Verify backend, installer safeguards and editor contracts
+        run: |
+          ./.venv/Scripts/python.exe -m pytest -q
+          if ($LASTEXITCODE -ne 0) { throw 'Backend, installer or package tests failed.' }
+          ./.venv/Scripts/python.exe -m unittest discover -s packaging -p test_verify_macos_build.py
+          if ($LASTEXITCODE -ne 0) { throw 'Portable bundle safeguards failed.' }
+          node --test integrations/premiere/tests/*.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Premiere contract tests failed.' }
+          node --test integrations/resolve/tests/*.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Resolve contract tests failed.' }
+      - name: Build frontend
+        run: |
+          npm --prefix frontend run lint
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend lint failed.' }
+          npm --prefix frontend run build
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
+      - name: Freeze app, smoke test both editor APIs and compile installer
+        run: |
+          ./scripts/build-desktop.ps1 -InnoPath $env:INNO_SETUP_COMPILER -SkipDependencies -SkipFrontend
+      - name: Audit public bundle and prepare verified download metadata
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $PWD 'dist/desktop/VideoAnalyzer'
+          $forbiddenNames = @('premiere-token.txt', 'desktop-settings.json', 'localhost.pem', 'localhost-key.pem', 'rootCA.pem', 'rootCA-key.pem', 'WorkflowIntegration.node')
+          $forbiddenExtensions = @('.db', '.sqlite', '.sqlite3', '.mp4', '.mov', '.mkv', '.avi', '.p12')
+          $privateFiles = @(Get-ChildItem -LiteralPath $bundle -Recurse -File -Force | Where-Object {
+            $_.Name.StartsWith('.env') -or $_.Name -in $forbiddenNames -or $_.Extension.ToLowerInvariant() -in $forbiddenExtensions
+          })
+          if ($privateFiles.Count) { throw 'A private setting, credential, SDK bridge, database or media file entered the bundle.' }
+          foreach ($relative in @('_internal/resolve-panel/manifest.xml', '_internal/desktop-docs/install-resolve.ps1', '_internal/desktop-docs/public-files.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $bundle $relative) -PathType Leaf)) { throw 'A bundled Resolve resource is missing.' }
+          }
+          $smoke = Get-Content -LiteralPath 'build/desktop/smoke-data/smoke-test.json' -Raw | ConvertFrom-Json
+          if ($smoke.status -ne 'ok' -or $smoke.frontend -ne 'ok' -or $smoke.local_media -ne $true -or $smoke.google_configured -ne $false -or
+              $smoke.transport -ne 'http' -or $smoke.certificate_verified -ne $false -or 'premiere' -notin $smoke.editor_hosts -or 'resolve' -notin $smoke.editor_hosts) {
+            throw 'The isolated Windows smoke test did not verify both editor APIs.'
+          }
+          $publicSmoke = [ordered]@{
+            status = $smoke.status
+            frontend = $smoke.frontend
+            local_media = $smoke.local_media
+            google_configured = $smoke.google_configured
+            transport = $smoke.transport
+            certificate_verified = $smoke.certificate_verified
+            editor_hosts = @($smoke.editor_hosts)
+          }
+          $publicSmoke | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath 'dist/installers/smoke-test-windows-x64.json' -Encoding utf8
+          Copy-Item -LiteralPath 'dist/installers/build-environment.json' -Destination 'dist/installers/build-environment-windows-x64.json'
+          $downloads = @()
+          foreach ($pattern in @('VideoAnalyzer-*-windows-x64.exe', 'VideoAnalyzer-Resolve-*.zip', 'VideoAnalyzer-Premiere-*.ccx')) {
+            $matching = @(Get-ChildItem -LiteralPath 'dist/installers' -Filter $pattern -File)
+            if ($matching.Count -ne 1) { throw "Expected one verified download for $pattern." }
+            $downloads += $matching
+          }
+          $downloads += Get-Item -LiteralPath 'dist/installers/build-environment-windows-x64.json', 'dist/installers/smoke-test-windows-x64.json'
+          $checksums = foreach ($download in $downloads) {
+            $hash = (Get-FileHash -LiteralPath $download.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($download.Name)"
+          }
+          $checksums | Set-Content -LiteralPath 'dist/installers/SHA256SUMS-windows-x64.txt' -Encoding ascii
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VideoAnalyzer-windows-x64-preview
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            dist/installers/VideoAnalyzer-*-windows-x64.exe
+            dist/installers/VideoAnalyzer-Resolve-*.zip
+            dist/installers/VideoAnalyzer-Premiere-*.ccx
+            dist/installers/SHA256SUMS-windows-x64.txt
+            dist/installers/build-environment-windows-x64.json
+            dist/installers/smoke-test-windows-x64.json

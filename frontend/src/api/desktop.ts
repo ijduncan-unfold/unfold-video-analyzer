@@ -39,7 +39,7 @@ export function getDesktopToken(): string | null {
 
 async function desktopRequest(path: 'health' | 'settings', init: RequestInit = {}): Promise<DesktopHealth> {
   const token = getDesktopToken()
-  if (!token) throw new Error('Open Video Analyzer from the companion app to configure Premiere.')
+  if (!token) throw new Error('Open Video Analyzer from the companion app to configure your editor connection.')
   const headers = new Headers(init.headers)
   headers.set('Authorization', `Bearer ${token}`)
   let response: Response
@@ -82,10 +82,12 @@ export async function saveDesktopGoogleApiKey(key: string): Promise<DesktopHealt
 }
 
 /** Called only by the explicit Copy pairing code button. */
-export async function copyPremierePairingCode(): Promise<void> {
+export async function copyEditorPairingCode(): Promise<void> {
   const token = getDesktopToken()
   if (!token) throw new Error('Reopen Video Analyzer from the companion app to get a pairing code.')
-  if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable. Use Pair Premiere in the companion app menu.')
+  if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable. Use Pair with editor in the companion app menu.')
   try { await navigator.clipboard.writeText(token) }
-  catch { throw new Error('Could not copy the pairing code. Use Pair Premiere in the companion app menu.') }
+  catch { throw new Error('Could not copy the pairing code. Use Pair with editor in the companion app menu.') }
 }
+
+export const copyPremierePairingCode = copyEditorPairingCode

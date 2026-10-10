@@ -19,13 +19,40 @@ Then quit and reopen Video Analyzer. The preview detects WinGet's FFmpeg folder.
 Enter your own Gemini API key in the app's settings. No developer key is included.
 
 Video Analyzer runs locally at http://127.0.0.1:8000 and opens your browser.
-The system tray menu offers Open, Pair with Premiere, and Quit. Closing the
+The system tray menu offers Open, Pair with editor, Install Resolve integration,
+Open data folder, and Quit. Closing the
 browser leaves the engine running; Quit stops it. Port 8000 must be available.
 
 Premiere's UXP panel is included as a separate CCX plugin package. Use the Start
 menu's "Install Premiere panel" shortcut to open Adobe's Creative Cloud plugin
 installer. Premiere 26.3+ and Adobe Creative Cloud are required. This installer
 does not install Adobe Premiere or silently load a plugin.
+
+DaVinci Resolve Studio 20.1 or newer on Windows x64 is required for the Resolve
+Workflow Integration preview. Close Resolve, then choose "Install Resolve
+integration" from the Start menu or tray. The separate public integration ZIP
+also includes Install Resolve on Windows.cmd; extract the whole ZIP before running
+it. Administrator permission may be required for Resolve's shared plugin folder.
+
+The helper copies the ten public plugin files and WorkflowIntegration.node from
+your own installed Blackmagic SDK. The vendor module is not included in this
+download. Missing or incompatible SDK resources stop installation. Resolve supplies
+the plugin runtime, so no separate Node.js installation is required.
+
+Restart Resolve and choose Workspace > Workflow Integrations > Video Analyzer.
+Connect to http://127.0.0.1:8000 using Copy editor pairing code in companion
+Settings, or the tray's Pair with editor command. Load original Media Pool clips,
+choose an analysis type, and click Analyze. Search shots/dialogue, select the source
+clip, copy file-relative times, export SRT, or add source markers to verified
+constant-rate originals. Exact source-viewer seeking and a documented marker undo
+transaction are unavailable. Native Resolve behavior still needs acceptance.
+
+Resolve and Premiere reference original media without making a full import copy.
+Original files are never renamed or deleted by these integrations. Analysis and
+derived caches stay in the companion; only explicit Analyze sends footage to Gemini.
+
+Resolve installation and testing:
+https://github.com/ijduncan/video-analyzer/blob/feat/footage-library/docs/RESOLVE_HANDOFF.md
 
 Saved analysis is stored in your Local AppData / VideoAnalyzer folder.
 Uninstall removes the program only; saved data and original media are retained.

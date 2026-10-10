@@ -23,6 +23,7 @@ npm --prefix frontend ci
 "$VIDEO_ANALYZER_BUILD_PYTHON" -m pytest -q
 "$VIDEO_ANALYZER_BUILD_PYTHON" -m unittest discover -s packaging -p test_verify_macos_build.py
 node --test integrations/premiere/tests/*.test.cjs
+node --test integrations/resolve/tests/*.test.cjs
 npm --prefix frontend run lint
 npm --prefix frontend run build
 exec /bin/bash "$repo_root/scripts/build-desktop-macos.sh" --skip-dependencies --skip-frontend

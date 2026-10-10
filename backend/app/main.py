@@ -45,7 +45,7 @@ app.add_middleware(
 )
 
 # Import and include routers
-from app.routers import upload, analyze, status, results, export, files, thumbnails, compare, library, visual, premiere
+from app.routers import upload, analyze, status, results, export, files, thumbnails, compare, library, visual, premiere, resolve
 
 app.include_router(upload.router)
 app.include_router(analyze.router)
@@ -58,6 +58,7 @@ app.include_router(compare.router)
 app.include_router(library.router)
 app.include_router(visual.router)
 app.include_router(premiere.router)
+app.include_router(resolve.router)
 
 
 @app.get("/api/health")

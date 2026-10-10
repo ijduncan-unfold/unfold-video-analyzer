@@ -21,7 +21,8 @@ class MacBuildGuardTests(unittest.TestCase):
         self.app = root / "Video Analyzer.app"
         resources = self.app / "Contents/Resources"
         for relative in ("desktop-docs/setup-premiere-macos.command", "desktop-docs/macos-common.sh",
-                         "plugins/VideoAnalyzer-Premiere-0.1.0.ccx"):
+                         "plugins/VideoAnalyzer-Premiere-0.1.0.ccx", "desktop-docs/install-resolve-macos.command",
+                         "desktop-docs/public-files.json", "resolve-panel/manifest.xml"):
             resource = resources / relative
             resource.parent.mkdir(parents=True, exist_ok=True)
             resource.write_text("public fixture", encoding="utf-8")
@@ -34,7 +35,8 @@ class MacBuildGuardTests(unittest.TestCase):
         (resources / "frontend/dist/index.html").write_text("fixture", encoding="utf-8")
         self.smoke = root / "smoke.json"
         self.report = {"status": "ok", "frontend": "ok", "local_media": True,
-                       "google_configured": False, "transport": "https", "certificate_verified": True}
+                       "google_configured": False, "transport": "https", "certificate_verified": True,
+                       "editor_hosts": ['premiere', 'resolve']}
         self.write_report()
 
     def write_report(self):
@@ -61,7 +63,7 @@ class MacBuildGuardTests(unittest.TestCase):
             self.verify("x86_64\n")
 
     def test_private_files_and_media_fail(self):
-        for name in (".env.local", "rootCA-key.pem", "premiere-token.txt", "library.sqlite3", "source.mp4"):
+        for name in (".env.local", "rootCA-key.pem", "premiere-token.txt", "library.sqlite3", "source.mp4", "WorkflowIntegration.node"):
             with self.subTest(name=name):
                 fixture = self.app / "Contents/Resources" / name
                 fixture.write_text("private fixture", encoding="utf-8")

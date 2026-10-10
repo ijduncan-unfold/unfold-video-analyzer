@@ -28,6 +28,10 @@ jobs:
         run: python -m pip install -r backend/requirements-dev.txt
       - name: Test backend, media and exports
         run: python -m pytest -q
+      - name: Test editor integrations
+        run: |
+          node --test integrations/premiere/tests/*.test.cjs
+          node --test integrations/resolve/tests/*.test.cjs
       - name: Install frontend
         run: npm --prefix frontend ci
       - name: Check frontend
