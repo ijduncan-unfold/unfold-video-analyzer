@@ -64,6 +64,7 @@ if sys.platform == "darwin":
                              "CFBundleName": "Video Analyzer", "CFBundleDisplayName": "Video Analyzer",
                              "LSUIElement": True, "LSMinimumSystemVersion": "15.0",
                              "LSArchitecturePriority": ["arm64"], "NSHighResolutionCapable": True,
+                             "NSAppleEventsUsageDescription": "Open Terminal when you choose to prepare the trusted local HTTPS connection for Premiere.",
                              "NSDocumentsFolderUsageDescription": "Analyze source media you select from Documents.",
                              "NSDownloadsFolderUsageDescription": "Analyze source media you select from Downloads.",
                              "NSDesktopFolderUsageDescription": "Analyze source media you select from Desktop."})
