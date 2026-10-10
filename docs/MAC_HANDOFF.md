@@ -2,12 +2,14 @@
 
 Continue from the personal repository's `feat/footage-library` branch. This preview targets native Apple Silicon (arm64) on macOS 15 or newer. Premiere Pro 26.3+ and Creative Cloud Desktop are required for the panel.
 
+The [October 10 native build](https://github.com/ijduncan/video-analyzer/actions/runs/38069889259) passed backend, panel, frontend, frozen HTTPS, arm64, signature, and resource checks. [Download its preview artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38069889259/artifacts/11676610699) while signed into GitHub. This artifact expires October 24, 2026; later builds and the source build instructions below provide replacements. The downloaded DMG, ZIP and CCX checksums were also verified. Native GUI and Premiere acceptance are still pending.
+
 ## Install the preview
 
 1. Download the **Apple Silicon Mac preview** artifact from the [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml). Use the latest successful run for `feat/footage-library`. GitHub artifact downloads require a signed-in account. Extract the artifact, then open its DMG.
 2. Drag **Video Analyzer.app** into Applications. Keep the accompanying setup commands and Premiere CCX package available.
 3. Run the supplied **Install FFmpeg** command if FFmpeg is missing. The helper uses native Homebrew; if Homebrew is missing, it explains how to install it first. FFmpeg is fetched separately and is not bundled in the app.
-4. Run **Prepare Premiere on Mac**. It creates a certificate for this Mac and installs its local development CA into the macOS system trust store using mkcert. macOS may ask for your administrator password. This is an explicit local setup action; the build never changes your Keychain. The certificate covers `localhost`, `127.0.0.1`, and `::1`.
+4. Run **Prepare Premiere on Mac**. It creates a certificate for this Mac and installs its local development CA into the macOS system trust store using mkcert. macOS may ask for your administrator password. If you start setup from the app, macOS may also ask to let Video Analyzer open Terminal. This is an explicit local setup action; the build never changes your Keychain. The certificate covers `localhost`, `127.0.0.1`, and `::1`.
 5. Open **Video Analyzer**. Its menu bar icon owns the local engine. The browser UI opens at **https://localhost:8443**. If certificates are missing, the first-start dialog offers the same setup action. Once setup finishes, reopen the app.
 6. In the browser UI's **Settings**, save your Gemini key and click **Copy Premiere pairing code**.
 7. Open the accompanying `.ccx`, or use the app menu's **Install Premiere panel**. Creative Cloud handles installation. In Premiere, open **Window → UXP Plugins → Video Analyzer**. Confirm the panel's service is **https://localhost:8443**, paste the pairing code, and connect.

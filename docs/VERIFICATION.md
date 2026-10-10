@@ -119,6 +119,8 @@ Premiere is not installed on this workstation: CCX installation, native Source M
 
 The Apple Silicon Mac preparation adds verified HTTPS on loopback port 8443, an explicit machine-local mkcert setup action, first-start setup guidance, and Mac panel endpoint selection. Portable desktop tests include real TLS handshakes: valid localhost/127.0.0.1 connections succeed; an untrusted CA and wrong hostname are rejected. Tests also cover TLS validation before binding, missing/partial/invalid configuration, temporary certificate cleanup without modifying user certificates, and per-test environment restoration. POSIX path regressions preserve case, Unicode, and literal backslashes in Mac filenames while retaining Windows path normalization. These tests ran on Windows; Mac execution is separately reported by the native build workflow. GUI trust/setup behavior and actual Premiere round trips remain for the user on Mac. See `docs/MAC_HANDOFF.md`.
 
+The [October 10 Apple Silicon CI run](https://github.com/ijduncan/video-analyzer/actions/runs/38069889259) built commit `1384ceb` natively on an arm64 macOS 15 runner. It passed 234 backend tests and 50 subtests, five packaging guard tests, 57 Premiere Node checks, frontend lint and production build. The frozen app served the frontend and assets over verified HTTPS with an isolated empty database, detected local media tools, and reported no configured Gemini key. Bundle checks confirmed arm64, required public helpers/CCX, matching frontend, absence of private settings/media, and strict deep code-signature verification. The app was packaged into a DMG and ZIP with the Premiere CCX. Downloaded package SHA-256 values matched the published checksums; the ZIP executable's Mach-O header independently confirmed arm64. This development preview is ad hoc signed and is not notarized. Interactive installation, Keychain/UXP trust, menu-bar actions and native Premiere timing/marker behavior remain untested.
+
 ## Remaining validation
 
 - Recognition/retrieval quality on representative agency and filmmaking footage, including difficult audio, fast montage and multilingual material.
@@ -126,4 +128,4 @@ The Apple Silicon Mac preparation adds verified HTTPS on loopback port 8443, an 
 - Drop-frame and variable-frame-rate NLE adapters; broader fractional-rate editor compatibility.
 - Round-trip imports in installed Premiere, Resolve and Final Cut Pro.
 - Shared-workspace authentication/authorization, distributed queue recovery and archive-scale load testing.
-- Hosted deployment and remote CI once repository write access is available.
+- Hosted deployment validation; repository CI now runs application checks and the Apple Silicon preview build.
