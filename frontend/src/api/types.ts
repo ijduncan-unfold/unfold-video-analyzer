@@ -98,27 +98,6 @@ export interface VideoSummary {
   notable_observations: string
 }
 
-// --- Shot Matching ---
-
-export interface ShotMatch {
-  shot_a: number
-  shot_b: number
-  similarity: number
-  reasons: string[]
-}
-
-// --- Cost ---
-
-export interface CostEstimate {
-  flash_input_tokens: number
-  flash_output_tokens: number
-  pro_input_tokens: number
-  pro_output_tokens: number
-  total_input_tokens: number
-  total_output_tokens: number
-  estimated_cost_usd: number | null
-}
-
 // --- API Responses ---
 
 export interface UploadResponse {
@@ -129,23 +108,3 @@ export interface UploadResponse {
   mime_type: string
   status: string
 }
-
-export interface YoutubeUploadResponse extends UploadResponse {
-  youtube_url: string
-  youtube_id: string
-}
-
-// --- SSE Events ---
-
-export type AnalysisEvent =
-  | { type: 'pass_start'; data: { pass: number; name: string } }
-  | { type: 'pass_complete'; data: { pass: number; result?: unknown } }
-  | { type: 'scenes_detected'; data: { total_scenes: number; total_duration: string } }
-  | { type: 'shot_detection_progress'; data: { scene: number; total: number; scene_title: string } }
-  | { type: 'scene_start'; data: { scene: number; total: number } }
-  | { type: 'scene_complete'; data: { scene: number; result: SceneDeepAnalysis } }
-  | { type: 'custom_complete'; data: { result: Record<string, unknown> } }
-  | { type: 'matches_complete'; data: { matches: ShotMatch[] } }
-  | { type: 'thumbnails_ready'; data: { job_id: string } }
-  | { type: 'analysis_complete'; data: { flash: FlashAnalysis; deep: SceneDeepAnalysis[]; summary: VideoSummary | null; custom: Record<string, unknown> | null; cost_estimate: CostEstimate } }
-  | { type: 'error_event'; data: { message: string; recoverable: boolean } }

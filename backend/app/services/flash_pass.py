@@ -6,8 +6,6 @@ from google.genai import types
 
 from app.config import settings
 from app.models.analysis import (
-    FlashAnalysis,
-    Scene,
     SceneDetectionResult,
     SceneOutline,
     Shot,
@@ -137,63 +135,3 @@ async def run_shot_detection(
         f"Stage 2 complete: scene {scene_outline.scene_number} → {len(result.shots)} shots"
     )
     return result.shots, usage
-
-
-async def run_flash_pass(
-    file_uri: str,
-    mime_type: str,
-    fps: float = 4.0,
-    api_key: str | None = None,
-) -> tuple[FlashAnalysis, dict]:
-    """Convenience wrapper that runs both stages without progress events.
-
-    Prefer calling run_scene_detection / run_shot_detection directly from
-    analyzer.py when you need to yield SSE progress events between stages.
-    """
-    total_input = 0
-    total_output = 0
-
-    scenes_result, s1_usage = await run_scene_detection(file_uri, mime_type, api_key)
-    total_input += s1_usage.get("input_tokens", 0)
-    total_output += s1_usage.get("output_tokens", 0)
-
-    scenes: list[Scene] = []
-    shot_counter = 1
-
-    for outline in scenes_result.scenes:
-        try:
-            shots, s2_usage = await run_shot_detection(
-                file_uri, mime_type, outline, shot_counter, fps, api_key
-            )
-            total_input += s2_usage.get("input_tokens", 0)
-            total_output += s2_usage.get("output_tokens", 0)
-        except Exception as e:
-            logger.warning("Shot detection failed for scene %s (%s)", outline.scene_number, type(e).__name__)
-            shots = []
-
-        scenes.append(Scene(
-            scene_number=outline.scene_number,
-            scene_title=outline.scene_title,
-            scene_description=outline.scene_description,
-            start_time=outline.start_time,
-            end_time=outline.end_time,
-            shots=shots,
-        ))
-        shot_counter += len(shots)
-
-    flash_analysis = FlashAnalysis(
-        total_duration=scenes_result.total_duration,
-        total_scenes=len(scenes),
-        total_shots=shot_counter - 1,
-        scenes=scenes,
-        analysis_warnings=scenes_result.analysis_warnings,
-        model=settings.gemini_analysis_model,
-    )
-    if flash_analysis.total_shots == 0:
-        raise ValueError("No valid shot metadata was generated")
-    combined_usage = {"input_tokens": total_input, "output_tokens": total_output}
-    logger.info(
-        f"Flash pass complete: {flash_analysis.total_scenes} scenes, "
-        f"{flash_analysis.total_shots} shots"
-    )
-    return flash_analysis, combined_usage

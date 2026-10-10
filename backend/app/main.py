@@ -65,16 +65,11 @@ app.add_middleware(
 )
 
 # Import and include routers
-from app.routers import upload, analyze, status, results, export, files, thumbnails, compare, library, visual, premiere, resolve
+from app.routers import upload, files, thumbnails, library, visual, premiere, resolve
 
 app.include_router(upload.router)
-app.include_router(analyze.router)
-app.include_router(status.router)
-app.include_router(results.router)
-app.include_router(export.router)
 app.include_router(files.router)
 app.include_router(thumbnails.router)
-app.include_router(compare.router)
 app.include_router(library.router)
 app.include_router(visual.router)
 app.include_router(premiere.router)

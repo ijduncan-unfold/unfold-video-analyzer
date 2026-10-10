@@ -17,7 +17,7 @@ from app.services.analysis_support import (
 )
 from app.services.cost_estimator import estimate_cost
 from app.services.flash_pass import run_shot_detection
-from app.services.job_store import Job, create_job, get_job
+from app.services.job_store import Job, create_job, get_job, update_job
 
 
 def shot(start="00:00.000", end="00:02.000", **values):
@@ -185,20 +185,28 @@ class AnalysisPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final.analysis_history[-1]["shot_annotations"]["1"]["tags"], ["approved-human-tag"])
         self.assertEqual(final.analysis_history[-1]["flash_result"]["total_shots"], 1)
 
-    async def test_optional_failure_keeps_base_results_and_saves_matches(self):
+    async def test_optional_failure_keeps_summary_custom_brief_and_archived_matches(self):
         matches = [{"shot_a": 1, "shot_b": 2, "similarity": .8, "reasons": ["palette"]}]
+        self.job = update_job(self.job.job_id, shot_matches=matches)
+        custom = {"visual_style": "A blue cup with clean centered framing"}
         with patch.object(analyzer, "run_scene_detection", AsyncMock(return_value=(scenes(), usage()))), \
              patch.object(analyzer, "run_shot_detection", AsyncMock(return_value=([shot()], usage()))), \
              patch.object(analyzer, "run_pro_scene", AsyncMock(side_effect=RuntimeError("private provider text"))), \
              patch.object(analyzer, "run_summary_pass", AsyncMock(return_value=(VideoSummary(executive_summary="Cup"), usage("summary")))), \
-             patch.object(analyzer, "run_shot_matching", AsyncMock(return_value=(matches, usage("shot_matching")))):
-            _ = [event async for event in analyzer.run_analysis(self.job)]
+             patch.object(analyzer, "run_custom_pass", AsyncMock(return_value=(custom, usage("custom")))) as custom_pass:
+            events = [event async for event in analyzer.run_analysis(self.job, custom_prompt="Describe the visual style")]
         final = get_job(self.job.job_id)
         self.assertEqual(final.status, "complete")
         self.assertEqual(final.flash_result["total_shots"], 1)
-        self.assertEqual(final.shot_matches, matches)
+        self.assertEqual(final.shot_matches, [])
+        self.assertEqual(final.analysis_history[-1]["shot_matches"], matches)
         self.assertEqual(final.summary["executive_summary"], "Cup")
+        self.assertEqual(final.custom_result, custom)
+        custom_pass.assert_awaited_once_with("uri", "video/mp4", "Describe the visual style", api_key=None)
         self.assertTrue(any("Detailed analysis" in warning for warning in final.warnings))
+        self.assertFalse(any(event["event"] == "matches_complete" for event in events))
+        self.assertEqual([item["stage"] for item in final.cost_estimate["usage_records"]],
+                         ["shot_analysis", "summary", "custom"])
 
 
 if __name__ == "__main__":

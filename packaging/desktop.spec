@@ -27,7 +27,7 @@ for package in ("google.genai", "pystray", "uvicorn"):
     binaries += package_bins
     hiddenimports += package_imports
 for package in ("google-genai", "pydantic", "pydantic-settings", "fastapi", "uvicorn",
-                "pystray", "Pillow", "numpy", "opencv-python-headless", "reportlab"):
+                "pystray", "Pillow", "numpy", "opencv-python-headless"):
     datas += copy_metadata(package)
 datas += copy_metadata("pyinstaller")
 datas += [(str(root / "packaging" / "README.md"), "desktop-docs"),

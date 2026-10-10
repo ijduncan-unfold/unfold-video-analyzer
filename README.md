@@ -63,8 +63,6 @@ The dedicated Export screen supports the whole project or one or more selected s
 
 Exports preserve source coordinates and do not render or package video files. Selections from an older analysis are blocked until refreshed. See [accuracy and export boundaries](#accuracy-and-export-boundaries) for timing, subtitle, and editor compatibility details.
 
-The original scene timeline, comparison, and report views remain available from **Analyzer**.
-
 ## Run locally
 
 ### Installed app and editor previews

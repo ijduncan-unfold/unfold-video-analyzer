@@ -1,74 +1,11 @@
-import io
+"""Source-timed EDL and FCPXML exporters used by the library workspace."""
 import re
 import xml.etree.ElementTree as ET
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from fractions import Fraction
 from urllib.parse import quote
 
-from app.services.library_export import export_library, iter_shots, job_data, parse_seconds, segment_times, source_filename
-
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import inch
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-
-
-def export_json(job) -> str:
-    return export_library(job, "json")[0]
-
-
-def export_csv(job) -> str:
-    return export_library(job, "csv")[0]
-
-
-def export_markdown(job) -> str:
-    lines = [f"# Video Analysis: {job.filename}\n"]
-
-    if job.summary:
-        lines.append("## Summary\n")
-        lines.append(f"{job.summary.get('executive_summary', '')}\n")
-        lines.append(f"- **Genre:** {job.summary.get('genre_category', '')}")
-        lines.append(f"- **Production Value:** {job.summary.get('production_value', '')}")
-        lines.append(f"- **Target Audience:** {job.summary.get('target_audience', '')}")
-        lines.append(f"- **Visual Style:** {job.summary.get('visual_style', '')}\n")
-
-    if job.flash_result and "scenes" in job.flash_result:
-        lines.append("## Scene Breakdown\n")
-        for scene in job.flash_result["scenes"]:
-            lines.append(f"### Scene {scene['scene_number']}: {scene.get('scene_title', '')}")
-            lines.append(f"*{scene.get('start_time', '')} - {scene.get('end_time', '')}*\n")
-            lines.append(f"{scene.get('scene_description', '')}\n")
-
-            for shot in scene.get("shots", []):
-                lines.append(
-                    f"- **Shot {shot['shot_number']}** ({shot.get('start_time', '')}-{shot.get('end_time', '')}): "
-                    f"{shot.get('shot_type', '')} | {shot.get('camera_movement', '')} — "
-                    f"{shot.get('visual_description', '')}"
-                )
-            lines.append("")
-
-    if job.deep_results:
-        lines.append("## Deep Analysis\n")
-        for deep in job.deep_results:
-            lines.append(f"### Scene {deep.get('scene_number', '')}\n")
-            va = deep.get("visual_analysis", {})
-            if va:
-                lines.append("**Visual Analysis:**")
-                for key, val in va.items():
-                    if val:
-                        lines.append(f"- {key.replace('_', ' ').title()}: {val}")
-                lines.append("")
-
-            aa = deep.get("audio_analysis", {})
-            if aa:
-                lines.append("**Audio Analysis:**")
-                for key, val in aa.items():
-                    if val:
-                        lines.append(f"- {key.replace('_', ' ').title()}: {val}")
-                lines.append("")
-
-    return "\n".join(lines)
+from app.services.library_export import iter_shots, job_data, parse_seconds, segment_times, source_filename
 
 
 def _source_timing(data: dict) -> tuple[int, int, Decimal]:
@@ -275,76 +212,3 @@ def export_fcpxml(job) -> str:
         record += count
     ET.indent(root)
     return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + ET.tostring(root, encoding="unicode")
-
-
-def export_pdf(job) -> bytes:
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
-    styles = getSampleStyleSheet()
-    story = []
-
-    # Title
-    title_style = ParagraphStyle(
-        "CustomTitle", parent=styles["Title"], fontSize=18, spaceAfter=20
-    )
-    story.append(Paragraph(f"Video Analysis: {job.filename}", title_style))
-    story.append(Spacer(1, 12))
-
-    # Summary
-    if job.summary:
-        story.append(Paragraph("Executive Summary", styles["Heading2"]))
-        story.append(Paragraph(job.summary.get("executive_summary", ""), styles["Normal"]))
-        story.append(Spacer(1, 12))
-
-        details = [
-            ["Genre", job.summary.get("genre_category", "")],
-            ["Production Value", job.summary.get("production_value", "")],
-            ["Target Audience", job.summary.get("target_audience", "")],
-            ["Visual Style", job.summary.get("visual_style", "")],
-        ]
-        t = Table(details, colWidths=[1.5 * inch, 4.5 * inch])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (0, -1), colors.Color(0.15, 0.15, 0.17)),
-            ("TEXTCOLOR", (0, 0), (-1, -1), colors.Color(0.9, 0.9, 0.92)),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 20))
-
-    # Scenes
-    if job.flash_result and "scenes" in job.flash_result:
-        story.append(Paragraph("Scene Breakdown", styles["Heading2"]))
-        for scene in job.flash_result["scenes"]:
-            story.append(Paragraph(
-                f"Scene {scene['scene_number']}: {scene.get('scene_title', '')} "
-                f"({scene.get('start_time', '')} - {scene.get('end_time', '')})",
-                styles["Heading3"],
-            ))
-            story.append(Paragraph(scene.get("scene_description", ""), styles["Normal"]))
-
-            if scene.get("shots"):
-                shot_data = [["Shot", "Time", "Type", "Movement", "Description"]]
-                for shot in scene["shots"]:
-                    shot_data.append([
-                        str(shot.get("shot_number", "")),
-                        f"{shot.get('start_time', '')}-{shot.get('end_time', '')}",
-                        shot.get("shot_type", ""),
-                        shot.get("camera_movement", ""),
-                        shot.get("visual_description", "")[:80],
-                    ])
-                t = Table(shot_data, colWidths=[0.4 * inch, 0.8 * inch, 1 * inch, 1 * inch, 2.8 * inch])
-                t.setStyle(TableStyle([
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.2, 0.2, 0.25)),
-                    ("TEXTCOLOR", (0, 0), (-1, -1), colors.Color(0.85, 0.85, 0.87)),
-                    ("FONTSIZE", (0, 0), (-1, -1), 7),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.Color(0.3, 0.3, 0.35)),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ]))
-                story.append(t)
-            story.append(Spacer(1, 12))
-
-    doc.build(story)
-    return buffer.getvalue()

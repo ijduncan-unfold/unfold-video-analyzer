@@ -57,11 +57,7 @@ def test_partial_results_are_available_in_detail_asset_search_and_shot_search(cl
     shots = client.get('/api/library/search/shots?q=sailboat').json()
     assert shots['total'] == 1 and shots['shots'][0]['end_seconds'] == 3.5
     assert client.get('/api/library/search/shots?q=rope').json()['total'] == 0
-    legacy = client.get(f'/api/results/{asset.job_id}')
-    assert legacy.status_code == 200
-    assert legacy.json()['status'] == 'analyzing'
-    assert legacy.json()['analysis_progress'] == PROGRESS
-    assert legacy.json()['flash']['total_shots'] == 1
+    assert result['flash']['total_shots'] == 1
 
 
 def test_later_sections_appear_without_losing_edits_to_available_shots(client, asset):

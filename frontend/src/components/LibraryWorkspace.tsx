@@ -12,7 +12,7 @@ import { DeleteProjectsDialog } from './library/DeleteProjectsDialog'
 import type { DeletionProject } from './library/DeleteProjectsDialog'
 import './LibraryWorkspace.css'
 
-export function LibraryWorkspace({ onOpenAnalyzer }: { onOpenAnalyzer: () => void }) {
+export function LibraryWorkspace() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [project, setProject] = useState('')
@@ -242,7 +242,7 @@ export function LibraryWorkspace({ onOpenAnalyzer }: { onOpenAnalyzer: () => voi
     </main>
     {selection && (detail?.job_id === selection.id ? <AssetInspector key={`${selection.id}-${selection.shot || 'asset'}`} asset={detail} initialSeconds={selection.seconds} initialShot={selection.shot} capabilities={capabilities} onClose={() => setSelection(current => current?.id === selection.id ? null : current)} onRefresh={refreshLibrary} onConfigure={() => setSettings(true)} onRemoved={note => setUploadNotice(`Video removed.${note ? ` ${note}` : ''}`)} /> : <main className="lw-inspector lw-video-workspace lw-video-workspace-loading" aria-label="Video workspace"><button className="lw-button lw-back-to-library" data-video-back onClick={() => setSelection(null)}><Icon name="back" />Back to library</button>{detailError ? <><p role="alert">{detailError}</p><button className="lw-button" onClick={refreshLibrary}>Try again</button></> : <p role="status">Opening video…</p>}</main>)}
     {deletingProjects && <DeleteProjectsDialog projects={deletingProjects} onClose={() => setDeletingProjects(null)} onDeleted={projectsDeleted} />}
-    {settings && <SettingsDialog capabilities={capabilities} onClose={() => setSettings(false)} onOpenAnalyzer={onOpenAnalyzer} />}
+    {settings && <SettingsDialog capabilities={capabilities} onClose={() => setSettings(false)} />}
   </div>
 }
 
@@ -265,7 +265,7 @@ function EmptyState({ hasLibrary, filtered, shots, importing, onImport, onClear,
   if (hasLibrary || filtered) return <div className="lw-empty-state"><h2>{shots && !filtered ? 'No analyzed shots yet' : 'No matches'}</h2>{shots && !filtered ? <><p>Open a project to analyze its shots.</p><button className="lw-button" onClick={onVideos}>Browse projects</button></> : filtered && <button className="lw-button" onClick={onClear}>Clear filters</button>}</div>
   return <button className="lw-empty-import" onClick={onImport} disabled={importing}><Icon name="upload" size={24} /><span>Drop videos here</span><small>or choose files</small></button>
 }
-function SettingsDialog({ capabilities, onClose, onOpenAnalyzer }: { capabilities: Capabilities | null; onClose: () => void; onOpenAnalyzer: () => void }) {
+function SettingsDialog({ capabilities, onClose }: { capabilities: Capabilities | null; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const apiKey = useSettingsStore(state => state.apiKey)
   const setApiKey = useSettingsStore(state => state.setApiKey)
@@ -348,6 +348,5 @@ function SettingsDialog({ capabilities, onClose, onOpenAnalyzer }: { capabilitie
       {desktopReady && <button type="button" className="lw-button" onClick={() => void copyPairingCode()} disabled={saving || copying}>{copying ? 'Copying…' : 'Copy editor pairing code'}</button>}
       <div className="lw-dialog-actions">{desktopReady && desktopConfigured && <button type="button" className="lw-button" onClick={() => void clearKey()} disabled={saving}>Clear key</button>}<button type="button" className="lw-button" onClick={onClose} disabled={saving}>Cancel</button><button type="submit" className="lw-button lw-button-primary" disabled={saving || checkingDesktop}>{saving ? 'Saving…' : 'Save'}</button></div>
     </form>
-    <button className="lw-text-button lw-analyzer-link" disabled={saving} onClick={() => { onClose(); onOpenAnalyzer() }}>Open analyzer<Icon name="arrow" size={14} /></button>
   </dialog>
 }

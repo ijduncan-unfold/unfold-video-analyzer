@@ -173,6 +173,16 @@ All workflows passed for the exact source commit: [application checks](https://g
 
 The verified [Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38090625438/artifacts/11683988079) and [Apple Silicon artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38090625515/artifacts/11684034232) supersede the earlier previews. All five Windows and four Mac downloaded file checksums matched. Both integration ZIPs contained sixteen entries with eleven public resources matching `833444a`, executable Mac helpers, and no vendor bridge. The installer had a valid PE header. The Mac app's executable confirmed native arm64, its embedded public resources matched source, and its isolated smoke report confirmed verified HTTPS. Neither isolated build contained a configured Gemini key. Native Mac editor acceptance remains pending.
 
+## Original analyzer removal, October 10
+
+The original analyzer entry in Settings, its separately loaded application shell, timeline/comparison/report views, hooks, stores, and old API client were removed. The current footage workspace is the only browser interface. Obsolete analysis/status/results/comparison/report-export and YouTube-import routes, unused prompts/schemas/services, and the ReportLab/SSE dependencies were removed too.
+
+Current progressive Gemini analysis, full section notes/summary, custom briefs, transcripts, metadata search, shape/composition/color matching, library deletion, and all six workspace export formats remain. The unused automatic related-shot Gemini pass no longer runs; visual match-cut discovery uses its independent pipeline. Historical related-shot results remain readable in saved exports and archived analysis. Eight retained EDL/FCPXML functions moved unchanged into `nle_export.py` and their export regressions use the current library entry points.
+
+Frontend lint/TypeScript/production build and all ten existing match-cut session/freehand tests passed. Every remaining frontend source file is reachable from the application entry point; no old analyzer chunk is built. The local Python regression run passed 324 tests and 75 subtests with two platform skips. Native installer tests were excluded locally because Resolve was open. Five portable packaging guards and thirteen subtests passed. Independent review found no broken imports or export initialization cycle.
+
+The idle source companion was restarted and the browser reloaded. Settings displayed Gemini configuration and model settings with no **Open analyzer** link, and browser error/warning logs were empty. Current health/library/capability endpoints returned HTTP 200; all six retired endpoint groups returned HTTP 404. The existing imported asset and configured-key presence remained available. No analysis was started by this verification.
+
 ## Remaining validation
 
 - Recognition/retrieval quality on representative agency and filmmaking footage, including difficult audio, fast montage and multilingual material.

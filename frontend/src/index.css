@@ -32,8 +32,3 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
 }
-
-/* Monospace for timestamps */
-.font-mono {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-}

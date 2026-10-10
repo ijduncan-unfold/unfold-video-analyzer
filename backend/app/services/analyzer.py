@@ -16,7 +16,6 @@ from app.services.custom_pass import run_custom_pass
 from app.services.flash_pass import run_scene_detection, run_shot_detection
 from app.services.job_store import Job, get_job, update_job
 from app.services.pro_pass import run_pro_scene
-from app.services.shot_matching import run_shot_matching
 from app.services.summary_pass import run_summary_pass
 from app.services.thumbnail_service import extract_thumbnails
 
@@ -61,7 +60,7 @@ async def run_analysis(
     usage_records: list[dict] = []
     warnings = ["AI-generated timestamps are approximate; review metadata before editorial use."]
     flash_dict = None
-    deep_results, matches_list = [], []
+    deep_results = []
     summary_dict = custom_result_dict = None
     transcript = []
     previous_config = dict(job.analysis_config)
@@ -288,21 +287,6 @@ async def run_analysis(
                 warnings.append(message)
                 persist()
                 yield _event("error_event", message=message, recoverable=True)
-            try:
-                analysis_progress["stage"] = "matching"
-                persist(progress="Finding visually related shots")
-                yield _event("pass_start", **{"pass": 0, "name": "Related shots"})
-                matches_list, usage = await asyncio.wait_for(
-                    run_shot_matching(job.file_uri, job.mime_type, flash_dict, api_key=api_key), timeout=120,
-                )
-                usage_records.append(usage)
-                persist(shot_matches=matches_list)
-                yield _event("matches_complete", matches=matches_list)
-            except Exception as error:
-                message = _failure("Related-shot analysis", error)
-                warnings.append(message)
-                persist()
-                yield _event("error_event", message=message, recoverable=True)
 
         if custom_prompt:
             analysis_progress["stage"] = "custom"
@@ -331,9 +315,9 @@ async def run_analysis(
         analysis_progress["stage"] = "complete"
         persist(status="complete", current_pass=None, current_scene=None,
                 deep_results=deep_results, summary=summary_dict, custom_result=custom_result_dict,
-                shot_matches=matches_list, progress="Analysis ready for review")
+                progress="Analysis ready for review")
         yield _event("analysis_complete", flash=flash_dict, deep=deep_results, summary=summary_dict,
-                     custom=custom_result_dict, matches=matches_list, warnings=list(dict.fromkeys(warnings)),
+                     custom=custom_result_dict, warnings=list(dict.fromkeys(warnings)),
                      cost_estimate=estimate_cost(usage_records=usage_records))
     except Exception as error:
         message = _failure("Analysis", error)

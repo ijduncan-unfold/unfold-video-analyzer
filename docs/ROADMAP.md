@@ -2,7 +2,7 @@
 
 ## Current rebuild
 
-The existing per-video analyzer has become a local footage library. It supports persistent assets, batch local import, source inspection, posters/playback, scene and shot keyword search, human metadata/review, configurable Gemini analysis, durable stage results, job recovery and portable exports. Existing analyzer/comparison features remain reachable.
+The application uses one local footage workspace for persistent assets, batch local import, source inspection, posters/playback, section and shot keyword search, human metadata/review, configurable Gemini analysis, durable stage results, job recovery and portable exports. The original analyzer interface and its separate comparison/report routes have been removed.
 
 This is a usable single-user foundation. Its current search is keyword based, job execution is in-process, and the AI adapter has not been evaluated against this workspace's footage. The following work defines the path to an agency production service.
 

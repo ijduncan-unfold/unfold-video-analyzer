@@ -416,7 +416,7 @@ def _render_export(data: dict, format: str) -> tuple[bytes | str, str, str]:
     if name == "srt":
         return _srt_document(data), "application/x-subrip", "srt"
     if name in ("edl", "fcpxml"):
-        from app.services.export_service import export_edl, export_fcpxml
+        from app.services.nle_export import export_edl, export_fcpxml
         exporter, media_type = (export_edl, "text/plain") if name == "edl" else (export_fcpxml, "application/xml")
         return exporter(data), media_type, name
     raise ValueError(f"Unsupported export format: {format}")

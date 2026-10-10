@@ -44,7 +44,7 @@ def test_metadata_rejects_invalid_and_private_fields(client, asset):
 
 def test_key_missing_and_duplicate_analysis(client, asset):
     assert client.post('/api/library/test-asset/analyze', json={}).status_code == 400
-    assert client.get('/api/analyze/test-asset?api_key=never-read-query-keys').status_code == 400
+    assert client.post('/api/library/test-asset/analyze?api_key=never-read-query-keys', json={}).status_code == 400
     assert client.post('/api/library/test-asset/analyze', json={'fps': 24}).status_code == 422
     settings.google_api_key = 'test-not-a-real-key'
     with patch('app.routers.library.start_job') as start:
@@ -61,15 +61,6 @@ def test_restart_recovers_interrupted_jobs(client, asset):
     assert restored.status == 'error'
     assert restored.flash_result is not None
     assert 'restart' in restored.error
-
-
-def test_youtube_url_host_validation(client):
-    for url in ['https://evil.test/?next=youtube.com/watch?v=abcdefghijk',
-                'https://youtube.com.evil.test/watch?v=abcdefghijk', 'file:///youtube.com/watch?v=abcdefghijk']:
-        assert client.post('/api/upload-url', json={'url': url}).status_code == 400
-    response = client.post('/api/upload-url', json={'url': 'https://youtu.be/abcdefghijk?t=3'})
-    assert response.status_code == 200
-    assert response.json()['youtube_url'] == 'https://www.youtube.com/watch?v=abcdefghijk'
 
 
 def test_local_upload_probe_poster_and_range_without_ai_key(client, tmp_path):

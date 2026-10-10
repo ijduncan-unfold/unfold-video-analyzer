@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.services.export_service import export_csv, export_edl, export_fcpxml, export_json
+from app.services.nle_export import export_edl, export_fcpxml
 from app.services.library_export import NS, export_library, parse_seconds
 
 
@@ -76,7 +76,7 @@ class PortableExportTests(unittest.TestCase):
         self.job.filename = r"C:\Originals\rushé.mov"
         self.job.analysis_config["API_KEY"] = "super-secret"
         self.job.deep_results = [{"file_uri": "provider-secret", "visible_text": "Hello"}]
-        result = export_json(self.job)
+        result = export_library(self.job, "json")[0]
         for private in (self.job.local_path, self.job.file_uri, self.job.file_id, "super-secret", "provider-secret", "Originals"):
             self.assertNotIn(private, result)
         self.assertEqual(json.loads(result)["asset"]["filename"], "rushé.mov")
@@ -99,7 +99,7 @@ class PortableExportTests(unittest.TestCase):
             self.assertNotIn(value, content)
 
     def test_csv_is_unicode_and_quoted_and_contains_reviewed_metadata(self):
-        content = export_csv(self.job)
+        content = export_library(self.job, "csv")[0]
         self.assertTrue(content.startswith("\ufeff"))
         rows = list(csv.DictReader(io.StringIO(content.lstrip("\ufeff"))))
         self.assertEqual(len(rows), 2)
@@ -115,19 +115,19 @@ class PortableExportTests(unittest.TestCase):
         self.job.metadata["tags"] = ["@SUM(1)"]
         self.job.flash_result["scenes"][0]["shots"][0]["visual_description"] = "\t+cmd|' /C calc'!A0"
         self.job.shot_annotations["1"]["notes"] = "-1+1"
-        rows = list(csv.DictReader(io.StringIO(export_csv(self.job).lstrip("\ufeff"))))
+        rows = list(csv.DictReader(io.StringIO(export_library(self.job, "csv")[0].lstrip("\ufeff"))))
         for column in ("Client", "Asset Tags", "Visual Description", "Shot Notes"):
             self.assertTrue(rows[0][column].startswith("'"), column)
 
     def test_csv_reports_bad_timing_without_inventing_zero(self):
         self.job.flash_result["scenes"][0]["shots"][0]["start_time"] = "unknown"
-        rows = list(csv.DictReader(io.StringIO(export_csv(self.job).lstrip("\ufeff"))))
+        rows = list(csv.DictReader(io.StringIO(export_library(self.job, "csv")[0].lstrip("\ufeff"))))
         self.assertEqual(rows[0]["Start Seconds"], "")
         self.assertIn("Invalid timestamp", rows[0]["Timing Status"])
 
     def test_csv_exports_asset_metadata_before_analysis_exists(self):
         self.job.flash_result = None
-        rows = list(csv.DictReader(io.StringIO(export_csv(self.job).lstrip("\ufeff"))))
+        rows = list(csv.DictReader(io.StringIO(export_library(self.job, "csv")[0].lstrip("\ufeff"))))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Client"], "Example client")
         self.assertEqual(rows[0]["Asset Notes"], "Producer's note")

@@ -1,12 +1,8 @@
-import os
-import re
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
 
 import aiofiles
 from fastapi import APIRouter, HTTPException, UploadFile
-from pydantic import BaseModel
 
 from app.config import settings
 from app.services.job_store import Job, create_job
@@ -54,28 +50,3 @@ async def upload(file: UploadFile):
         await file.close()
     return {'job_id': job.job_id, 'file_id': '', 'filename': job.filename,
             'size_bytes': size, 'mime_type': mime_type, 'status': job.status}
-
-
-class UrlUploadRequest(BaseModel):
-    url: str
-
-
-@router.post('/api/upload-url')
-async def upload_url(body: UrlUploadRequest):
-    parsed = urlparse(body.url.strip())
-    if parsed.scheme not in ('http', 'https'):
-        raise HTTPException(400, 'Enter a full YouTube URL')
-    host = (parsed.hostname or '').lower()
-    if host in ('www.youtube.com', 'youtube.com', 'm.youtube.com'):
-        video_id = parse_qs(parsed.query).get('v', [''])[0] if parsed.path == '/watch' else parsed.path.removeprefix('/shorts/')
-    elif host == 'youtu.be':
-        video_id = parsed.path.lstrip('/')
-    else:
-        raise HTTPException(400, 'Only YouTube video URLs are supported')
-    if not re.fullmatch(r'[\w-]{11}', video_id):
-        raise HTTPException(400, 'Invalid YouTube video ID')
-    url = f'https://www.youtube.com/watch?v={video_id}'
-    job = create_job(Job(job_id=str(uuid.uuid4()), file_id='', file_uri=url, mime_type='video/*',
-        filename=f'youtube_{video_id}', size_bytes=0, local_path='', youtube_url=url))
-    return {'job_id': job.job_id, 'file_id': '', 'filename': job.filename, 'size_bytes': 0,
-            'mime_type': job.mime_type, 'status': job.status, 'youtube_url': url, 'youtube_id': video_id}
