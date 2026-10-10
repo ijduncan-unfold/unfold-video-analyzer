@@ -25,6 +25,13 @@ function parseDescriptor(text) {
   try { server = normalizeServer(value.server); } catch (_) { throw new Error(UNAVAILABLE); }
   return { server, token: value.token, instance_id: value.instance_id };
 }
+function openedIdentityMatches(pathInfo, opened, platform) {
+  // libuv 1.49 (Resolve's Electron 36) reports a 64-bit volume serial for
+  // Windows path stats and its low 32 bits for handle stats. BigInt preserves
+  // those lower bits; Number can round them away. Path-to-path checks below
+  // retain the full device ID. POSIX always requires the full device ID.
+  return pathInfo.ino === opened.ino && (platform === "win32" ? BigInt.asUintN(32, pathInfo.dev) === BigInt.asUintN(32, opened.dev) : pathInfo.dev === opened.dev);
+}
 async function readConnection(options = {}) {
   let handle;
   try {
@@ -41,24 +48,24 @@ async function readConnection(options = {}) {
       }
     }
     await checkAncestors(file);
-    const before = await fs.lstat(file);
-    if (!before.isFile() || before.size < 1 || before.size > MAX_BYTES || before.isSymbolicLink()) throw new Error(UNAVAILABLE);
-    if (platform !== "win32" && ((before.mode & 0o077) !== 0 || typeof process.getuid === "function" && before.uid !== process.getuid())) throw new Error(UNAVAILABLE);
+    const before = await fs.lstat(file, { bigint: true });
+    if (!before.isFile() || before.size < 1n || before.size > BigInt(MAX_BYTES) || before.isSymbolicLink()) throw new Error(UNAVAILABLE);
+    if (platform !== "win32" && ((before.mode & 0o077n) !== 0n || typeof process.getuid === "function" && before.uid !== BigInt(process.getuid()))) throw new Error(UNAVAILABLE);
     const actual = await fs.realpath(file);
     await checkAncestors(actual);
-    const canonical = await fs.lstat(actual);
+    const canonical = await fs.lstat(actual, { bigint: true });
     // Windows package filesystem virtualization can give the same regular file
     // a different realpath spelling without any junction or symlink. Compare
     // physical identity, retaining link checks on both directory chains.
     if (!canonical.isFile() || canonical.isSymbolicLink() || canonical.dev !== before.dev || canonical.ino !== before.ino || platform !== "win32" && actual !== path.resolve(file)) throw new Error(UNAVAILABLE);
     handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
-    const opened = await handle.stat();
-    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size > MAX_BYTES || platform !== "win32" && ((opened.mode & 0o077) !== 0 || typeof process.getuid === "function" && opened.uid !== process.getuid())) throw new Error(UNAVAILABLE);
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || !openedIdentityMatches(before, opened, platform) || opened.size > BigInt(MAX_BYTES) || platform !== "win32" && ((opened.mode & 0o077n) !== 0n || typeof process.getuid === "function" && opened.uid !== BigInt(process.getuid()))) throw new Error(UNAVAILABLE);
     const buffer = Buffer.alloc(MAX_BYTES + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead < 1 || bytesRead > MAX_BYTES) throw new Error(UNAVAILABLE);
-    const after = await fs.lstat(file);
-    if (after.isSymbolicLink() || after.dev !== opened.dev || after.ino !== opened.ino) throw new Error(UNAVAILABLE);
+    const after = await fs.lstat(file, { bigint: true });
+    if (after.isSymbolicLink() || after.dev !== before.dev || after.ino !== before.ino || !openedIdentityMatches(after, opened, platform)) throw new Error(UNAVAILABLE);
     await checkAncestors(file); await checkAncestors(actual);
     return parseDescriptor(buffer.subarray(0, bytesRead).toString("utf8"));
   } catch (_) { throw new Error(UNAVAILABLE); }

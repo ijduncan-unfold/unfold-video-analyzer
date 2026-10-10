@@ -50,3 +50,22 @@ test("Windows virtualized realpath spelling is accepted only for the same regula
   await fs.unlink(alias); await fs.writeFile(alias, JSON.stringify(descriptor), { mode: 0o600 });
   await assert.rejects(module.exports.readConnection({ file, platform: "win32" }), /Start Video Analyzer/);
 }));
+test("Windows handle identity retains exact inode and volume low bits without Number rounding", async () => fixture(async (file, folder) => {
+  const wideDevice = 0x1234567887654321n, lowDevice = BigInt.asUintN(32, wideDevice), alias = path.join(folder, "canonical-editor-service.json");
+  assert.notEqual(BigInt(Number(wideDevice)) & 0xffffffffn, lowDevice); // Matches native precision loss.
+  await fs.link(file, alias);
+  const behavior = { wrongDevice: false, wrongInode: false, alternateCanonical: false }, module = { exports: {} };
+  const privateStat = value => { value.mode = 0o100600n; value.uid = BigInt(typeof process.getuid === "function" ? process.getuid() : 0); return value; };
+  const mockedFs = { ...fs,
+    async lstat(value, options) { const info = await fs.lstat(value, options); if (options && options.bigint && [file, alias].includes(value)) { info.dev = value === alias ? wideDevice + 0x100000000n : wideDevice; privateStat(info); } return info; },
+    async realpath(value) { return value === file && behavior.alternateCanonical ? alias : fs.realpath(value); },
+    async open(...args) { const handle = await fs.open(...args); return { async stat(options) { assert.equal(options.bigint, true); const info = privateStat(await handle.stat(options)); info.dev = lowDevice + (behavior.wrongDevice ? 1n : 0n); if (behavior.wrongInode) info.ino += 1n; return info; }, read: (...args) => handle.read(...args), close: () => handle.close() }; },
+  };
+  vm.runInNewContext(await fs.readFile(path.join(__dirname, "../connection.js"), "utf8"), { module, Buffer, process,
+    require(name) { if (name === "node:fs/promises") return mockedFs; if (name === "./service") return require("../service"); return require(name); } });
+  assert.equal((await module.exports.readConnection({ file, platform: "win32" })).token, descriptor.token);
+  behavior.wrongDevice = true; await assert.rejects(module.exports.readConnection({ file, platform: "win32" }), /Start Video Analyzer/); behavior.wrongDevice = false;
+  behavior.wrongInode = true; await assert.rejects(module.exports.readConnection({ file, platform: "win32" }), /Start Video Analyzer/); behavior.wrongInode = false;
+  await assert.rejects(module.exports.readConnection({ file, platform: "darwin" }), /Start Video Analyzer/);
+  behavior.alternateCanonical = true; await assert.rejects(module.exports.readConnection({ file, platform: "win32" }), /Start Video Analyzer/);
+}));
