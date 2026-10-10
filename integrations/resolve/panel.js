@@ -7,7 +7,8 @@
   function message(value, error = false) { el("message").textContent = value; el("message").classList.toggle("error", error); }
   function controls() {
     el("workspace").hidden = !state.connected;
-    el("connect").disabled = busy; el("disconnect").disabled = busy || !state.connected;
+    el("retry").hidden = state.connected; el("retry").disabled = busy;
+    el("connection-status").textContent = state.connected ? "Connected" : "Waiting for app";
     for (const id of ["load-selection", "asset-toggle", "mode", "shots-tab", "transcript-tab", "search"]) el(id).disabled = busy;
     const analyzing = state.asset && helpers.ACTIVE_STATUSES.includes(state.asset.status);
     el("analyze").disabled = busy || !state.asset || analyzing; el("mode").disabled = busy || analyzing;
@@ -63,12 +64,12 @@
     renderPicker(); renderResults(); controls();
   }
   function stopPoll() { if (pollTimer !== null) clearTimeout(pollTimer); pollTimer = null; }
-  function schedulePoll() { stopPoll(); if (!disposed && state.connected) pollTimer = setTimeout(poll, state.asset && helpers.ACTIVE_STATUSES.includes(state.asset.status) ? 2500 : 5000); }
+  function schedulePoll() { stopPoll(); if (!disposed) pollTimer = setTimeout(poll, state.connected && state.asset && helpers.ACTIVE_STATUSES.includes(state.asset.status) ? 2500 : 5000); }
   async function call(name, payload) {
     const number = ++requestNumber;
     const reply = await bridge[name](payload);
+    if (reply && reply.state && !disposed && number >= appliedNumber) { appliedNumber = number; const previous = state; state = reply.state; render(previous); }
     if (!reply || !reply.ok) throw new Error(reply && reply.error && reply.error.message || "The plugin action failed.");
-    if (!disposed && number >= appliedNumber) { appliedNumber = number; const previous = state; state = reply.state; render(previous); }
     return reply.state;
   }
   async function action(name, payload) {
@@ -79,15 +80,13 @@
     finally { busy = false; controls(); schedulePoll(); }
   }
   async function poll() {
-    pollTimer = null; if (busy || disposed || !state.connected) return schedulePoll();
-    try { await call("refresh"); }
+    pollTimer = null; if (busy || disposed) return schedulePoll();
+    try { const previousConnected = state.connected; const result = await call("refresh"); if (!result.connected || !previousConnected) message(result.message); }
     catch (error) { message(error.message, true); }
     finally { schedulePoll(); }
   }
   function on(id, event, callback) { el(id).addEventListener(event, callback); }
-  on("connect", "click", async () => { const value = { server: el("server").value, token: el("token").value }; await action("connect", value); el("token").value = ""; if (state.connected) { el("connection").hidden = true; el("connection-toggle").setAttribute("aria-expanded", "false"); } });
-  on("disconnect", "click", () => action("disconnect"));
-  on("connection-toggle", "click", () => { el("connection").hidden = !el("connection").hidden; el("connection-toggle").setAttribute("aria-expanded", String(!el("connection").hidden)); });
+  on("retry", "click", () => action("connect"));
   on("load-selection", "click", () => action("loadSelection"));
   on("asset-toggle", "click", () => { el("asset-picker").hidden = !el("asset-picker").hidden; el("asset-toggle").setAttribute("aria-expanded", String(!el("asset-picker").hidden)); if (!el("asset-picker").hidden) el("asset-search").focus(); });
   on("asset-search", "input", renderPicker);
@@ -102,5 +101,5 @@
   on("show-more", "click", () => { shown = Math.min(500, shown + 100); renderResults(); controls(); });
   window.addEventListener("beforeunload", () => { disposed = true; stopPoll(); if (searchTimer !== null) clearTimeout(searchTimer); });
   if (!bridge) { message("Open this integration from Resolve Studio's Workspace menu.", true); controls(); return; }
-  call("bootstrap").then(() => { el("server").value = state.server; el("search").value = state.queries[state.tab]; }).catch(error => message(error.message, true));
+  call("bootstrap").then(result => { el("search").value = state.queries[state.tab]; message(result.message); }).catch(error => message(error.message, true)).finally(schedulePoll);
 })();

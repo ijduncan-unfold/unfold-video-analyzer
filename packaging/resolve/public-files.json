@@ -5,6 +5,7 @@
   "preload.js",
   "host.js",
   "service.js",
+  "connection.js",
   "controller.js",
   "panel.js",
   "index.html",

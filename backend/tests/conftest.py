@@ -7,12 +7,21 @@ _test_root = tempfile.TemporaryDirectory(prefix='video-analyzer-tests-')
 os.environ['DATABASE_PATH'] = str(Path(_test_root.name) / 'library.sqlite3')
 os.environ['UPLOAD_DIR'] = str(Path(_test_root.name) / 'uploads')
 os.environ['EDITOR_TOKEN_PATH'] = str(Path(_test_root.name) / 'premiere-token.txt')
+os.environ['EDITOR_DISCOVERY_PATH'] = str(Path(_test_root.name) / 'editor-service.json')
 os.environ['GOOGLE_API_KEY'] = ''
 
 import pytest
 from fastapi.testclient import TestClient
 from app.config import settings
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def isolate_editor_discovery(monkeypatch, tmp_path):
+    from app.services import editor_discovery
+    monkeypatch.setattr(settings, 'editor_discovery_path', str(tmp_path / 'editor-service.json'))
+    # TestClient has no listening socket. Tests never probe another user's live service.
+    monkeypatch.setattr(editor_discovery, 'probe_instance', lambda *args: False)
 
 
 @pytest.fixture

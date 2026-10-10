@@ -8,15 +8,15 @@ The integration loads original Media Pool clips into the local Video Analyzer co
 
 ## Windows installation
 
-The [October 10 Windows build](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019) passed at commit `d355f09`, including all 83 Resolve checks and the fixes found during native testing. [Download the verified Windows preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019/artifacts/11678780721) while signed into GitHub. It includes the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums. All five downloaded checksums matched, and the public Resolve resources matched current source. This unsigned development preview expires October 24, 2026; later builds are available through the workflow below.
+Use a successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml) containing the automatic-connection update. The companion and integration must both be updated. Artifacts include the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums, and require signing into GitHub. The older `d355f09` preview verified the native source workflow but still required manual pairing.
 
-1. Get the updated **Video Analyzer companion** and public integration ZIP from a successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer, open browser **Settings**, configure your own Gemini key, and choose **Copy editor pairing code**. The tray's **Pair with editor** command provides the same code through a local file.
+1. Get the updated **Video Analyzer companion** and public integration ZIP from a successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer and configure your own Gemini key in browser **Settings**.
 2. Install Resolve Studio 20.1+ and **close Resolve** before installing or updating the integration.
 3. Use **Install Resolve integration** from the Video Analyzer Start menu or tray. For the standalone `VideoAnalyzer-Resolve-0.1.0.zip`, extract the entire ZIP and double-click **Install Resolve on Windows.cmd**. Keep the `VideoAnalyzer` folder beside the helper scripts. Administrator approval may be needed for Resolve's shared plugin folder.
 4. Restart Resolve Studio and choose **Workspace → Workflow Integrations → Video Analyzer**.
-5. Connect to **http://127.0.0.1:8000** using the editor pairing code. Select original local clips in the Media Pool and click **Load selected Media Pool clips**. Loading makes no Gemini analysis call. Choose **Shots and tags** or **Full analysis**, then click **Analyze** for the active clip.
+5. The integration connects automatically to the running companion on this computer. Select original local clips in the Media Pool and click **Load selected Media Pool clips**. Loading makes no Gemini analysis call. Choose **Shots and tags** or **Full analysis**, then click **Analyze** for the active clip.
 
-The installer copies these ten public files into the plugin folder: `manifest.xml`, `package.json`, `main.js`, `preload.js`, `host.js`, `service.js`, `controller.js`, `panel.js`, `index.html`, and `styles.css`. It copies `WorkflowIntegration.node` separately from **your own installed Resolve SDK**. The vendor bridge is excluded from the public ZIP and companion bundle.
+The installer copies these eleven public files into the plugin folder: `manifest.xml`, `package.json`, `main.js`, `preload.js`, `host.js`, `service.js`, `connection.js`, `controller.js`, `panel.js`, `index.html`, and `styles.css`. It copies `WorkflowIntegration.node` separately from **your own installed Resolve SDK**. The vendor bridge is excluded from the public ZIP and companion bundle.
 
 | Windows location | Default |
 |---|---|
@@ -49,18 +49,20 @@ Shots and transcript cues populate as the companion completes analysis sections.
 
 Resolve does not expose a documented marker transaction/undo API for this preview. On a failed batch, the integration attempts to remove only the additions it can still identify as its own unchanged writes; it reports incomplete rollback for manual inspection. Review results on a test project before writing a large batch.
 
-Analysis continues in the companion while its process runs, even when the plugin closes. Saved analysis and nonsecret clip/search preferences persist. The pairing code stays in plugin memory and must be pasted again after reopening the integration. Keep it private: it authorizes local editor actions. Neither the code nor Gemini keys belong in Git, screenshots, or support logs.
+Analysis continues in the companion while its process runs, even when the plugin closes. Saved analysis and nonsecret clip/search preferences persist. The panel reconnects automatically after reopening or a companion restart. If the companion is closed, start Video Analyzer; the panel retries automatically.
+
+Local API authentication still runs behind the scenes. The companion publishes a private `editor-service.json` in its per-user data folder only after its authenticated endpoint is ready. The plugin's native main process reads that file and verifies the running instance. Credentials never enter the interface or saved preferences, and credential changes invalidate old results rather than replaying actions. Keep this file and Gemini keys out of Git, screenshots, and support logs. Premiere still uses its existing manual pairing flow.
 
 Original media is referenced without creating a full import copy. The companion can create thumbnails and derived analysis caches; it does not rename or delete original files. Removing a library project deletes its saved records and app-owned cache files. Uninstalling the companion preserves its user data folder.
 
 ## Apple Silicon Mac installation
 
-The companion targets **native arm64 on macOS 15+**. The [October 10 Mac build](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014) passed native automated checks at commit `d355f09`, including all 83 Resolve contract checks and the Windows-discovered runtime fixes. [Download the verified Apple Silicon preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014/artifacts/11678469463) while signed into GitHub. Its app ZIP, DMG, Premiere CCX, and Resolve ZIP checksums matched after download; the executable header independently confirmed arm64 and the embedded public integration matched current source. The artifact expires October 24, 2026; use later successful runs from the [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml) after that date.
+The companion targets **native arm64 on macOS 15+**. Use a successful [Mac build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml) containing the automatic-connection update, and update both the companion and Resolve integration. Earlier `d355f09` downloads passed arm64, signature, HTTPS, resource, and checksum checks but still required manual pairing. Native Mac editor acceptance remains pending.
 
 1. Install the updated `Video Analyzer.app` in Applications and prepare FFmpeg through **Install FFmpeg.command**.
 2. Run **Prepare Premiere on Mac.command** if local HTTPS is not already configured. Despite its existing name, this setup prepares the companion's shared editor endpoint for both Premiere and Resolve. It uses mkcert and may request an administrator password. Do not disable certificate or hostname verification.
 3. Close Resolve and run **Install Resolve on Mac.command** from the extracted integration ZIP, or choose **Install Resolve integration** in the companion's menu bar. Installation into `/Library` may require an administrator password.
-4. Open the integration from Resolve Studio's Workspace menu and connect to **https://localhost:8443** with the companion's editor pairing code.
+4. Start the companion, then open the integration from Resolve Studio's Workspace menu. It automatically discovers the trusted local endpoint **https://localhost:8443** and connects without a pairing code.
 
 | Mac location | Default |
 |---|---|
@@ -114,6 +116,6 @@ Broader Windows acceptance and native Mac acceptance still include:
 4. Export SRT, cancel a Save dialog, and inspect timing/text in Resolve. Confirm that a silent clip does not produce invented subtitles.
 5. Add a small marker batch to verified constant-rate footage. Check first/end-frame positions, preserve an existing marker at an occupied frame, repeat the batch to verify duplicate handling, and inspect any reported rollback issue.
 6. Change projects during a load or native action. Relink, remove, take offline, or reinterpret a clip; the old results must be blocked until the selection is loaded again. Confirm that subclips and unverified variable-rate clips cannot receive source markers.
-7. Close/reopen the integration and companion. Search/clip preferences and analysis should return; reconnecting the plugin should require the pairing code. Remove a test library asset and confirm that the original media remains.
+7. Close/reopen the integration and companion. Search/clip preferences and analysis should return, and the panel should reconnect automatically without a pairing code. Remove a test library asset and confirm that the original media remains.
 
 For troubleshooting, inspect the companion's `desktop.log` in its data folder. Share error messages and versions with credentials removed. Do not copy a Windows database to a Mac and expect its original-media paths to resolve; register the Mac's local originals and configure that computer's own HTTPS certificates and key.

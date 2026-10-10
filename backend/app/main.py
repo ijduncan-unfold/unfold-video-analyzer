@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,13 +26,32 @@ async def lifespan(app: FastAPI):
     from app.services.job_runner import shutdown_jobs
     recover_interrupted_jobs()
     from app.services.media_cleanup import cleanup_worker
+    from app.services.editor_discovery import EditorDiscovery, discovery_path
+    app.state.editor_instance_id = str(uuid.uuid4())
+    discovery = None
+    discovery_task = None
+    try:
+        discovery = EditorDiscovery(discovery_path(),
+            getattr(app.state, 'editor_connection_server', settings.editor_connection_server),
+            app.state.editor_instance_id, getattr(app.state, 'editor_connection_ssl_context', None))
+        discovery_task = asyncio.create_task(discovery.run())
+    except (OSError, ValueError):
+        app_logger.warning('Automatic editor connection unavailable; discovery configuration is unsupported')
     cleanup_task = asyncio.create_task(cleanup_worker())
-    yield
-    cleanup_task.cancel()
-    await asyncio.gather(cleanup_task, return_exceptions=True)
-    from app.services.visual_index import shutdown
-    await shutdown()
-    await shutdown_jobs()
+    try:
+        yield
+    finally:
+        if discovery:
+            discovery.stop()
+        cleanup_task.cancel()
+        if discovery_task:
+            discovery_task.cancel()
+        await asyncio.gather(cleanup_task, *([discovery_task] if discovery_task else []), return_exceptions=True)
+        if discovery:
+            await asyncio.to_thread(discovery.remove_owned)
+        from app.services.visual_index import shutdown
+        await shutdown()
+        await shutdown_jobs()
 
 
 app = FastAPI(title="Video Analyzer", lifespan=lifespan)

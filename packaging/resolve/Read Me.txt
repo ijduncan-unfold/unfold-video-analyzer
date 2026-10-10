@@ -3,9 +3,9 @@ Video Analyzer for DaVinci Resolve Studio - development preview
 Requires Resolve Studio 20.1 or newer. The free edition does not support native Workflow Integration windows. This plugin uses Resolve's own Electron runtime and native WorkflowIntegration.node module; it needs no separately installed Node or Python runtime. The module is copied from your installed Blackmagic SDK during installation and is not included in this download.
 
 Windows x64 first:
-1. Install and run the updated Video Analyzer companion. Configure Gemini in its browser Settings. Choose Copy editor pairing code.
+1. Install and run the updated Video Analyzer companion. Configure Gemini in its browser Settings.
 2. Close Resolve. Double-click Install Resolve on Windows.cmd. It may request administrator permission to install in Resolve's shared plugin folder. If using the companion, its Start menu/tray also offers Install Resolve integration.
-3. Restart Resolve Studio. Open Workspace > Workflow Integrations > Video Analyzer. Connect to http://127.0.0.1:8000 with the pairing code.
+3. Restart Resolve Studio. Open Workspace > Workflow Integrations > Video Analyzer. It connects automatically to the local app; no pairing code is needed. If the app is closed, start it and the integration reconnects.
 4. Select original local clips in the Media Pool, load the selection, choose Shots and tags or Full analysis, and click Analyze. Loading does not begin analysis.
 5. Search shots or dialogue. Select clip selects the original in the Media Pool; Copy times and Open full analyzer provide review access. Add markers writes visible results to source clips; Export SRT saves all dialogue.
 
@@ -14,7 +14,7 @@ Use the updated native companion and its HTTPS setup. Close Resolve and open Ins
 
 Markers use original-source frame offsets, not timeline timecodes. Verified constant-rate original clips are required for markers. Subclips, interpreted media, offline/relinked sources, occupied marker positions and stale project results are guarded. Marker batches preserve existing markers and attempt to roll back only their own additions on failure. Resolve does not expose a documented marker transaction/undo API or exact source-viewer seeking API in this preview.
 
-Original media is referenced and never copied, renamed, or deleted. Analysis runs in the companion and persists when the plugin closes. Pairing credentials are held only in plugin memory; nonsecret project preferences persist separately. Visual match cuts remain in Open full analyzer.
+Original media is referenced and never copied, renamed, or deleted. Analysis runs in the companion and persists when the plugin closes. The native integration discovers the running app through a private per-user file and authenticates automatically; credentials never enter the interface or saved preferences. Nonsecret project preferences persist separately. Visual match cuts remain in Open full analyzer.
 
 Installation and native acceptance:
 https://github.com/ijduncan/video-analyzer/blob/feat/footage-library/docs/RESOLVE_HANDOFF.md

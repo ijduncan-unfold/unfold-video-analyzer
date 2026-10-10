@@ -2,7 +2,7 @@
 import os
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from app.config import settings
@@ -26,9 +26,10 @@ def _resolve_job(job_id):
 
 
 @router.get('/health')
-async def health():
+async def health(request: Request):
     import shutil
     return {'status': 'ok', 'protocol_version': 1, 'host': 'resolve',
+            'instance_id': getattr(request.app.state, 'editor_instance_id', None),
             'google_configured': bool(settings.google_api_key),
             'google_api_key_configured': bool(settings.google_api_key),
             'desktop_mode': os.environ.get('VIDEO_ANALYZER_DESKTOP') == '1',
@@ -36,9 +37,9 @@ async def health():
 
 
 @router.post('/settings')
-async def save_settings(body: DesktopSettings):
+async def save_settings(body: DesktopSettings, request: Request):
     save_desktop_settings(body)
-    return await health()
+    return await health(request)
 
 
 @router.post('/register')

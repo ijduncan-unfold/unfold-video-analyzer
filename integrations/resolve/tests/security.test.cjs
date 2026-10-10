@@ -32,6 +32,22 @@ test("CSP blocks renderer network, external scripts, frames, forms and objects",
   for (const directive of ["default-src 'none'", "script-src 'self'", "connect-src 'none'", "frame-src 'none'", "form-action 'none'", "object-src 'none'"]) assert.ok(html.includes(directive));
   assert.equal(/<script[^>]+https?:/i.test(html), false); assert.equal(/\son\w+=/i.test(html), false);
 });
+test("Resolve has no manual pairing controls and automatically retries discovery while offline", async () => {
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  assert.equal(/id="(?:token|server|connect|disconnect|connection-toggle)"/.test(html), false); assert.equal(/pairing|paste|copy the editor/i.test(html), false);
+  const ids = [...html.matchAll(/id="([^"]+)"/g)].map(match => match[1]), elements = new Map(), timers = [], invoked = [], lifecycle = {};
+  function element() { return { hidden: false, value: "", textContent: "", events: {}, classList: { toggle() {} }, setAttribute() {}, appendChild() {}, addEventListener(name, fn) { this.events[name] = fn; } }; }
+  for (const id of ids) elements.set(id, element());
+  const document = { getElementById(id) { assert.ok(elements.has(id), "Removed pairing DOM must never be accessed: " + id); return elements.get(id); }, querySelectorAll() { return []; }, createElement: element, createTextNode(value) { return { value }; } };
+  const state = { connected: false, assets: [], asset: null, results: [], project: null, shots: [], total: 0, queries: { shots: "", transcript: "" }, tab: "shots", mode: "flash_only", revision: 0, message: "Start Video Analyzer. This panel connects automatically." };
+  const bridge = { async bootstrap() { invoked.push("bootstrap"); return { ok: true, state: { ...state } }; }, async refresh() { invoked.push("refresh"); return { ok: true, state: { ...state, connected: true, project: { id: "p", name: "Film" }, message: "Connected." } }; } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../panel.js"), "utf8"), { window: { videoAnalyzer: bridge, ResolvePanelHelpers: helpers, addEventListener(name, fn) { lifecycle[name] = fn; } }, document,
+    setTimeout(callback, delay) { const timer = { callback, delay }; timers.push(timer); return timer; }, clearTimeout(timer) { timer.cleared = true; } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(elements.get("workspace").hidden, true); assert.equal(elements.get("retry").hidden, false); assert.equal(timers.at(-1).delay, 5000);
+  await timers.at(-1).callback(); assert.deepEqual(invoked, ["bootstrap", "refresh"]); assert.equal(elements.get("workspace").hidden, false); assert.equal(elements.get("retry").hidden, true); assert.equal(elements.get("message").textContent, "Connected.");
+  lifecycle.beforeunload(); assert.equal(timers.at(-1).cleared, true);
+});
 test("main process lifecycle initializes Promise bridge, uses matching ID, and cleans once on quit", async () => {
   const events = {}, handlers = {}, calls = [];
   let instance;
@@ -78,6 +94,7 @@ test("Electron's ESM-loaded CommonJS entry starts even when require.main is anot
     if (name.endsWith("WorkflowIntegration.node")) return {};
     if (name === "./host") return require("../host");
     if (name === "./service") return require("../service");
+    if (name === "./connection") return require("../connection");
     return require(name);
   }
   fakeRequire.main = { exports: {} }; // Actual Electron default_app uses await import(entry).
@@ -88,7 +105,7 @@ test("Electron's ESM-loaded CommonJS entry starts even when require.main is anot
 test("regular Node imports and Electron renderer imports cannot start the native entry", () => {
   const source = fs.readFileSync(path.join(__dirname, "../main.js"), "utf8");
   for (const process of [{ versions: { node: "24.0.0" } }, { versions: { electron: "40.0.0" }, type: "renderer" }]) {
-    const fakeRequire = name => { if (name === "electron" || name.endsWith("WorkflowIntegration.node")) throw new Error("Native entry must stay inert"); if (name === "./host") return require("../host"); if (name === "./service") return require("../service"); return require(name); };
+    const fakeRequire = name => { if (name === "electron" || name.endsWith("WorkflowIntegration.node")) throw new Error("Native entry must stay inert"); if (name === "./host") return require("../host"); if (name === "./service") return require("../service"); if (name === "./connection") return require("../connection"); return require(name); };
     vm.runInNewContext(source, { module: { exports: {} }, require: fakeRequire, process, __dirname: path.resolve(__dirname, "..") });
   }
 });

@@ -4,6 +4,7 @@ body { margin: 0; }
 main { padding: 18px; max-width: 1000px; margin: auto; }
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 8px; }
 h1 { margin: 0; font-size: 18px; font-weight: 650; }
+.connection-status { display: flex; align-items: center; gap: 8px; }
 button, input, select { font: inherit; }
 button { min-height: 36px; border: 1px solid #354557; border-radius: 5px; background: #1e2a38; color: inherit; padding: 8px 12px; cursor: pointer; }
 button:hover:enabled { border-color: #79bfff; background: #25374a; }

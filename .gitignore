@@ -32,3 +32,8 @@ backend/data/
 artifacts/qa/
 .env.*
 !.env.example
+
+# Private local editor discovery credentials
+editor-service.json
+editor-service.lock
+.editor-service.json.*

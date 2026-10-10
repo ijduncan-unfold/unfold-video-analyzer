@@ -3,7 +3,8 @@ const helpers = require("./controller");
 const DEFAULT_SERVER = "http://127.0.0.1:8000";
 const MAC_SERVER = "https://localhost:8443";
 const ACTIONS = Object.freeze(["bootstrap", "connect", "disconnect", "refresh", "loadSelection", "selectAsset", "setView", "analyze", "selectClip", "copyTimes", "addMarkers", "exportSubtitles", "openAnalyzer"]);
-const PAYLOAD_FIELDS = Object.freeze({ connect: ["server", "token"], selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportSubtitles: ["revision"] });
+const PAYLOAD_FIELDS = Object.freeze({ selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportSubtitles: ["revision"] });
+const OFFLINE = "Start Video Analyzer. This panel connects automatically.";
 function normalizeServer(value) {
   const match = /^(http|https):\/\/(127\.0\.0\.1|localhost):(8000|8443)\/?$/i.exec(String(value || "").trim());
   if (!match || match[1].toLowerCase() === "http" && match[3] !== "8000" || match[1].toLowerCase() === "https" && match[3] !== "8443") throw new Error("Use localhost or 127.0.0.1, with HTTP port 8000 or HTTPS port 8443. This plugin connects only to the local analyzer.");
@@ -11,9 +12,8 @@ function normalizeServer(value) {
 }
 function plain(value) { return value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
 function sanitizePreferences(input, defaultServer) {
-  const clean = { server: defaultServer, projects: {} };
+  const clean = { projects: {} };
   if (!plain(input)) return clean;
-  try { clean.server = normalizeServer(input.server || defaultServer); } catch (_) { /* Old or invalid addresses never receive a token. */ }
   if (plain(input.projects)) for (const [id, saved] of Object.entries(input.projects).slice(-50)) {
     if (!id || id.length > 500 || !plain(saved) || ["__proto__", "constructor", "prototype"].includes(id)) continue;
     clean.projects[id] = { assetId: typeof saved.assetId === "string" ? saved.assetId.slice(0, 500) : "", tab: saved.tab === "transcript" ? "transcript" : "shots",
@@ -26,21 +26,48 @@ function sourceBinding(asset, projectId) {
 }
 function session(asset) { return String(asset && asset.analysis_config && asset.analysis_config.started_at || ""); }
 function createService(dependencies) {
-  const { host, fetch, preferences, saveSubtitle, clipboard, openBrowser } = dependencies;
+  const { host, fetch, preferences, saveSubtitle, clipboard, openBrowser, readConnection } = dependencies;
   const defaultServer = dependencies.platform === "darwin" ? MAC_SERVER : DEFAULT_SERVER;
-  const state = { connected: false, server: defaultServer, project: null, assets: [], asset: null, shots: [], total: 0, tab: "shots", mode: "flash_only", queries: { shots: "", transcript: "" }, revision: 0, message: "" };
-  let token = "", connectionEpoch = 0, selectionEpoch = 0, nativeBusy = false, saved = sanitizePreferences(null, defaultServer), writeQueue = Promise.resolve();
-  function view() { return JSON.parse(JSON.stringify({ ...state, results: helpers.cues(state.asset, state.shots, state.tab, state.queries[state.tab]) })); }
+  const state = { connected: false, server: defaultServer, project: null, assets: [], asset: null, shots: [], total: 0, tab: "shots", mode: "flash_only", queries: { shots: "", transcript: "" }, revision: 0, message: OFFLINE };
+  let token = "", activeConnection = null, connectionEpoch = 0, selectionEpoch = 0, nativeBusy = false, connecting = null, destroyed = false, saved = sanitizePreferences(null, defaultServer), writeQueue = Promise.resolve();
+  function view() { const { server, ...publicState } = state; return JSON.parse(JSON.stringify({ ...publicState, results: helpers.cues(state.asset, state.shots, state.tab, state.queries[state.tab]) })); }
   function invalidate() { state.revision++; }
   function remember() {
     if (state.project) saved.projects[state.project.id] = { assetId: state.asset && state.asset.job_id || "", tab: state.tab, mode: state.mode, queries: { ...state.queries } };
-    saved.server = state.server;
     saved = sanitizePreferences(saved, defaultServer);
     const value = JSON.stringify(saved);
     writeQueue = writeQueue.then(() => preferences.write(value)).catch(() => { /* A read-only preference folder must not block analysis. */ });
     return writeQueue;
   }
-  function assertConnected() { if (!state.connected || !token) throw new Error("Connect to the local companion app first."); }
+  function offline(message = OFFLINE) {
+    token = ""; activeConnection = null; connectionEpoch++; selectionEpoch++; invalidate();
+    Object.assign(state, { connected: false, project: null, assets: [], asset: null, shots: [], total: 0, message });
+  }
+  function assertConnected() { if (!state.connected || !token) throw new Error(OFFLINE); }
+  async function discovery() {
+    let descriptor;
+    try { descriptor = await readConnection(); } catch (_) { throw new Error(OFFLINE); }
+    if (!plain(descriptor) || typeof descriptor.token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(descriptor.token) || typeof descriptor.instance_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(descriptor.instance_id)) throw new Error(OFFLINE);
+    try { return { ...descriptor, server: normalizeServer(descriptor.server) }; } catch (_) { throw new Error(OFFLINE); }
+  }
+  function checkHealth(health, descriptor) {
+    if (!health || health.host !== "resolve" || health.protocol_version !== 1) throw new Error("Update Video Analyzer to connect this Resolve panel.");
+    if (health.instance_id !== descriptor.instance_id) throw new Error(OFFLINE);
+  }
+  async function validateConnection() {
+    assertConnected();
+    const epoch = connectionEpoch, current = activeConnection;
+    try {
+      const descriptor = await discovery();
+      if (destroyed || epoch !== connectionEpoch) throw new Error("The connection changed. Try again.");
+      if (!current || descriptor.token !== current.token || descriptor.instance_id !== current.instance_id || descriptor.server !== current.server) throw new Error("The local service restarted. Reconnecting automatically.");
+      checkHealth(await request("/health"), current);
+      if (destroyed || epoch !== connectionEpoch) throw new Error("The connection changed. Try again.");
+    } catch (error) {
+      if (!destroyed && epoch === connectionEpoch) offline(error.message);
+      throw error;
+    }
+  }
   async function request(path, options = {}, text = false) {
     const epoch = connectionEpoch, currentToken = token, endpoint = state.server;
     const controller = new AbortController();
@@ -48,7 +75,7 @@ function createService(dependencies) {
     let response;
     try { response = await fetch(endpoint + "/api/editor/resolve" + path, { ...options, redirect: "error", signal: controller.signal,
       headers: { Authorization: "Bearer " + currentToken, ...(options.body ? { "Content-Type": "application/json" } : {}) } }); }
-    catch (_) { throw new Error(endpoint.startsWith("https:") ? "Cannot reach the local HTTPS service. Complete certificate setup and start the companion app on port 8443." : "Cannot reach the local service. Start the companion app on port 8000."); }
+    catch (_) { if (epoch === connectionEpoch) offline(); throw new Error(OFFLINE); }
     finally { if (!response) clearTimeout(timer); }
     let body;
     try { body = await response.text(); } finally { clearTimeout(timer); }
@@ -57,7 +84,10 @@ function createService(dependencies) {
     let data;
     if (!text || !response.ok) { try { data = JSON.parse(body); } catch (_) { if (response.ok) throw new Error("The local service returned an invalid response."); } }
     if (!response.ok) {
-      const error = new Error(response.status === 401 || response.status === 403 ? "Pairing code rejected. Copy the current editor pairing code from the companion app and reconnect." : typeof (data && data.detail) === "string" ? data.detail : "Local service request failed (" + response.status + ").");
+      const unauthorized = response.status === 401 || response.status === 403;
+      if (unauthorized) offline();
+      const detail = typeof (data && data.detail) === "string" ? data.detail.replaceAll(currentToken, "[credential]") : "Local service request failed (" + response.status + ").";
+      const error = new Error(unauthorized ? "The local service restarted. Reconnecting automatically." : detail);
       error.status = response.status; throw error;
     }
     return text ? body : data;
@@ -104,7 +134,10 @@ function createService(dependencies) {
     if (chosen) await selectAsset(chosen.job_id);
   }
   async function refresh() {
-    assertConnected(); if (nativeBusy) return view();
+    if (!state.connected) return connect();
+    if (nativeBusy) return view();
+    try { await validateConnection(); }
+    catch (error) { if (!state.connected) return connect(); throw error; }
     const changed = await verifyProject();
     if (changed) await projectAssets();
     else if (state.asset) {
@@ -119,12 +152,36 @@ function createService(dependencies) {
     }
     return view();
   }
+  async function connect() {
+    if (connecting) return connecting;
+    if (destroyed) return view();
+    if (state.connected) return refresh();
+    const epoch = connectionEpoch;
+    connecting = (async () => {
+      let descriptor;
+      try {
+        descriptor = await discovery();
+        if (destroyed || epoch !== connectionEpoch) return view();
+        state.server = descriptor.server; token = descriptor.token;
+        const health = await request("/health");
+        checkHealth(health, descriptor);
+        if (destroyed || epoch !== connectionEpoch) return view();
+        activeConnection = descriptor; state.connected = true; state.message = health.google_configured === false ? "Connected. Configure Gemini in Video Analyzer before analyzing." : "Connected.";
+        await verifyProject(); await projectAssets(); return view();
+      } catch (error) {
+        if (!destroyed && epoch === connectionEpoch) offline(error.message === "Update Video Analyzer to connect this Resolve panel." ? error.message : OFFLINE);
+        return view();
+      }
+    })();
+    try { return await connecting; } finally { connecting = null; }
+  }
   async function loadSelection() {
-    assertConnected(); const selection = await host.getSelection();
+    await validateConnection(); const selection = await host.getSelection();
     if (!state.project || state.project.id !== selection.project_id) clearProject({ id: selection.project_id, name: selection.project_name });
     const epoch = selectionEpoch, projectId = selection.project_id, warnings = selection.warnings.slice();
     let loaded = 0;
     for (const clip of selection.clips) {
+      await validateConnection();
       await host.getProjectIdentity(projectId);
       if (!fresh(epoch, projectId)) throw new Error("The project changed while loading clips. Load the current selection again.");
       try { await request("/register", { method: "POST", body: JSON.stringify({ project_id: projectId, item_id: clip.item_id, name: clip.name, media_path: clip.media_path, source_fps: clip.source_fps }) }); loaded++; }
@@ -135,7 +192,7 @@ function createService(dependencies) {
     return view();
   }
   async function nativeContext(payload) {
-    assertConnected();
+    await validateConnection();
     if (!plain(payload) || payload.revision !== state.revision || !state.asset || !state.project) throw new Error("These results changed. Select the current clip and try again.");
     const revision = state.revision, epoch = selectionEpoch, id = state.asset.job_id, projectId = state.project.id, prior = sourceBinding(state.asset, projectId), priorSession = session(state.asset);
     if (!prior) throw new Error("Load selected Resolve clips before using native results.");
@@ -152,16 +209,9 @@ function createService(dependencies) {
     return results[payload.index];
   }
   const actions = {
-    async bootstrap() { try { saved = sanitizePreferences(JSON.parse(await preferences.read()), defaultServer); } catch (_) { saved = sanitizePreferences(null, defaultServer); } state.server = saved.server; return view(); },
-    async connect(payload) {
-      if (!plain(payload) || typeof payload.token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(payload.token.trim())) throw new Error("Paste the editor pairing code from the companion app.");
-      const endpoint = normalizeServer(payload.server || defaultServer);
-      state.connected = false; state.asset = null; state.project = null; state.assets = []; state.shots = []; state.total = 0; selectionEpoch++; connectionEpoch++; invalidate();
-      state.server = endpoint; token = payload.token.trim();
-      try { const health = await request("/health"); if (health.host !== "resolve" || health.protocol_version !== 1) throw new Error("This companion app does not support the Resolve protocol. Update Video Analyzer."); state.connected = true; state.message = "Connected. Pairing code is kept for this session only." + (health.google_configured === false ? " Configure Gemini in the companion app before analyzing." : ""); await remember(); await verifyProject(); await projectAssets(); return view(); }
-      catch (error) { token = ""; state.connected = false; throw error; }
-    },
-    async disconnect() { token = ""; connectionEpoch++; selectionEpoch++; invalidate(); Object.assign(state, { connected: false, project: null, assets: [], asset: null, shots: [], total: 0, message: "Disconnected." }); return view(); },
+    async bootstrap() { try { saved = sanitizePreferences(JSON.parse(await preferences.read()), defaultServer); } catch (_) { saved = sanitizePreferences(null, defaultServer); } return connect(); },
+    connect,
+    async disconnect() { offline(); return view(); },
     refresh, loadSelection,
     async selectAsset(payload) { await verifyProject(state.project && state.project.id); await selectAsset(payload && payload.id); return view(); },
     async setView(payload) {
@@ -201,6 +251,6 @@ function createService(dependencies) {
     if (locked) nativeBusy = true;
     try { return await actions[action](payload); } finally { if (locked) nativeBusy = false; }
   }
-  return { invoke, view, destroy() { token = ""; connectionEpoch++; selectionEpoch++; state.connected = false; } };
+  return { invoke, view, destroy() { destroyed = true; offline(); } };
 }
 module.exports = { createService, normalizeServer, sourceBinding, sanitizePreferences, ACTIONS, DEFAULT_SERVER, MAC_SERVER };

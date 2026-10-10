@@ -34,18 +34,18 @@ integration" from the Start menu or tray. The separate public integration ZIP
 also includes Install Resolve on Windows.cmd; extract the whole ZIP before running
 it. Administrator permission may be required for Resolve's shared plugin folder.
 
-The helper copies the ten public plugin files and WorkflowIntegration.node from
+The helper copies the eleven public plugin files and WorkflowIntegration.node from
 your own installed Blackmagic SDK. The vendor module is not included in this
 download. Missing or incompatible SDK resources stop installation. Resolve supplies
 the plugin runtime, so no separate Node.js installation is required.
 
-Restart Resolve and choose Workspace > Workflow Integrations > Video Analyzer.
-Connect to http://127.0.0.1:8000 using Copy editor pairing code in companion
-Settings, or the tray's Pair with editor command. Load original Media Pool clips,
+Start the companion, restart Resolve and choose Workspace > Workflow Integrations >
+Video Analyzer. It connects automatically without a pairing code. Load original Media Pool clips,
 choose an analysis type, and click Analyze. Search shots/dialogue, select the source
 clip, copy file-relative times, export SRT, or add source markers to verified
 constant-rate originals. Exact source-viewer seeking and a documented marker undo
-transaction are unavailable. Native Resolve behavior still needs acceptance.
+transaction are unavailable. Windows native acceptance used Resolve Studio 21.0.1
+and a verified 24 fps test clip; broader footage and Mac acceptance remain pending.
 
 Resolve and Premiere reference original media without making a full import copy.
 Original files are never renamed or deleted by these integrations. Analysis and

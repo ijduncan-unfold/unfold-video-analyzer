@@ -18,6 +18,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -39,6 +40,9 @@ def configure_environment(data_dir: Path) -> None:
     os.environ["DATABASE_PATH"] = str(data_dir / "library.sqlite3")
     os.environ["UPLOAD_DIR"] = str(data_dir / "media")
     os.environ["EDITOR_TOKEN_PATH"] = str(data_dir / "premiere-token.txt")
+    if data_dir.resolve() != default_data_dir().expanduser().resolve():
+        # A test/custom library never replaces the normal companion's connection.
+        os.environ['EDITOR_DISCOVERY_PATH'] = str(data_dir / 'editor-service.json')
     if getattr(sys, "frozen", False):
         os.environ["VIDEO_ANALYZER_FRONTEND_DIR"] = str(Path(sys._MEIPASS) / "frontend" / "dist")
     # A frozen app has no useful terminal PATH on macOS; Windows WinGet can also
@@ -231,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     resources = ExitStack()
+    if args.smoke_test:
+        discovery_dir = Path(resources.enter_context(tempfile.TemporaryDirectory(prefix='video-analyzer-discovery-smoke-')))
+        os.environ['EDITOR_DISCOVERY_PATH'] = str(discovery_dir / 'editor-service.json')
     tls = None
     try:
         if use_https:
@@ -273,6 +280,9 @@ def main(argv: list[str] | None = None) -> int:
 
     import uvicorn
     from app.main import app
+    base_url = f"{'https://localhost' if tls else 'http://127.0.0.1'}:{args.port}"
+    app.state.editor_connection_server = base_url
+    app.state.editor_connection_ssl_context = client_context
     # Force generation once so the standalone pairing shortcut and panel share
     # the same token. Its contents are never included in logs.
     from app.services.editor_bridge import get_pairing_token
@@ -290,7 +300,6 @@ def main(argv: list[str] | None = None) -> int:
 
     worker = threading.Thread(target=serve, name="video-analyzer-engine", daemon=True)
     worker.start()
-    base_url = f"{'https://localhost' if tls else 'http://127.0.0.1'}:{args.port}"
     try:
         deadline = time.monotonic() + 30
         while not server.started and not failures and worker.is_alive() and time.monotonic() < deadline:

@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $pluginId = 'com.ijduncan.videoanalyzer'
 $publicFiles = @('manifest.xml', 'package.json', 'main.js', 'preload.js', 'host.js',
-    'service.js', 'panel.js', 'controller.js', 'index.html', 'styles.css')
+    'service.js', 'connection.js', 'panel.js', 'controller.js', 'index.html', 'styles.css')
 
 function Show-Result([string]$Message, [bool]$Failed) {
     if ($NoUI) { return }
@@ -211,7 +211,7 @@ try {
         $child = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
         exit $child.ExitCode
     }
-    $message = "Video Analyzer was installed for Resolve.`n`nOpen DaVinci Resolve Studio, then choose Workspace > Workflow Integrations > Video Analyzer.`n`nStart the Video Analyzer companion and paste its editor pairing token into the plugin. Original media and your analysis library were not changed."
+    $message = "Video Analyzer was installed for Resolve.`n`nStart the Video Analyzer companion, then open DaVinci Resolve Studio and choose Workspace > Workflow Integrations > Video Analyzer.`n`nThe integration connects automatically. Original media and your analysis library were not changed."
     Write-Output $message
     Show-Result $message $false
     exit 0

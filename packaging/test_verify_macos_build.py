@@ -63,7 +63,7 @@ class MacBuildGuardTests(unittest.TestCase):
             self.verify("x86_64\n")
 
     def test_private_files_and_media_fail(self):
-        for name in (".env.local", "rootCA-key.pem", "premiere-token.txt", "library.sqlite3", "source.mp4", "WorkflowIntegration.node"):
+        for name in (".env.local", "rootCA-key.pem", "premiere-token.txt", "editor-service.json", "editor-service.lock", ".editor-service.json.lock", ".editor-service.json.test.tmp", "library.sqlite3", "source.mp4", "WorkflowIntegration.node"):
             with self.subTest(name=name):
                 fixture = self.app / "Contents/Resources" / name
                 fixture.write_text("private fixture", encoding="utf-8")

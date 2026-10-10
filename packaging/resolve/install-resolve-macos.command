@@ -10,7 +10,7 @@ developer_path="/Library/Application Support/Blackmagic Design/DaVinci Resolve/D
 destination="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/$plugin_id"
 custom_destination=0
 elevation_attempted=0
-public_files=(manifest.xml package.json main.js preload.js host.js service.js panel.js controller.js index.html styles.css)
+public_files=(manifest.xml package.json main.js preload.js host.js service.js connection.js panel.js controller.js index.html styles.css)
 
 fail() { printf '%s\n' "Resolve installation failed: $*" >&2; exit 1; }
 # The desktop companion passes its bundled plugin directory as the first argument.
@@ -145,4 +145,4 @@ for name in "${public_files[@]}" WorkflowIntegration.node; do
     index=$((index + 1))
 done
 completed=1
-printf '\n%s\n' 'Video Analyzer was installed for Resolve.' 'Open DaVinci Resolve Studio, then choose Workspace > Workflow Integrations > Video Analyzer.' 'Start the Video Analyzer companion and paste its editor pairing token into the plugin.' 'Original media, your analysis library, and certificate trust were not changed.'
+printf '\n%s\n' 'Video Analyzer was installed for Resolve.' 'Start the Video Analyzer companion, then open DaVinci Resolve Studio and choose Workspace > Workflow Integrations > Video Analyzer.' 'The integration connects automatically.' 'Original media, your analysis library, and certificate trust were not changed.'

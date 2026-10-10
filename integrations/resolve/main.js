@@ -4,6 +4,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { createHost } = require("./host");
 const { createService, ACTIONS } = require("./service");
+const { readConnection } = require("./connection");
 const PLUGIN_ID = "com.ijduncan.videoanalyzer";
 const IPC_CHANNEL = "video-analyzer:resolve:action";
 
@@ -46,6 +47,7 @@ async function start(electron, workflow) {
     const folder = path.join(app.getPath("appData"), "VideoAnalyzer", "Resolve");
     const prefs = path.join(folder, "preferences.json");
     service = createService({ platform: process.platform, host: createHost(resolve), fetch: (...args) => net.fetch(...args), clipboard,
+      readConnection: () => readConnection({ development: process.env.NODE_ENV === "development" }),
       preferences: { read: () => fs.readFile(prefs, "utf8"), async write(value) { await fs.mkdir(folder, { recursive: true, mode: 0o700 }); const temporary = prefs + ".tmp"; await fs.writeFile(temporary, value, { mode: 0o600 }); await fs.rename(temporary, prefs); } },
       async saveSubtitle(name, content) {
         // Filename is generated from the server asset. Renderer never supplies
@@ -66,7 +68,7 @@ async function start(electron, workflow) {
     ipcMain.handle(IPC_CHANNEL, async (event, action, payload) => {
       if (!trustedSender(event, window, indexURL) || !ACTIONS.includes(action)) return { ok: false, error: { code: "UNTRUSTED_ACTION", message: "This plugin action is not available." } };
       try { return { ok: true, state: await service.invoke(action, payload) }; }
-      catch (error) { return { ok: false, error: { code: typeof error.code === "string" ? error.code : "ACTION_FAILED", message: error.message || "The plugin action failed." } }; }
+      catch (error) { return { ok: false, state: service.view(), error: { code: typeof error.code === "string" ? error.code : "ACTION_FAILED", message: error.message || "The plugin action failed." } }; }
     });
     await window.loadFile(indexPath);
     return { cleanup, window, service };

@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     gemini_deep_model: str = "gemini-3.8-flash"
     database_path: str = str(Path(__file__).parent.parent / "data" / "library.sqlite3")
     editor_token_path: str = str(Path(__file__).parent.parent / "data" / "premiere-token.txt")
+    editor_discovery_path: str = ""
+    editor_connection_server: str = "http://127.0.0.1:8000"
     max_concurrent_analyses: int = 2
     shape_index_concurrency: int = Field(default=20, ge=1, le=20)
     composition_index_concurrency: int = Field(default=20, ge=1, le=20)

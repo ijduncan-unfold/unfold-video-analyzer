@@ -9,14 +9,8 @@
 </head>
 <body>
   <main>
-    <header><h1>Video Analyzer</h1><button id="connection-toggle" class="quiet" aria-expanded="true" type="button">Connection</button></header>
-    <section id="connection" aria-label="Local connection">
-      <label for="server">Local service</label><input id="server" type="text" autocomplete="off" spellcheck="false" />
-      <label for="token">Editor pairing code</label><input id="token" type="password" autocomplete="off" placeholder="Paste from the companion app" />
-      <div class="row"><button id="connect" class="primary" type="button">Connect</button><button id="disconnect" type="button" disabled>Disconnect</button></div>
-      <p class="hint">Open the companion app. In Settings, copy the editor pairing code.</p>
-    </section>
-    <p id="message" role="status" aria-live="polite">Connect to your local analyzer to begin.</p>
+    <header><h1>Video Analyzer</h1><div class="connection-status"><span id="connection-status" class="hint">Connecting…</span><button id="retry" class="quiet" type="button" hidden>Retry</button></div></header>
+    <p id="message" role="status" aria-live="polite">Start Video Analyzer. This panel connects automatically.</p>
     <section id="workspace" hidden>
       <p id="project-name" class="project"></p>
       <button id="load-selection" class="full" type="button">Load selected Media Pool clips</button>

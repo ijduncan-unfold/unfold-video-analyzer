@@ -27,7 +27,7 @@ def restore_desktop_environment():
     # configure_environment writes directly to os.environ, including keys that
     # were absent. Restore those writes as well as individually monkeypatched keys.
     names = ('VIDEO_ANALYZER_DESKTOP', 'DATABASE_PATH', 'UPLOAD_DIR', 'EDITOR_TOKEN_PATH',
-             'VIDEO_ANALYZER_FRONTEND_DIR', 'PATH')
+             'EDITOR_DISCOVERY_PATH', 'VIDEO_ANALYZER_FRONTEND_DIR', 'PATH')
     original = {name: os.environ.get(name) for name in names}
     yield
     for name, value in original.items():
@@ -99,6 +99,65 @@ def test_frozen_frontend_path_uses_bundle_while_database_stays_in_user_data(monk
     assert desktop.os.environ['VIDEO_ANALYZER_FRONTEND_DIR'] == str(bundle / 'frontend' / 'dist')
     assert desktop.os.environ['DATABASE_PATH'] == str(data / 'library.sqlite3')
     assert not (bundle / 'desktop-settings.json').exists()
+
+
+def test_custom_data_directory_isolates_discovery_from_regular_companion(monkeypatch, tmp_path):
+    regular = tmp_path / 'regular-data'
+    regular.mkdir()
+    active = regular / 'editor-service.json'
+    active.write_bytes(b'active-regular-companion-descriptor')
+    monkeypatch.setattr(desktop, 'default_data_dir', Mock(return_value=regular))
+    monkeypatch.setenv('EDITOR_DISCOVERY_PATH', str(active))
+    custom = tmp_path / 'qa-data'
+    desktop.configure_environment(custom)
+    assert os.environ['EDITOR_DISCOVERY_PATH'] == str(custom / 'editor-service.json')
+    assert active.read_bytes() == b'active-regular-companion-descriptor'
+
+
+def test_smoke_isolates_discovery_and_declares_verified_https_before_worker_starts(monkeypatch, tmp_path):
+    import uvicorn
+    from app.main import app
+
+    regular = tmp_path / 'regular-data'
+    regular.mkdir()
+    active = regular / 'editor-service.json'
+    active.write_bytes(b'active-regular-companion-descriptor')
+    monkeypatch.setattr(desktop.sys, 'platform', 'darwin')
+    monkeypatch.setattr(desktop, 'default_data_dir', Mock(return_value=regular))
+    monkeypatch.setenv('EDITOR_DISCOVERY_PATH', str(active))
+    monkeypatch.setattr(desktop, 'RotatingFileHandler', Mock())
+    monkeypatch.setattr(desktop, 'logging', SimpleNamespace(
+        INFO=logging.INFO, Formatter=logging.Formatter, basicConfig=Mock(), getLogger=Mock(return_value=Mock()),
+    ))
+    context = ssl.create_default_context()
+    tls = Mock()
+    tls.server_options.return_value = {}
+    tls.client_context.return_value = context
+    monkeypatch.setattr(desktop, 'smoke_tls', Mock(return_value=tls))
+    monkeypatch.setattr(desktop.socket, 'socket', Mock(return_value=Mock()))
+    monkeypatch.setattr(editor_bridge, 'get_pairing_token', Mock(return_value='t' * 43))
+    server = SimpleNamespace(started=False, should_exit=False, run=Mock())
+    monkeypatch.setattr(uvicorn, 'Server', Mock(return_value=server))
+    monkeypatch.setattr(uvicorn, 'Config', Mock())
+    monkeypatch.setattr(app.state, 'editor_connection_server', 'previous', raising=False)
+    monkeypatch.setattr(app.state, 'editor_connection_ssl_context', None, raising=False)
+    isolated = []
+
+    def started():
+        assert app.state.editor_connection_server == 'https://localhost:8443'
+        assert app.state.editor_connection_ssl_context is context
+        isolated.append(Path(os.environ['EDITOR_DISCOVERY_PATH']))
+        assert isolated[0] != active and isolated[0].parent != regular
+        assert active.read_bytes() == b'active-regular-companion-descriptor'
+
+    worker = Mock()
+    worker.start.side_effect = started
+    worker.is_alive.return_value = False  # Stop before any actual server/network work.
+    monkeypatch.setattr(desktop.threading, 'Thread', Mock(return_value=worker))
+    assert desktop.main(['--data-dir', str(regular), '--smoke-test', '--no-browser', '--no-tray']) == 1
+    assert len(isolated) == 1
+    assert not isolated[0].parent.exists()
+    assert active.read_bytes() == b'active-regular-companion-descriptor'
 
 
 def test_installed_settings_read_only_private_user_config_and_disable_dotenv(monkeypatch, tmp_path):

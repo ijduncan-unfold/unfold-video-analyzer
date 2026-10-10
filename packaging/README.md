@@ -36,7 +36,7 @@ this app bundle; WinGet retrieves the vendor package separately.
 
 The tray offers **Open Video Analyzer**, **Pair with editor**, **Install Resolve
 integration**, **Open data folder**, and **Quit**. Closing the browser does not stop the engine. The pairing
-command opens the local token file for the user to copy into an editor integration;
+command opens the local token file for the user to copy into the Premiere integration;
 the token is never printed in build logs. Port 8000 must be available: an existing
 server is never killed or silently taken over. Uninstall removes the application,
 and preserves the user's database/media and original source files.
@@ -45,12 +45,13 @@ The installer also includes the Premiere CCX plugin package. Its Start menu
 **Install Premiere panel** shortcut opens Adobe Creative Cloud's plugin installer;
 Premiere 26.3+ and Creative Cloud must already be installed. Plugin installation
 is a separate user action. **Pair Video Analyzer with editor** opens the local
-token for Premiere or Resolve connection settings. Browser Settings also offers
+token for Premiere connection settings. Resolve discovers and connects to the local
+companion automatically, without a pairing field. Browser Settings also offers
 **Copy editor pairing code** when launched by the companion.
 
 The **Install Resolve integration** shortcut starts the separate Resolve installer.
 It requires **Resolve Studio 20.1+ on Windows x64**, with Resolve closed. It copies
-the ten public plugin resources and the matching x64 `WorkflowIntegration.node`
+the allowlisted public plugin resources and the matching x64 `WorkflowIntegration.node`
 from the user's own installed SDK into Resolve's shared plugin folder. Administrator
 approval may be required. The vendor module is excluded from the companion and
 public integration ZIP. No Resolve software is installed by this helper.

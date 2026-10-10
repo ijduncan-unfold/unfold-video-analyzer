@@ -127,10 +127,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $bundle = Join-Path $PWD 'dist/desktop/VideoAnalyzer'
-          $forbiddenNames = @('premiere-token.txt', 'desktop-settings.json', 'localhost.pem', 'localhost-key.pem', 'rootCA.pem', 'rootCA-key.pem', 'WorkflowIntegration.node')
+          $forbiddenNames = @('premiere-token.txt', 'editor-service.json', 'editor-service.lock', 'desktop-settings.json', 'localhost.pem', 'localhost-key.pem', 'rootCA.pem', 'rootCA-key.pem', 'WorkflowIntegration.node')
           $forbiddenExtensions = @('.db', '.sqlite', '.sqlite3', '.mp4', '.mov', '.mkv', '.avi', '.p12')
           $privateFiles = @(Get-ChildItem -LiteralPath $bundle -Recurse -File -Force | Where-Object {
-            $_.Name.StartsWith('.env') -or $_.Name -in $forbiddenNames -or $_.Extension.ToLowerInvariant() -in $forbiddenExtensions
+            $_.Name.StartsWith('.env') -or $_.Name.StartsWith('.editor-service.json.') -or $_.Name -in $forbiddenNames -or $_.Extension.ToLowerInvariant() -in $forbiddenExtensions
           })
           if ($privateFiles.Count) { throw 'A private setting, credential, SDK bridge, database or media file entered the bundle.' }
           foreach ($relative in @('_internal/resolve-panel/manifest.xml', '_internal/desktop-docs/install-resolve.ps1', '_internal/desktop-docs/public-files.json')) {
