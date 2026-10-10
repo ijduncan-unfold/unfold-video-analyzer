@@ -5,6 +5,7 @@
 const MAX_ITEMS = 20000;
 const MAX_MARKERS = 500;
 const MARKER_NAMESPACE = "video-analyzer:resolve:v1:";
+const NO_MARKER_RESPONSE = "GetMarkerCustomData: Error response (errorStr:No marker exists at the input frameId argument) (errorCode:2)";
 class HostError extends Error {
   constructor(code, message) { super(message); this.name = "HostError"; this.code = code; }
 }
@@ -71,7 +72,41 @@ function prepareCues(cues, timing) {
     return { frame, duration, name, note, key };
   });
 }
+function markerMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail("MARKER_READ_FAILED", "Resolve could not read source markers.");
+  const result = new Map();
+  // Resolve's native Promise SDK can return shifted dictionary keys, including
+  // -1 for a marker at source frame zero. These keys identify records only;
+  // GetMarkerCustomData at the requested frame determines actual occupancy.
+  for (const [key, marker] of Object.entries(value)) {
+    const frame = /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(key) ? Number(key) : NaN;
+    if (!Number.isFinite(frame) || result.has(frame) || !marker || typeof marker !== "object" || Array.isArray(marker)) {
+      fail("MARKER_READ_FAILED", "Resolve returned an ambiguous source marker dictionary. Existing markers were preserved.");
+    }
+    result.set(frame, marker);
+  }
+  return result;
+}
 function createHost(resolve) {
+  async function readMarkers(item) { return markerMap(await item.GetMarkers()); }
+  async function markerAtFrame(item, frame) {
+    let customData;
+    try { customData = await item.GetMarkerCustomData(frame); }
+    catch (error) {
+      // An existing user marker may have empty customData. Only this precise
+      // native no-marker response establishes absence; all other errors escape.
+      if ((typeof error === "string" ? error : error && error.message) === NO_MARKER_RESPONSE) return { exists: false };
+      throw error;
+    }
+    if (typeof customData !== "string") fail("MARKER_READ_FAILED", "Resolve could not confirm whether this source frame already has a marker. Existing markers were preserved.");
+    return { exists: true, customData };
+  }
+  function ownedRecords(markers, cue) { return Array.from(markers.values()).filter(marker => marker.customData === cue.key); }
+  function unchanged(marker, cue) { return marker.customData === cue.key && marker.color === "Blue" && marker.name === cue.name && marker.note === cue.note && number(marker.duration) === cue.duration; }
+  async function verifyCue(item, markers, cue) {
+    const records = ownedRecords(markers, cue), position = await markerAtFrame(item, cue.frame);
+    if (records.length !== 1 || !unchanged(records[0], cue) || !position.exists || position.customData !== cue.key) fail("MARKER_VERIFY_FAILED", "Resolve could not confirm every marker at its requested source frame.");
+  }
   async function active(expected) {
     method(resolve, "GetProjectManager");
     const manager = await resolve.GetProjectManager();
@@ -163,19 +198,12 @@ function createHost(resolve) {
   async function addMarkers(binding, technical, cues) {
     const { item, descriptor } = await resolveBinding(binding);
     const prepared = prepareCues(cues, timebase(descriptor, technical));
-    method(item, "GetMarkers"); method(item, "AddMarker"); method(item, "DeleteMarkerAtFrame");
-    const existing = await item.GetMarkers();
-    if (!existing || typeof existing !== "object" || Array.isArray(existing)) fail("MARKER_READ_FAILED", "Resolve could not read existing source markers.");
-    const occupied = new Set(Object.keys(existing).map(Number)), keys = new Set(Object.values(existing).map(marker => marker && marker.customData));
-    const pending = [], added = [], attempted = [];
+    method(item, "GetMarkers"); method(item, "GetMarkerCustomData"); method(item, "AddMarker"); method(item, "DeleteMarkerByCustomData");
+    await readMarkers(item);
+    const added = [], attempted = [];
     let duplicates = 0, collisions = 0;
-    for (const cue of prepared) {
-      if (keys.has(cue.key)) { duplicates++; continue; }
-      if (occupied.has(cue.frame)) { collisions++; continue; }
-      occupied.add(cue.frame); keys.add(cue.key); pending.push(cue);
-    }
     try {
-      for (const cue of pending) {
+      for (const cue of prepared) {
         await active(binding.project_id);
         const currentSource = await describe(item);
         if (!currentSource.descriptor || currentSource.descriptor.item_id !== descriptor.item_id ||
@@ -184,16 +212,21 @@ function createHost(resolve) {
         }
         timebase(currentSource.descriptor, technical);
         // Another editor action might add a marker after our initial read.
-        const now = await item.GetMarkers();
-        if (!now || typeof now !== "object") fail("MARKER_READ_FAILED", "Resolve could not verify source markers before writing.");
-        if (Object.prototype.hasOwnProperty.call(now, String(cue.frame))) { collisions++; continue; }
+        const now = await readMarkers(item);
+        const records = ownedRecords(now, cue), position = await markerAtFrame(item, cue.frame);
+        if (records.length > 1) fail("MARKER_READ_FAILED", "Resolve returned multiple markers with the same Video Analyzer identity. Existing markers were preserved.");
+        if (records.length === 1) {
+          if (!position.exists || position.customData !== cue.key) fail("MARKER_VERIFY_FAILED", "An existing Video Analyzer marker was moved or could not be confirmed at its source frame. Existing markers were preserved.");
+          duplicates++; continue;
+        }
+        if (position.exists) { collisions++; continue; }
         await active(binding.project_id);
         attempted.push(cue);
         if (await item.AddMarker(cue.frame, "Blue", cue.name, cue.note, cue.duration, cue.key) !== true) fail("MARKER_WRITE_FAILED", "Resolve rejected a source marker.");
         added.push(cue);
       }
-      const verified = await item.GetMarkers();
-      if (!verified || added.some(cue => !verified[String(cue.frame)] || verified[String(cue.frame)].customData !== cue.key)) fail("MARKER_VERIFY_FAILED", "Resolve could not confirm every marker.");
+      const verified = await readMarkers(item);
+      for (const cue of added) await verifyCue(item, verified, cue);
       await active(binding.project_id);
     } catch (error) {
       let remaining = 0;
@@ -201,10 +234,14 @@ function createHost(resolve) {
       // our exact customData, preserving pre-existing and concurrently edited data.
       for (const cue of attempted.reverse()) {
         try {
-          const current = await item.GetMarkers(), marker = current && current[String(cue.frame)];
-          if (!current || typeof current !== "object") { remaining++; continue; }
-          if (marker && marker.customData === cue.key) {
-            if (marker.name !== cue.name || marker.note !== cue.note || marker.duration !== cue.duration || await item.DeleteMarkerAtFrame(cue.frame) !== true) remaining++;
+          const records = ownedRecords(await readMarkers(item), cue);
+          if (records.length) {
+            const position = await markerAtFrame(item, cue.frame);
+            if (records.length !== 1 || !unchanged(records[0], cue) || !position.exists || position.customData !== cue.key || await item.DeleteMarkerByCustomData(cue.key) !== true) remaining++;
+            else {
+              const afterDelete = await readMarkers(item);
+              if (ownedRecords(afterDelete, cue).length) remaining++;
+            }
           }
         }
         catch (_) { remaining++; }
@@ -216,4 +253,4 @@ function createHost(resolve) {
   }
   return { getProjectIdentity: projectIdentity, getSelection, resolveBinding, selectClip, addMarkers };
 }
-module.exports = { createHost, HostError, MAX_MARKERS, MARKER_NAMESPACE, pathKey, timebase, prepareCues };
+module.exports = { createHost, HostError, MAX_MARKERS, MARKER_NAMESPACE, pathKey, timebase, prepareCues, markerMap };
