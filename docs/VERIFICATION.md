@@ -199,6 +199,16 @@ Native Media Pool **Metadata Search â†’ All Fields** found the red shot using â€
 
 The Resolve contract suite passed 144 checks with one POSIX permission skip on Windows, including multi-shot selection across polling and stale-analysis resets. Backend and public-package regressions passed 315 checks and 44 subtests with two platform skips. The separate installer/package run passed 42 checks and 25 subtests with two platform skips while Resolve was closed. All eleven installed public resources match pristine current source, and the idle companion was restarted with the new shot-package route while retaining the existing imported asset. Broader footage/timebase coverage and native Apple Silicon acceptance remain pending.
 
+## Long-film processing, October 10
+
+Measured local films now use temporary ten-minute uploads at 30 minutes or above, or above 1 GiB. Shot and detailed requests retain 30-second windows; film-wide summaries and custom briefs synthesize bounded saved evidence instead of attaching the whole film. The progress display identifies the current upload part.
+
+Fourteen new checks passed without paid Gemini calls. They cover lazy uploads/reuse, short-video and YouTube routing, a fractional final part, original-file identity changes, failed-part deduplication, cancellation of provider preparation and FFmpeg, owned-file cleanup, original timestamps past one hour, durable results after the first section of a simulated 30-minute run, bounded hierarchical evidence inputs, and usage recording when synthesis parsing fails. A real FFmpeg fixture confirmed a two-second derived part with audio and zero-based timestamps while the original bytes and modification time remained unchanged.
+
+The complete local application/package regression run passed **350 tests and 75 subtests**, with two platform skips; native Resolve installer tests were excluded because the editor was open and no installer changed. Frontend production build and lint passed. These tests establish routing, offsets, persistence, and resource handling, not full-feature provider latency, recognition accuracy, or trailer-selection quality. A paid representative feature-film run remains pending.
+
+The idle localhost companion was restarted with the updated backend and frontend. Health, library, and workspace requests returned HTTP 200; the existing asset remained available and zero analyses were active. No paid analysis or editor write was started during this verification.
+
 ## Remaining validation
 
 - Recognition/retrieval quality on representative agency and filmmaking footage, including difficult audio, fast montage and multilingual material.

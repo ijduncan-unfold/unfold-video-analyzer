@@ -16,7 +16,7 @@ from app.prompts.shot_prompt import SHOT_DETECTION_PROMPT
 from app.services.gemini_client import get_client
 from app.services.analysis_support import (
     EVIDENCE_INSTRUCTION, clip_offset, extract_usage, response_text,
-    time_to_seconds, validate_scenes, validate_shots,
+    time_to_seconds, validate_scenes, validate_shots, format_time,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,7 @@ async def run_shot_detection(
     shot_number_offset: int,
     fps: float,
     api_key: str | None = None,
+    source_offset: float = 0.0,
 ) -> tuple[list[Shot], dict]:
     """Stage 2: estimate shots and evidence within a bounded scene.
 
@@ -95,14 +96,17 @@ async def run_shot_detection(
     """
     client = get_client(api_key)
 
-    start_secs = time_to_seconds(scene_outline.start_time)
-    end_secs = time_to_seconds(scene_outline.end_time)
+    source_offset = time_to_seconds(source_offset)
+    start_secs = time_to_seconds(scene_outline.start_time) - source_offset
+    end_secs = time_to_seconds(scene_outline.end_time) - source_offset
+    if start_secs < 0 or end_secs <= start_secs:
+        raise ValueError('Invalid uploaded-part interval')
 
     prompt = SHOT_DETECTION_PROMPT.format(
         scene_number=scene_outline.scene_number,
         scene_title=scene_outline.scene_title,
-        start_time=scene_outline.start_time,
-        end_time=scene_outline.end_time,
+        start_time=format_time(start_secs),
+        end_time=format_time(end_secs),
         shot_number_offset=shot_number_offset,
     )
     if scene_outline.scene_title.startswith("Section "):
@@ -112,6 +116,11 @@ async def run_shot_detection(
             "partially visible at either boundary; describe only its visible portion. "
             "Use absolute ORIGINAL-source timestamps within the provided interval."
         )
+    if source_offset:
+        prompt += ('\nTimestamp clarification: ORIGINAL-source above means this uploaded part, '
+                   'whose timeline begins at zero. Return shot and evidence timestamps on the '
+                   'uploaded file timeline within the provided interval. The application will '
+                   'map them to the film timeline; do not add any film offset yourself.')
 
     video_part = types.Part(
         file_data=types.FileData(file_uri=file_uri, mime_type=mime_type),
@@ -130,6 +139,13 @@ async def run_shot_detection(
     usage = extract_usage(response, settings.gemini_analysis_model, "shot_analysis")
     result = ShotDetectionResult.model_validate_json(response_text(response))
     result.shots = validate_shots(result.shots, start_secs, end_secs, shot_number_offset)
+    if source_offset:
+        # The model sees one uploaded part as its source. Translate exactly once
+        # in code so exported shots, evidence and subtitles keep film timecodes.
+        for shot in result.shots:
+            for interval in [shot, *shot.evidence]:
+                interval.start_time = format_time(time_to_seconds(interval.start_time) + source_offset)
+                interval.end_time = format_time(time_to_seconds(interval.end_time) + source_offset)
 
     logger.info(
         f"Stage 2 complete: scene {scene_outline.scene_number} → {len(result.shots)} shots"

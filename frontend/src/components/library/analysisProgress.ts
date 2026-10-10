@@ -7,7 +7,8 @@ export function isActiveAnalysis(status?: string | null) {
 
 export function analysisStageLabel(stage?: string | null, grouping?: string) {
   const labels: Record<string, string> = {
-    starting: 'Starting analysis', queued: 'Queued', uploading: 'Preparing video',
+    starting: 'Starting analysis', queued: 'Queued', uploading: 'Uploading video',
+    preparing_part: 'Preparing video part', processing: 'Gemini is preparing video',
     indexing: 'Analyzing sections', enriching: grouping === 'processing_sections' ? 'Adding section details' : 'Analyzing scenes', summarizing: 'Writing summary',
     matching: 'Matching shots', custom: 'Running custom analysis', complete: 'Complete',
     error: 'Analysis stopped', cancelled: 'Cancelled', interrupted: 'Interrupted',
@@ -21,6 +22,10 @@ function known(value?: number | null): value is number {
 
 export function analysisFacts(progress: AnalysisProgress | null | undefined, availableShots: number) {
   const facts: string[] = []
+  if (['preparing_part', 'uploading', 'processing'].includes(progress?.stage || '') &&
+      known(progress?.upload_part) && known(progress?.total_upload_parts)) {
+    facts.push(`Part ${progress.upload_part}/${progress.total_upload_parts}`)
+  }
   if (known(progress?.completed_sections)) {
     if (known(progress?.total_sections) && progress.total_sections > 0) {
       facts.push(`${progress.completed_sections}/${progress.total_sections} sections`)

@@ -133,6 +133,12 @@ Open [the Docker workspace](http://localhost:5173). Compose binds to loopback an
 
 ## Storage and processing
 
+Local films with a measured duration of **30 minutes or more**, or files larger than **1 GiB**, automatically use temporary **10-minute, up-to-720p analysis parts**. Only the first part must be prepared before indexing starts; shots still arrive after each 30-second section. Original film timestamps are restored in code for shot search, dialogue, exports, and editor handoffs. Originals are never modified, and this path creates no additional full-film copy.
+
+Full analysis combines saved shot and section evidence into a film-wide summary through bounded editorial notes. Custom briefs use the same evidence, so a trailer brief can ask for visual hooks, character introductions, dialogue quotes, escalating stakes, and suggested moments with shot numbers and original timecodes. These reports inherit any missed observations; they do not generate a finished trailer. Gemini 1.5 Pro is deprecated according to [Google's migration guide](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-api-dev/references/migration.md); this workflow keeps the configured current Gemini models.
+
+For a film larger than the browser upload limit below, load the original through the Resolve or Premiere panel. Editor imports reference the local file without copying it into the library. See [long-video processing details](docs/PROGRESSIVE_ANALYSIS.md#long-local-films).
+
 | Item | Default location / behavior |
 |---|---|
 | App-created video copies, thumbnails, and visual caches | `backend/uploads/` (ignored by Git); original source files stay where you selected them |
@@ -140,7 +146,7 @@ Open [the Docker workspace](http://localhost:5173). Compose binds to loopback an
 | Provider key | `.env.local` / `.env` or optional browser override; never in SQLite |
 | Upload limit | 2,000 MiB per file; configurable via `MAX_FILE_SIZE_MB` |
 | Analysis concurrency | Two jobs; configurable via `MAX_CONCURRENT_ANALYSES` |
-| Google file retention | Expiring provider references are refreshed from app-held video copies before analysis |
+| Google file retention | Short-video references are refreshed from the available local source; temporary long-video uploads are deleted after the run, with cleanup attempted after failure or cancellation too |
 | Results | Durable after each processing section; partial shots are searchable and reviewable during analysis. Failed sections retain successful results and report incomplete coverage. |
 
 `DATABASE_PATH` and `UPLOAD_DIR` can override storage locations. Back up the database and app-held media to preserve the workspace, and keep your original source files separately; exports do not package video files. YouTube references support analysis but do not provide local technical metadata or a native preview; import a local video for reliable editorial handoffs.
@@ -153,7 +159,7 @@ Remove one project with its trash button, or use the library checkboxes and **De
 
 AI scene/shot boundaries are **approximate**. Sampling can miss short edits; decimal timestamps do not imply frame accuracy. Model confidence is an uncalibrated estimate, and visible branding does not establish usage rights. Speech text is model transcription with shot-level timing, not a verified word-aligned transcript. SRT export fails clearly when no actual timed transcript exists; it never turns shot descriptions into subtitles.
 
-Progressive indexing still waits for Google's upload processing before the first section. Shots crossing processing boundaries may be split and are flagged for review. Retry currently reprocesses the run; it does not skip successful sections. See [progressive analysis](docs/PROGRESSIVE_ANALYSIS.md) for behavior and measured latency.
+Progressive indexing waits for the first upload to become ready. Long local films upload in parts, rather than waiting for the entire film. Shots crossing processing boundaries may be split and are flagged for review. Retry currently reprocesses the run; it does not skip successful sections. See [progressive analysis](docs/PROGRESSIVE_ANALYSIS.md) for behavior and measured latency.
 
 EDL requires verified integer source frame rate and embedded non-drop timecode. FCPXML supports integer and exact common fractional frame rates; when embedded timecode is absent, it explicitly uses the media file's zero origin. Import inspection verifies nominal frame cadence against packet presentation timestamps while retaining the independently measured average rate. Unknown or irregular timing stays unverified. FCPXML needs valid source dimensions and references the original filename relative to the exported XML; put the original beside the XML or relink in the editor. Drop-frame, variable-rate and unsupported source timing are rejected with a reason. Generated structures are tested, but round-trip behavior in installed editors remains unverified.
 

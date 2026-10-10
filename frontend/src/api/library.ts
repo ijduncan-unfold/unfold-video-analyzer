@@ -52,6 +52,8 @@ export interface ShotAnnotation {
 }
 export interface AnalysisProgress {
   stage?: string | null
+  upload_part?: number | null
+  total_upload_parts?: number | null
   completed_sections?: number | null
   total_sections?: number | null
   failed_sections?: number | null

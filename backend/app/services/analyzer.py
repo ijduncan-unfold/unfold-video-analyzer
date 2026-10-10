@@ -18,6 +18,7 @@ from app.services.job_store import Job, get_job, update_job
 from app.services.pro_pass import run_pro_scene
 from app.services.summary_pass import run_summary_pass
 from app.services.thumbnail_service import extract_thumbnails
+from app.services.notes_synthesis import synthesize_notes
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +52,11 @@ def _shot_spans(result: dict | None) -> dict:
 async def run_analysis(
     job: Job, fps: float = 1.0, mode: str = "flash_pro", custom_prompt: str | None = None,
     api_key: str | None = None,
+    media=None,
 ) -> AsyncGenerator[dict, None]:
     """Yield compatible progress events while persisting every completed stage.
 
-    The job runner ensures the remote file is active before calling this function.
+    The runner prepares a remote file or provides a lazy, bounded upload manager.
     Model proposals are stored separately from human annotations and metadata.
     """
     usage_records: list[dict] = []
@@ -78,6 +80,11 @@ async def run_analysis(
         update_job(job.job_id, warnings=list(dict.fromkeys(warnings)),
                    cost_estimate=estimate_cost(usage_records=usage_records),
                    analysis_progress=dict(analysis_progress), **changes)
+
+    def note_usage(record):
+        # Intermediate synthesis calls remain accounted even if a later call fails.
+        usage_records.append(record)
+        persist()
 
     def persist_replacement(result: dict):
         """Archive the prior run once and bind reviews only to identical intervals."""
@@ -128,6 +135,11 @@ async def run_analysis(
                        "timestamp_accuracy": "approximate", "grouping": "processing_sections",
                        "section_duration_seconds": 30,
                        "started_at": datetime.now(timezone.utc).isoformat()})
+        if media:
+            config.update(upload_strategy='segmented_proxy', upload_part_seconds=600,
+                          proxy_max_resolution='1280x720', summary_input='saved_section_evidence')
+            warnings.append('Long-video analysis uses temporary 720p parts. Film-wide summary and custom '
+                            'briefs synthesize saved section evidence; omissions in that evidence may carry through.')
         analysis_progress["total_seconds"] = duration
         analysis_progress["started_at"] = config["started_at"]
         persist(status="analyzing", error=None, current_pass=1, current_scene=None,
@@ -163,8 +175,11 @@ async def run_analysis(
                          section=outline.scene_number, total=total_sections,
                          scene_title=outline.scene_title, grouping="processing_sections")
             try:
+                uri, mime, offset = (await media.get(start, end) if media
+                                     else (job.file_uri, job.mime_type, 0))
                 shots, usage = await run_shot_detection(
-                    job.file_uri, job.mime_type, outline, shot_counter, fps, api_key=api_key,
+                    uri, mime, outline, shot_counter, fps, api_key=api_key,
+                    **({'source_offset': offset} if media else {}),
                 )
                 usage_records.append(usage)
                 shots = validate_shots(shots, start, end, shot_counter)
@@ -251,8 +266,12 @@ async def run_analysis(
                 yield _event("scene_start", scene=scene.scene_number, total=total_sections,
                              section=scene.scene_number, grouping="processing_sections")
                 try:
+                    uri, mime, offset = (await media.get(time_to_seconds(scene.start_time),
+                                                       time_to_seconds(scene.end_time)) if media
+                                         else (job.file_uri, job.mime_type, 0))
                     deep, usage = await asyncio.wait_for(
-                        run_pro_scene(job.file_uri, job.mime_type, scene, api_key=api_key), timeout=120,
+                        run_pro_scene(uri, mime, scene, api_key=api_key,
+                                      **({'source_offset': offset} if media else {})), timeout=120,
                     )
                     usage_records.append(usage)
                     if job.technical.get("has_audio") is False:
@@ -275,10 +294,14 @@ async def run_analysis(
             persist(current_pass=3, progress="Writing the editorial summary")
             yield _event("pass_start", **{"pass": 3, "name": "Editorial summary"})
             try:
-                summary, usage = await asyncio.wait_for(
-                    run_summary_pass(job.file_uri, job.mime_type, flash_result, api_key=api_key), timeout=120,
-                )
-                usage_records.append(usage)
+                if media:
+                    summary, _ = await synthesize_notes(flash_result, deep_results, api_key,
+                                                       on_usage=note_usage)
+                else:
+                    summary, usage = await asyncio.wait_for(
+                        run_summary_pass(job.file_uri, job.mime_type, flash_result, api_key=api_key), timeout=120,
+                    )
+                    usage_records.append(usage)
                 summary_dict = summary.model_dump()
                 persist(summary=summary_dict)
                 yield _event("pass_complete", **{"pass": 3, "result": summary_dict})
@@ -293,10 +316,15 @@ async def run_analysis(
             persist(current_pass=4, custom_prompt=custom_prompt, progress="Running the custom analysis brief")
             yield _event("pass_start", **{"pass": 4, "name": "Custom analysis"})
             try:
-                custom_result_dict, usage = await asyncio.wait_for(
-                    run_custom_pass(job.file_uri, job.mime_type, custom_prompt, api_key=api_key), timeout=120,
-                )
-                usage_records.append(usage)
+                if media:
+                    custom_result_dict, _ = await synthesize_notes(
+                        flash_result, deep_results, api_key, custom_prompt=custom_prompt,
+                        on_usage=note_usage)
+                else:
+                    custom_result_dict, usage = await asyncio.wait_for(
+                        run_custom_pass(job.file_uri, job.mime_type, custom_prompt, api_key=api_key), timeout=120,
+                    )
+                    usage_records.append(usage)
                 persist(custom_result=custom_result_dict)
                 yield _event("custom_complete", result=custom_result_dict)
             except Exception as error:

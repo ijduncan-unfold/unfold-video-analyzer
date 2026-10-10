@@ -8,6 +8,7 @@ from app.config import settings
 from app.services.analyzer import run_analysis
 from app.services.file_manager import ensure_remote_file
 from app.services.job_store import get_job, update_job
+from app.services.video_segments import SegmentedVideo, needs_segments
 
 logger = logging.getLogger(__name__)
 _tasks: dict[str, asyncio.Task] = {}
@@ -23,6 +24,7 @@ def _stage(job_id, stage, **changes):
 
 async def _run(job_id, request, api_key):
     global _gate
+    media = None
     if _gate is None:
         _gate = asyncio.Semaphore(max(1, settings.max_concurrent_analyses))
     try:
@@ -36,10 +38,14 @@ async def _run(job_id, request, api_key):
                 ensure_source_unchanged(job)
             _stage(job_id, 'uploading', status='analyzing', error=None, warnings=[],
                    progress='Preparing video for analysis')
-            await ensure_remote_file(job, api_key)
+            if needs_segments(job):
+                media = SegmentedVideo(job, api_key)
+            else:
+                await ensure_remote_file(job, api_key)
             job = get_job(job_id)
             async for event in run_analysis(job, request.fps, request.mode,
-                    custom_prompt=request.custom_prompt.strip() or None, api_key=api_key):
+                    custom_prompt=request.custom_prompt.strip() or None, api_key=api_key,
+                    **({'media': media} if media else {})):
                 data = json.loads(event.get('data', '{}'))
                 kind = event.get('event')
                 # The analyzer owns section-level progress; do not overwrite it with
@@ -61,6 +67,9 @@ async def _run(job_id, request, api_key):
         if isinstance(exc, HTTPException) and exc.status_code == 409:
             message = 'The original source is offline or changed. Load the Premiere selection again before analyzing.'
         _stage(job_id, 'error', status='error', error=message, progress='Analysis failed; completed sections preserved')
+    finally:
+        if media:
+            await media.close()
 
 
 def _finished(job_id, task):

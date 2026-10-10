@@ -9,7 +9,7 @@ from app.prompts.pro_prompt import PRO_SCENE_ANALYSIS_PROMPT
 from app.services.gemini_client import get_client
 from app.services.analysis_support import (
     EVIDENCE_INSTRUCTION, clip_offset, extract_usage, response_text,
-    time_to_seconds, validate_evidence,
+    time_to_seconds, validate_evidence, format_time,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ def _parse_time_to_seconds(time_str: str) -> float:
 
 async def run_pro_scene(
     file_uri: str, mime_type: str, scene: Scene, api_key: str | None = None,
+    source_offset: float = 0.0,
 ) -> tuple[SceneDeepAnalysis, dict]:
     """Run Pass 2 for a single scene: deep analysis with Gemini Pro.
 
@@ -28,8 +29,11 @@ async def run_pro_scene(
     """
     client = get_client(api_key)
 
-    start_secs = _parse_time_to_seconds(scene.start_time)
-    end_secs = _parse_time_to_seconds(scene.end_time)
+    source_offset = time_to_seconds(source_offset)
+    start_secs = _parse_time_to_seconds(scene.start_time) - source_offset
+    end_secs = _parse_time_to_seconds(scene.end_time) - source_offset
+    if start_secs < 0 or end_secs <= start_secs:
+        raise ValueError('Invalid uploaded-part interval')
 
     # Build content with video clip
     contents = types.Content(
@@ -45,7 +49,7 @@ async def run_pro_scene(
                 ),
             ),
             types.Part(
-                text=f"This is scene {scene.scene_number}: \"{scene.scene_title}\" ({scene.start_time} - {scene.end_time}).\n\n{PRO_SCENE_ANALYSIS_PROMPT}"
+                text=f"This is section {scene.scene_number}: \"{scene.scene_title}\" ({format_time(start_secs)} - {format_time(end_secs)} on the uploaded file timeline).\n\n{PRO_SCENE_ANALYSIS_PROMPT}"
             ),
         ]
     )
@@ -66,6 +70,9 @@ async def run_pro_scene(
     parsed = SceneDeepAnalysis.model_validate_json(response_text(response))
     parsed.scene_number = scene.scene_number
     parsed.evidence, warnings = validate_evidence(parsed.evidence, start_secs, end_secs)
+    for evidence in parsed.evidence:
+        evidence.start_time = format_time(time_to_seconds(evidence.start_time) + source_offset)
+        evidence.end_time = format_time(time_to_seconds(evidence.end_time) + source_offset)
     parsed.analysis_warnings.extend(warnings)
     parsed.review_status = "unreviewed"
     logger.info(f"Pro pass complete for scene {scene.scene_number}")
