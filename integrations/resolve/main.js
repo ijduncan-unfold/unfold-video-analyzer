@@ -35,9 +35,10 @@ async function start(electron, workflow) {
   await app.whenReady();
   try {
     if (!workflow || typeof workflow.InitializePromise !== "function" || typeof workflow.GetResolvePromise !== "function" || typeof workflow.CleanUp !== "function") throw new Error("Install this plugin with the Workflow Integration SDK from Resolve Studio 20.1 or later.");
-    if (typeof workflow.SetAPITimeout !== "function" || workflow.SetAPITimeout(15) !== true) throw new Error("Resolve's Workflow Integration SDK could not enable native API timeouts.");
     if (await workflow.InitializePromise(PLUGIN_ID) !== true) throw new Error("Resolve Studio could not initialize Video Analyzer. Close the plugin and reopen it from Workspace → Workflow Integrations.");
     initialized = true;
+    // The native SDK requires successful initialization before SetAPITimeout.
+    if (typeof workflow.SetAPITimeout !== "function" || workflow.SetAPITimeout(15) !== true) throw new Error("Resolve's Workflow Integration SDK could not enable native API timeouts.");
     const resolve = await workflow.GetResolvePromise();
     if (!resolve || typeof resolve.GetVersion !== "function" || !supportedVersion(await resolve.GetVersion())) throw new Error("Video Analyzer requires DaVinci Resolve Studio 20.1 or later.");
     if (typeof workflow.RegisterCallback !== "function" || workflow.RegisterCallback("ResolveQuit", () => app.quit()) !== true) throw new Error("Resolve could not register the plugin shutdown callback.");
@@ -76,7 +77,10 @@ async function start(electron, workflow) {
   }
 }
 module.exports = { start, trustedSender, supportedVersion, windowOptions, PLUGIN_ID, IPC_CHANNEL };
-if (require.main === module) {
+// Resolve's Electron launcher imports this CommonJS entry through ESM. Such an
+// import does not set require.main to this module, so Node's CLI entry guard
+// would leave the plugin process running without ever creating its window.
+if (process.versions.electron && process.type === "browser") {
   const electron = require("electron");
   let workflow;
   try { workflow = require(path.join(__dirname, "WorkflowIntegration.node")); }

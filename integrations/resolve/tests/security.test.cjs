@@ -42,9 +42,11 @@ test("main process lifecycle initializes Promise bridge, uses matching ID, and c
   }
   const electron = { app: { once(name, callback) { events[name] = callback; }, on(name, callback) { events[name] = callback; }, whenReady: async () => {}, getPath: () => "/user/appData", quit() { if (events["before-quit"]) events["before-quit"](); } }, BrowserWindow: Window,
     ipcMain: { handle(name, fn) { handlers[name] = fn; }, removeHandler(name) { delete handlers[name]; } }, net: { fetch() { throw new Error("Unexpected network"); } }, clipboard: {}, shell: {}, dialog: { async showMessageBox() { throw new Error("Unexpected startup error"); } } };
-  const workflow = { SetAPITimeout(value) { calls.push(["timeout", value]); return true; }, async InitializePromise(id) { calls.push(["init", id]); return true; }, async GetResolvePromise() { calls.push(["resolve"]); return { GetVersion: async () => [20, 1, 0, 1, ""] }; }, RegisterCallback(name, fn) { calls.push(["callback", name]); this.quit = fn; return true; }, DeregisterCallback(name) { calls.push(["deregister", name]); }, CleanUp() { calls.push(["cleanup"]); } };
+  let sdkInitialized = false;
+  const workflow = { SetAPITimeout(value) { if (!sdkInitialized) throw new Error("SetAPITimeout: Not initialized, call Initialize(<pluginId>) first"); calls.push(["timeout", value]); return true; }, async InitializePromise(id) { calls.push(["init", id]); sdkInitialized = true; return true; }, async GetResolvePromise() { calls.push(["resolve"]); return { GetVersion: async () => [20, 1, 0, 1, ""] }; }, RegisterCallback(name, fn) { calls.push(["callback", name]); this.quit = fn; return true; }, DeregisterCallback(name) { calls.push(["deregister", name]); }, CleanUp() { calls.push(["cleanup"]); } };
   const result = await start(electron, workflow);
   assert.ok(result); assert.deepEqual(calls.find(call => call[0] === "init"), ["init", PLUGIN_ID]); assert.deepEqual(calls.find(call => call[0] === "timeout"), ["timeout", 15]);
+  assert.ok(calls.findIndex(call => call[0] === "init") < calls.findIndex(call => call[0] === "timeout"));
   assert.deepEqual(instance.webContents.open(), { action: "deny" });
   const blocked = await handlers[IPC_CHANNEL]({ sender: {} }, "connect", { token: "secret" }); assert.equal(blocked.ok, false); assert.equal(blocked.error.code, "UNTRUSTED_ACTION");
   workflow.quit(); result.cleanup(); assert.equal(calls.filter(call => call[0] === "cleanup").length, 1); assert.equal(handlers[IPC_CHANNEL], undefined);
@@ -54,6 +56,41 @@ test("missing native SDK provides install guidance and never opens a renderer", 
   const app = { once() {}, on() {}, whenReady: async () => {}, quit() { quit = true; } };
   const result = await start({ app, BrowserWindow: class { constructor() { opened = true; } }, ipcMain: { removeHandler() {} }, dialog: { async showMessageBox(value) { messages.push(value); } } }, undefined);
   assert.equal(result, null); assert.equal(opened, false); assert.equal(quit, true); assert.match(messages[0].message, /Workflow Integration SDK/);
+});
+test("SDK timeout setup failures clean up an already initialized native interface", async () => {
+  let initialized = false, cleaned = 0, timeoutCalled = false;
+  const messages = [];
+  const workflow = { async InitializePromise() { initialized = true; return true; }, GetResolvePromise() { throw new Error("Resolve API must not run after timeout setup failed"); },
+    SetAPITimeout() { assert.equal(initialized, true); timeoutCalled = true; return false; }, CleanUp() { cleaned++; } };
+  const app = { once() {}, on() {}, whenReady: async () => {}, quit() {} };
+  const result = await start({ app, ipcMain: { removeHandler() {} }, dialog: { async showMessageBox(value) { messages.push(value); } } }, workflow);
+  assert.equal(result, null); assert.equal(timeoutCalled, true); assert.equal(cleaned, 1); assert.match(messages[0].message, /could not enable native API timeouts/);
+});
+test("Electron's ESM-loaded CommonJS entry starts even when require.main is another module", () => {
+  let started = 0, electronRequired = 0;
+  const source = fs.readFileSync(path.join(__dirname, "../main.js"), "utf8");
+  const module = { exports: {} };
+  function fakeRequire(name) {
+    if (name === "electron") {
+      electronRequired++;
+      return { app: { once() { started++; }, on() {}, whenReady() { return new Promise(() => {}); } } };
+    }
+    if (name.endsWith("WorkflowIntegration.node")) return {};
+    if (name === "./host") return require("../host");
+    if (name === "./service") return require("../service");
+    return require(name);
+  }
+  fakeRequire.main = { exports: {} }; // Actual Electron default_app uses await import(entry).
+  vm.runInNewContext(source, { module, require: fakeRequire, process: { versions: { electron: "40.0.0" }, type: "browser" }, __dirname: path.resolve(__dirname, "..") });
+  assert.notEqual(fakeRequire.main, module);
+  assert.equal(electronRequired, 1); assert.equal(started, 1);
+});
+test("regular Node imports and Electron renderer imports cannot start the native entry", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../main.js"), "utf8");
+  for (const process of [{ versions: { node: "24.0.0" } }, { versions: { electron: "40.0.0" }, type: "renderer" }]) {
+    const fakeRequire = name => { if (name === "electron" || name.endsWith("WorkflowIntegration.node")) throw new Error("Native entry must stay inert"); if (name === "./host") return require("../host"); if (name === "./service") return require("../service"); return require(name); };
+    vm.runInNewContext(source, { module: { exports: {} }, require: fakeRequire, process, __dirname: path.resolve(__dirname, "..") });
+  }
 });
 test("highlighting treats tags and dialogue as text, including markup-shaped queries", () => {
   const elements = [];
