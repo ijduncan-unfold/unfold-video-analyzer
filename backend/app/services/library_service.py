@@ -155,7 +155,8 @@ def asset_view(job, detail=False):
         view.update(flash=job.flash_result, deep=job.deep_results, video_summary=job.summary,
                     custom_result=job.custom_result, shot_matches=job.shot_matches,
                     analysis_config=job.analysis_config, shot_annotations=job.shot_annotations,
-                    transcript=job.transcript, cost_estimate=job.cost_estimate)
+                    transcript=job.transcript, cost_estimate=job.cost_estimate,
+                    rough_cut=job.rough_cut)
         view['analysis_history'] = job.analysis_history
         if job.flash_result:
             view['flash'] = {**job.flash_result, 'scenes': [

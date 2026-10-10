@@ -14,6 +14,21 @@ Turn footage into a searchable shot library with Gemini analysis, visual match-c
 
 Analysis runs in the background while the server is running, including when the browser tab closes. Partial results persist, duplicate runs are rejected, and interrupted runs are identified on restart. Retry is explicit; restarting the server does not automatically resume model calls.
 
+## Podcast and talking-head rough cuts
+
+Open a local recording's **Rough cut** tab to generate an editable sequence with Gemini:
+
+- **Clean up the take** preserves the substance while choosing clearer takes and removing false starts, genuinely redundant explanations, and production chatter.
+- **Make it shorter** adds a target duration and an editing brief. Gemini considers dialogue alongside visible demonstrations, gestures, reactions, and distractions.
+- Read/search the speech excerpts and edit notes, preview the proposed sequence, adjust in/out points, remove or restore excerpts, and reorder them. Save the review before exporting.
+- Download **timeline FCPXML** for Resolve or Final Cut Pro, or **JSON** for the edit list. The sequence references the original recording and retains audio; it does not render a new MP4. Relink the original in the editor.
+
+This is a separate, explicitly requested Gemini pass; previous shot analysis is not required. Two-minute speech windows arrive progressively, and ten-minute temporary uploads bound video requests. The draft, speech evidence, selection reasons, and usage-based API cost persist in the library. Cancellation/restart retain discovered speech; retry starts a new draft. It never changes the original recording or overwrites the existing shot/transcript analysis.
+
+AI sentence timing and editorial choices need review. The target length is approximate, and a faithful complete thought may take longer. This is not word-aligned filler removal, automatic multicamera switching, or a polished final edit. Timeline imports remain subject to the supported frame-rate/orientation rules below. [Implementation and test details](docs/PODCAST_ROUGH_CUT.md).
+
+![Rough cut workspace using an isolated synthetic-speech recording with a plain blue picture.](docs/screenshots/podcast-rough-cut.png)
+
 ## Search the details you remember
 
 Search shot descriptions, colors, shot types, camera work, transcripts, section analysis, summaries, custom analysis, and human annotations. Results explain whether a match comes from the shot itself or from broader section/video context. Project, tag, review, collection, and rights filters help narrow the library.

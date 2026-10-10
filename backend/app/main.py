@@ -52,6 +52,8 @@ async def lifespan(app: FastAPI):
         from app.services.visual_index import shutdown
         await shutdown()
         await shutdown_jobs()
+        from app.services.rough_cut import shutdown as shutdown_cuts
+        await shutdown_cuts()
 
 
 app = FastAPI(title="Video Analyzer", lifespan=lifespan)
@@ -65,7 +67,7 @@ app.add_middleware(
 )
 
 # Import and include routers
-from app.routers import upload, files, thumbnails, library, visual, premiere, resolve
+from app.routers import upload, files, thumbnails, library, visual, premiere, resolve, rough_cut
 
 app.include_router(upload.router)
 app.include_router(files.router)
@@ -74,6 +76,7 @@ app.include_router(library.router)
 app.include_router(visual.router)
 app.include_router(premiere.router)
 app.include_router(resolve.router)
+app.include_router(rough_cut.router)
 
 
 @app.get("/api/health")

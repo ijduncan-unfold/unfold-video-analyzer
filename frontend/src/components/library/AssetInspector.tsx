@@ -12,8 +12,9 @@ import './VideoWorkspace.css'
 import { MatchCutPanel } from './MatchCutPanel'
 import { forgetMatchCutSession } from './matchCutSession'
 import { TranscriptPanel } from './TranscriptPanel'
+import { RoughCutPanel } from './RoughCutPanel'
 
-const ASSET_TABS = ['shots', 'match cuts', 'transcript', 'analysis', 'metadata', 'export'] as const
+const ASSET_TABS = ['shots', 'match cuts', 'transcript', 'rough cut', 'analysis', 'metadata', 'export'] as const
 type AssetTab = typeof ASSET_TABS[number]
 
 interface Props {
@@ -64,7 +65,8 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const video = useRef<HTMLVideoElement>(null)
   const body = useRef<HTMLDivElement>(null)
   const busy = isActiveAnalysis(asset.status) || starting
-  const removalDisabled = busy || removing || saving || asset.status === 'deleting'
+  const cutBusy = !!asset.rough_cut && ['queued', 'analyzing', 'assembling'].includes(asset.rough_cut.status)
+  const removalDisabled = busy || cutBusy || removing || saving || asset.status === 'deleting'
   const warnings = [...new Set([...(asset.warnings || []), ...(asset.flash?.analysis_warnings || [])])]
   const metadata = { ...draft, tags: splitTags(tags), collections: splitTags(collections) }
   const dirty = JSON.stringify(metadata) !== baseline
@@ -101,7 +103,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     } catch (err) { setError(errorMessage(err)) } finally { setSaving(false) }
   }
   async function analyze() {
-    if (busy || removing || asset.status === 'deleting') return
+    if (busy || cutBusy || removing || asset.status === 'deleting') return
     if (!capabilities?.google_configured && !apiKey) { onConfigure(); return }
     setTab('shots'); body.current?.scrollTo({ top: 0 })
     setStarting(true); setError(''); setNotice('')
@@ -140,7 +142,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   function chooseTab(next: AssetTab) {
     setMatchCutFromShot(false)
     if (next === 'export') { openExport(); return }
-    if (next === 'match cuts') video.current?.pause()
+    if (next === 'match cuts' || next === 'rough cut') video.current?.pause()
     if (next === 'transcript') setPlaybackSeconds(video.current?.currentTime ?? 0)
     setTab(next)
     body.current?.scrollTo({ top: 0 })
@@ -153,15 +155,15 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
         <button className="lw-button" onClick={() => openExport()}><Icon name="download" size={16} />Export{selection.shots.length > 0 ? ` (${selection.shots.length})` : ''}</button>
       <div className="vw-analyze-control" role="group" aria-label="Start video analysis">
         <label className="vw-analysis-type"><span className="lw-sr-only">Analysis type</span><select value={mode} disabled={busy || removing || asset.status === 'deleting'} onChange={event => setMode(event.target.value as 'flash_only' | 'flash_pro')}><option value="flash_only">Shots and tags</option><option value="flash_pro">Full analysis</option></select><Icon name="down" size={14} /></label>
-      <button className="lw-button lw-button-primary lw-analyze-primary" disabled={busy || removing || asset.status === 'deleting'} onClick={analyze}>
+      <button className="lw-button lw-button-primary lw-analyze-primary" disabled={busy || cutBusy || removing || asset.status === 'deleting'} onClick={analyze}>
         <Icon name="spark" size={20} />
         {busy ? starting && !isActiveAnalysis(asset.status) ? 'Starting…' : asset.status === 'queued' ? 'Queued…' : 'Analyzing…' : !capabilities?.google_configured && !apiKey ? 'Connect Gemini' : asset.status === 'error' ? 'Retry analysis' : asset.flash ? 'Analyze again' : 'Analyze video'}
       </button>
       </div>
       </div>
     </header>
-    <div className={`vw-layout ${(tab === 'export' || tab === 'match cuts') ? 'is-export' : ''}`}>
-      <div className="vw-viewer" hidden={tab === 'export' || tab === 'match cuts'}>
+    <div className={`vw-layout ${(tab === 'export' || tab === 'match cuts' || tab === 'rough cut') ? 'is-export' : ''}`}>
+      <div className="vw-viewer" hidden={tab === 'export' || tab === 'match cuts' || tab === 'rough cut'}>
         <div className="lw-preview">
           {asset.preview_url ? <video ref={video} src={asset.preview_url} poster={asset.thumbnail_url || undefined} controls preload="metadata" onLoadedMetadata={() => { if (video.current && initialSeconds != null) video.current.currentTime = initialSeconds }} onTimeUpdate={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} onSeeked={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} /> : <div className="lw-no-preview"><Icon name="film" size={32} /><span>{asset.youtube_url ? 'Source video on YouTube' : 'Preview unavailable for this format'}</span>{asset.youtube_url && <a href={asset.youtube_url} target="_blank" rel="noreferrer">Open source ↗</a>}</div>}
         </div>
@@ -199,6 +201,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       {tab === 'match cuts' && <MatchCutPanel key={asset.analysis_config?.started_at || 'unindexed'} asset={asset} shots={shots} initialShot={selectedShot} useInitialShot={matchCutFromShot} />}
       {tab === 'export' && <ExportPanel key={exportVisit} asset={asset} shots={shots} selectedShots={validSelection} staleSelection={staleSelection} onChooseShots={() => setTab('shots')} onClearSelection={() => setSelection({ run: asset.analysis_config?.started_at, shots: [] })} initialScope={exportScope} />}
       <div hidden={tab !== 'transcript'}><TranscriptPanel asset={asset} active={tab === 'transcript'} currentTime={playbackSeconds} onSeek={playDialogue} /></div>
+      <div hidden={tab !== 'rough cut'}><RoughCutPanel key={asset.job_id} asset={asset} active={tab === 'rough cut'} configured={!!capabilities?.google_configured || !!apiKey} onConfigure={onConfigure} onRefresh={onRefresh} /></div>
       {tab === 'analysis' && <>
         {asset.video_summary && <details className="lw-details" open><summary>Summary<Icon name="down" size={14} /></summary><AnalysisFields value={asset.video_summary} /></details>}
         {!!asset.flash?.scenes.length && <details className="lw-details" open><summary>{usesSections ? 'Sections' : 'Scenes'}<Icon name="down" size={14} /></summary>{asset.flash.scenes.map(scene => <details className="lw-details" key={scene.scene_number}><summary>{usesSections ? 'Section' : 'Scene'} {scene.scene_number} · {scene.scene_title}<Icon name="down" size={14} /></summary><p className="lw-panel-description">{scene.scene_description}</p><time>{scene.start_time} – {scene.end_time}</time><AnalysisFields value={asset.deep?.find(item => item.scene_number === scene.scene_number)} /><button className="lw-button" onClick={() => { setSectionFilter(scene.scene_number); setTab('shots') }}>View {scene.shots.length} shots</button></details>)}</details>}

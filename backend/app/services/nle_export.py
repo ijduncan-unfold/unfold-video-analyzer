@@ -112,7 +112,7 @@ def _frame_timecode(frame: int, fps: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d}"
 
 
-def _nle_shots(data: dict, fps: int, duration: Decimal):
+def _nle_shots(data: dict, fps: int, duration: Decimal, preserve_order=False):
     rows = []
     for scene, shot, reviewed in iter_shots(data):
         start, end = segment_times(shot, duration)
@@ -122,7 +122,7 @@ def _nle_shots(data: dict, fps: int, duration: Decimal):
         rows.append((first, last, scene, shot, reviewed))
     if not rows:
         raise ValueError("No timed shots are available to export")
-    return sorted(rows, key=lambda item: item[0])
+    return rows if preserve_order else sorted(rows, key=lambda item: item[0])
 
 
 def _one_line(value) -> str:
@@ -159,7 +159,7 @@ def export_edl(job) -> str:
     return "\n".join(lines)
 
 
-def export_fcpxml(job) -> str:
+def export_fcpxml(job, *, preserve_order=False, title=None) -> str:
     """FCPXML 1.11 media references. Place original media beside XML or relink.
 
     Uses real asset-clip references and source dimensions/timing. No source
@@ -175,7 +175,7 @@ def export_fcpxml(job) -> str:
         raise ValueError("FCPXML requires known positive source width and height")
     if technical.get("rotation", 0) not in (0, None):
         raise ValueError("FCPXML export of rotated media requires a verified orientation mapping; use JSON or XMP")
-    shots = _nle_shots(data, fps, duration)
+    shots = _nle_shots(data, fps, duration, preserve_order=preserve_order)
     filename = source_filename(data.get("filename"))
     time = lambda frames: f"{frames * fps.denominator}/{fps.numerator}s"
     root = ET.Element("fcpxml", version="1.11")
@@ -195,7 +195,7 @@ def export_fcpxml(job) -> str:
                       value=technical.get("frame_rate_verification", ""))
     library = ET.SubElement(root, "library")
     event = ET.SubElement(library, "event", name=f"{filename} Analysis")
-    project = ET.SubElement(event, "project", name=f"{filename} Shot List")
+    project = ET.SubElement(event, "project", name=title or f"{filename} Shot List")
     total = sum(last - first for first, last, *_ in shots)
     sequence = ET.SubElement(project, "sequence", format="r1", duration=time(total), tcStart="0s", tcFormat="NDF")
     spine = ET.SubElement(sequence, "spine")

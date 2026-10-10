@@ -48,6 +48,7 @@ class Job:
     # External editor sources are referenced read-only, never owned by the library.
     media_origin: str = "upload"
     source_fingerprint: str = ""
+    rough_cut: dict | None = None
 
 
 @contextmanager
@@ -117,7 +118,7 @@ def claim_analysis(job_id: str) -> bool:
         if not row:
             return False
         job = _decode(row[0])
-        if job.status in ("analyzing", "queued", "processing", "deleting"):
+        if job.status in ("analyzing", "queued", "processing", "deleting") or cut_is_active(job):
             return False
         job.status, job.error, job.progress = "queued", None, "Waiting for analysis worker"
         job.analysis_progress = {
@@ -138,7 +139,7 @@ def claim_deletion(job_id: str) -> bool:
         if not row:
             return False
         job = _decode(row[0])
-        if job.status in ("analyzing", "queued", "processing", "deleting"):
+        if job.status in ("analyzing", "queued", "processing", "deleting") or cut_is_active(job):
             return False
         job.status, job.error, job.progress = "deleting", None, "Deleting asset and derived media"
         _save(db, job)
@@ -147,6 +148,9 @@ def claim_deletion(job_id: str) -> bool:
 
 def recover_interrupted_jobs():
     for job in list_jobs():
+        if cut_is_active(job):
+            update_job(job.job_id, rough_cut={**job.rough_cut, 'status': 'error',
+                       'error': 'Rough cut interrupted by restart. Generate again to retry.'})
         if job.status in ("analyzing", "queued", "processing"):
             update_job(job.job_id, status="error", error="Analysis interrupted by server restart. Retry to continue.",
                        progress="Interrupted; previous results preserved",
@@ -160,3 +164,21 @@ def recover_interrupted_jobs():
 def delete_job(job_id: str) -> bool:
     with connection() as db:
         return db.execute("DELETE FROM jobs WHERE job_id=?", (job_id,)).rowcount > 0
+
+
+def cut_is_active(job):
+    return (job.rough_cut or {}).get('status') in ('queued', 'analyzing', 'assembling')
+
+
+def claim_rough_cut(job_id, draft):
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT data FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+        if not row:
+            return False
+        job = _decode(row[0])
+        if job.status in ('analyzing', 'queued', 'processing', 'deleting') or cut_is_active(job):
+            return False
+        job.rough_cut = draft
+        _save(db, job)
+    return True

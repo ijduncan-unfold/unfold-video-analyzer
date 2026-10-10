@@ -73,6 +73,7 @@ export interface TranscriptSegment {
   speaker?: string
 }
 export interface AssetDetail extends LibraryAsset {
+  rough_cut?: RoughCutDraft | null
   flash: FlashAnalysis | null
   deep: SceneDeepAnalysis[] | null
   video_summary: VideoSummary | null
@@ -85,6 +86,58 @@ export interface AssetDetail extends LibraryAsset {
   analysis_config?: { provider?: string; analysis_model?: string; deep_model?: string; fps?: number; mode?: string; started_at?: string; timestamp_accuracy?: string; grouping?: string }
   cost_estimate?: { estimated_cost_usd: number | null; pricing_status?: string; pricing_as_of?: string; warnings?: string[]; total_input_tokens?: number; total_output_tokens?: number } | null
   transcript: TranscriptSegment[]
+}
+export interface CutMoment {
+  moment_id: string
+  start_seconds: number
+  end_seconds: number
+  window_start: number
+  window_end: number
+  text: string
+  visual: string
+  kind: 'usable' | 'false_start' | 'repeated_take' | 'off_topic'
+  reason: string
+}
+export interface RoughCutDraft {
+  revision: string
+  status: 'queued' | 'analyzing' | 'assembling' | 'ready' | 'error' | 'cancelled'
+  mode: 'cleanup' | 'condense'
+  target_seconds: number
+  source_seconds: number
+  duration_seconds?: number
+  brief: string
+  moments: CutMoment[]
+  clips: CutMoment[]
+  completed_windows: number
+  total_windows: number
+  progress: string
+  error?: string | null
+  rationale?: string
+  cost_estimate?: { estimated_cost_usd: number | null }
+  warnings: string[]
+}
+export interface CutClipEdit { moment_id: string; start_seconds: number; end_seconds: number }
+export function getRoughCut(id: string, signal?: AbortSignal) {
+  return request<RoughCutDraft | null>(`/api/library/${encodeURIComponent(id)}/rough-cut`, { signal })
+}
+export function generateRoughCut(id: string, mode: RoughCutDraft['mode'], targetSeconds: number, brief: string) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const apiKey = getApiKey()
+  if (apiKey) headers['X-API-Key'] = apiKey
+  return request<RoughCutDraft>(`/api/library/${encodeURIComponent(id)}/rough-cut`, {
+    method: 'POST', headers, body: JSON.stringify({ mode, target_seconds: targetSeconds, brief }),
+  })
+}
+export function saveRoughCut(id: string, revision: string, clips: CutClipEdit[]) {
+  return request<RoughCutDraft>(`/api/library/${encodeURIComponent(id)}/rough-cut`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, clips }),
+  })
+}
+export function cancelRoughCut(id: string) {
+  return request<{ status: string }>(`/api/library/${encodeURIComponent(id)}/rough-cut/cancel`, { method: 'POST' })
+}
+export function roughCutExportUrl(id: string, revision: string, format: 'fcpxml' | 'json') {
+  return `/api/library/${encodeURIComponent(id)}/rough-cut/export?${new URLSearchParams({ revision, format })}`
 }
 export interface LibraryProject {
   id: string

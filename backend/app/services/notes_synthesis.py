@@ -10,6 +10,7 @@ from app.models.analysis import VideoSummary
 from app.prompts.summary_prompt import SUMMARY_PROMPT
 from app.services.analysis_support import EVIDENCE_INSTRUCTION, extract_usage, response_text
 from app.services.gemini_client import get_client
+from app.services.gemini_schema import provider_schema
 
 NOTE_BUDGET = 48000
 
@@ -56,7 +57,7 @@ async def synthesize_notes(flash_result, deep_results, api_key=None, custom_prom
         response = await asyncio.wait_for(client.aio.models.generate_content(
             model=settings.gemini_deep_model, contents=[prompt],
             config=types.GenerateContentConfig(system_instruction=EVIDENCE_INSTRUCTION,
-                response_mime_type='application/json', response_schema=schema,
+                response_mime_type='application/json', response_schema=provider_schema(schema) if schema else None,
                 max_output_tokens=8192,
                 http_options=types.HttpOptions(timeout=120000,
                     retry_options=types.HttpRetryOptions(attempts=1)))), timeout=120)

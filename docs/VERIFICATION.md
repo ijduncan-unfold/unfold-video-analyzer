@@ -209,6 +209,12 @@ The complete local application/package regression run passed **350 tests and 75 
 
 The idle localhost companion was restarted with the updated backend and frontend. Health, library, and workspace requests returned HTTP 200; the existing asset remained available and zero analyses were active. No paid analysis or editor write was started during this verification.
 
+## Podcast rough cuts, October 10
+
+Podcast/talking-head rough-cut generation now has separate video/audio analysis, progressive speech excerpts, a saved editable sequence, source playback, and FCPXML/JSON export. Fifteen new contract checks and an isolated live Gemini/browser smoke test passed; see [podcast rough-cut verification](PODCAST_ROUGH_CUT.md#verification-october-10-2026). A representative 20-minute recording and native editor import of this draft remain pending.
+
+The full local regression suite passed 365 tests and 75 subtests, with two platform skips; native Resolve installer tests were excluded because the editor was open and no installer changed. Frontend production build, lint, and ten existing session/freehand checks passed. The private test database, provider diagnostic script, and fixture media stay outside Git.
+
 ## Remaining validation
 
 - Recognition/retrieval quality on representative agency and filmmaking footage, including difficult audio, fast montage and multilingual material.

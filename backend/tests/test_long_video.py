@@ -189,7 +189,7 @@ class LongVideoTests(unittest.IsolatedAsyncioTestCase):
         client = Mock()
         async def generate(**kwargs):
             schema = kwargs['config'].response_schema
-            payload = {'notes': 'Source Shot 1 at 00:01: Unique dialogue 1'} if schema is notes_synthesis.EditorialNotes else {'executive_summary': 'Evidence-based film summary'}
+            payload = {'notes': 'Source Shot 1 at 00:01: Unique dialogue 1'} if 'notes' in schema.properties else {'executive_summary': 'Evidence-based film summary'}
             return SimpleNamespace(text=json.dumps(payload), usage_metadata=None, candidates=[])
         client.aio.models.generate_content = AsyncMock(side_effect=generate)
         with patch.object(notes_synthesis, 'get_client', return_value=client):

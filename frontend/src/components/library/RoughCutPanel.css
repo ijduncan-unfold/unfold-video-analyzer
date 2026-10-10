@@ -1,0 +1,20 @@
+.rc-panel { padding: 24px; }
+.rc-heading, .rc-actions, .rc-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rc-heading h2 { margin: 0 0 8px; }
+.rc-heading p { color: var(--lw-muted); }
+.rc-controls { display: flex; gap: 20px; align-items: start; margin-top: 24px; flex-wrap: wrap; }
+.rc-controls > label { min-width: 180px; }
+.rc-brief { flex: 1; }
+.rc-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; margin-top: 24px; align-items: start; }
+.rc-preview { position: sticky; top: 12px; }
+.rc-preview video { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; }
+.rc-actions { justify-content: flex-start; margin: 14px 0; }
+.rc-progress { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--lw-line); border-radius: 8px; }
+.rc-list { list-style: none; padding: 0; margin: 18px 0; }
+.rc-list li, .rc-omitted article { border: 1px solid var(--lw-line); border-radius: 8px; padding: 16px; margin-bottom: 16px; content-visibility: auto; contain-intrinsic-size: auto 240px; }
+.rc-row-heading > div { display: flex; align-items: center; gap: 8px; }
+.rc-trims { display: flex; gap: 16px; margin-top: 16px; }
+.rc-trims label { display: grid; gap: 6px; flex: 1; min-width: 0; font-size: 12px; }
+.rc-trims input { width: 100%; padding: 8px; background: var(--lw-bg); color: inherit; border: 1px solid var(--lw-line); border-radius: 4px; }
+.rc-omitted { max-height: 60vh; overflow-y: auto; margin-top: 16px; }
+@media (max-width: 950px) { .rc-workspace { grid-template-columns: 1fr; } .rc-preview { position: static; } }

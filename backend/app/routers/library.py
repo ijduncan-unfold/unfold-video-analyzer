@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, Response
 from app.config import settings
 from app.dependencies import get_api_key
 from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest
-from app.services.job_store import get_job, list_jobs, update_job, claim_analysis
+from app.services.job_store import get_job, list_jobs, update_job, claim_analysis, cut_is_active
 from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
     asset_view, shot_views, search_score, match_shot, public_search_metadata, public_transcript_segments,
@@ -65,7 +65,7 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
     else:
         matched.sort(key=lambda item: item[0], reverse=True)
     return {'assets': [v for _, v in matched[offset:offset + limit]], 'total': len(matched),
-        'active_jobs': sum(j.status in ('queued', 'analyzing', 'processing') for j in jobs),
+        'active_jobs': sum(j.status in ('queued', 'analyzing', 'processing') or cut_is_active(j) for j in jobs),
         'facets': {'projects': sorted({j.metadata.get('project') for j in jobs if j.metadata.get('project')}),
                    'tags': sorted({tag for j in jobs for tag in j.metadata.get('tags', [])}),
                    'collections': sorted({v for j in jobs for v in j.metadata.get('collections', [])})},
@@ -93,7 +93,7 @@ async def search_shots(q: str = Query(default='', max_length=500), project: str 
                 matches.append((score, {**shot, **match}))
     matches.sort(key=lambda item: item[0], reverse=True)
     return {'shots': [s for _, s in matches[offset:offset + limit]], 'total': len(matches), 'search_type': 'keyword',
-            'active_jobs': sum(j.status in ('queued', 'analyzing', 'processing') for j in jobs)}
+            'active_jobs': sum(j.status in ('queued', 'analyzing', 'processing') or cut_is_active(j) for j in jobs)}
 
 
 @router.get('/projects')
