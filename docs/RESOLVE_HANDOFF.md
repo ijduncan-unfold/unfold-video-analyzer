@@ -8,9 +8,9 @@ The integration loads original Media Pool clips into the local Video Analyzer co
 
 ## Windows installation
 
-Use a successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml) containing the automatic-connection update. The companion and integration must both be updated. Artifacts include the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums, and require signing into GitHub. The older `d355f09` preview verified the native source workflow but still required manual pairing.
+Use the verified [Windows preview artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38090625438/artifacts/11683988079) built from `833444a` with automatic connection. The companion and integration must both be updated. All five downloaded checksums and isolated frozen-engine checks passed. The artifact includes the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums, and requires signing into GitHub. The older `d355f09` preview verified the native source workflow but still required manual pairing.
 
-1. Get the updated **Video Analyzer companion** and public integration ZIP from a successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer and configure your own Gemini key in browser **Settings**.
+1. Get the updated **Video Analyzer companion** and public integration ZIP from the [verified Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38090625438/artifacts/11683988079), a newer successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer and configure your own Gemini key in browser **Settings**.
 2. Install Resolve Studio 20.1+ and **close Resolve** before installing or updating the integration.
 3. Use **Install Resolve integration** from the Video Analyzer Start menu or tray. For the standalone `VideoAnalyzer-Resolve-0.1.0.zip`, extract the entire ZIP and double-click **Install Resolve on Windows.cmd**. Keep the `VideoAnalyzer` folder beside the helper scripts. Administrator approval may be needed for Resolve's shared plugin folder.
 4. Restart Resolve Studio and choose **Workspace → Workflow Integrations → Video Analyzer**.
@@ -58,7 +58,7 @@ Original media is referenced without creating a full import copy. The companion 
 
 ## Apple Silicon Mac installation
 
-The companion targets **native arm64 on macOS 15+**. Use a successful [Mac build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml) containing the automatic-connection update, and update both the companion and Resolve integration. Earlier `d355f09` downloads passed arm64, signature, HTTPS, resource, and checksum checks but still required manual pairing. Native Mac editor acceptance remains pending.
+The companion targets **native arm64 on macOS 15+**. The verified [Mac preview artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38090625515/artifacts/11684034232) was built from `833444a` with automatic connection; update both the companion and Resolve integration. All four downloaded checksums, arm64 resources, and verified HTTPS smoke checks passed. Earlier `d355f09` downloads still required manual pairing. Native Mac editor acceptance remains pending.
 
 1. Install the updated `Video Analyzer.app` in Applications and prepare FFmpeg through **Install FFmpeg.command**.
 2. Run **Prepare Premiere on Mac.command** if local HTTPS is not already configured. Despite its existing name, this setup prepares the companion's shared editor endpoint for both Premiere and Resolve. It uses mkcert and may request an administrator password. Do not disable certificate or hostname verification.
@@ -99,6 +99,8 @@ The output is `dist/installers/VideoAnalyzer-Resolve-0.1.0.zip`. Packaging uses 
 
 ## Native acceptance
 
+### Initial source workflow at `d355f09`
+
 On October 10, the integration was installed in Resolve Studio 21.0.1's actual Windows plugin folder using its matching local SDK. All ten installed public resources and the native bridge matched their source hashes. Native desktop testing used a separate Resolve project, an isolated companion database, and a six-second, verified 24 fps synthetic original. Its shot metadata and dialogue were explicitly seeded test data; provider calls were disabled.
 
 The Workspace menu opened the integration, pairing and Media Pool registration succeeded, and the original was referenced without a full media copy. Shot and dialogue searches highlighted matching words, clip selection was confirmed in Resolve, and copying the blue shot produced `00:02.000 – 00:04.000`. Native subtitle Save cancellation worked; the saved SRT contained all three expected cues even with a search active. Reopening required the pairing code again and restored the selected clip and search. Switching to a separate empty test project cleared prior results and disabled unavailable actions. Closing Resolve also closed the plugin automatically.
@@ -107,7 +109,15 @@ Three fresh source markers were added successfully. Native dialogs confirmed sta
 
 Testing found and fixed Electron's ESM entry-point behavior, SDK initialization before timeout configuration, and shifted marker dictionary keys. Marker positions are now checked with direct frame queries; guarded cleanup identifies unchanged app-owned markers through custom data. The Resolve contract suite passes 83 checks. See [the verification record](VERIFICATION.md) for remaining coverage.
 
-The normal localhost companion was restored after testing. Both existing footage projects, analysis cache revisions/counts, and configured key presence matched the original baseline. Test data was kept separate and no paid calls were made.
+The normal localhost companion was restored after that test. Both existing footage projects, analysis cache revisions/counts, and configured key presence matched that test's original baseline. Test data was kept separate and no paid calls were made.
+
+### Automatic connection at `833444a`
+
+The updated integration was installed with the matching local SDK in Windows Resolve Studio 21.0.1. All eleven public resources matched pristine source. The Workspace window connected without entering a code or address; closing and reopening it connected automatically again. Stopping the companion changed the open panel to **Waiting for app** and hid unavailable media and analysis actions. Restarting the companion restored **Connected** and the correct QA project without clicking Retry. Resolve and the normal companion were left running and connected.
+
+This round exercised connection behavior without loading media, starting analysis, or writing markers. A subsequent read-only check observed new library activity; the running job was preserved. The original source-workflow checks above remain separate from this connection acceptance.
+
+Native testing also identified two Windows runtime differences: packaged development apps virtualized the usual AppData discovery location, and Resolve's Electron runtime reported different widths for path and handle volume identifiers. Discovery now uses the shared private profile folder. File validation uses exact integer metadata, with Windows volume normalization limited to the path-to-handle comparison; inode, canonical-path, reparse, and before/after identity checks remain in place.
 
 Broader Windows acceptance and native Mac acceptance still include:
 

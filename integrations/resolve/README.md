@@ -12,7 +12,7 @@ Original media is referenced and preserved. Saved analysis stays in the companio
 
 Times are measured from the beginning of the original file. **Select clip** selects a Media Pool item; it does not seek the source viewer to the displayed range. Marker writes preserve existing markers and attempt careful rollback of their own additions if a batch fails. This preview has no documented native marker transaction/undo API, and AI timing remains approximate.
 
-The implementation has automated backend, host, panel, and packaging checks. Windows native testing in Resolve Studio 21.0.1 verified the Workspace menu, searches, selection, subtitles, guarded source markers, persistence, project switching, and shutdown on an isolated 24 fps fixture. Mac SDK compatibility and native Mac operations remain pending. See [installation, paths, limits, and native acceptance](../../docs/RESOLVE_HANDOFF.md).
+The implementation has automated backend, host, panel, and packaging checks. Windows native testing in Resolve Studio 21.0.1 verified the Workspace menu, searches, selection, subtitles, guarded source markers, persistence, project switching, and shutdown on an isolated 24 fps fixture. A separate native acceptance round verified automatic connection, panel close/reopen, waiting while the companion is stopped, and automatic reconnection after restart. Mac SDK compatibility and native Mac operations remain pending. See [installation, paths, limits, and native acceptance](../../docs/RESOLVE_HANDOFF.md).
 
 Run the portable integration tests without Resolve or its SDK:
 

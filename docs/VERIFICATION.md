@@ -4,7 +4,7 @@
 
 The rebuild passes its local automated suite and live Gemini compatibility checks. The browser workflow was exercised with actual synthetic media from import through analysis, review and export. Resolve Studio on Windows has also been exercised through its native plugin using an isolated synthetic fixture, as recorded below. Comparative accuracy on customer footage and broader editor round trips remain unverified.
 
-## Automated checks
+## Initial rebuild checks
 
 | Check | Result |
 |---|---|
@@ -16,7 +16,7 @@ The rebuild passes its local automated suite and live Gemini compatibility check
 
 Tests use isolated temporary storage and mocked provider responses where appropriate. Actual ffmpeg tests cover local import, ffprobe facts, poster creation and HTTP range playback. Other regressions cover persistent metadata, filters, shot annotations, range validation, model usage, archived reviews, concurrent deletion claims, early cancellation, safe media cleanup and export structure. Two dependency deprecation warnings from Starlette/httpx remain; they do not fail the suite.
 
-The GitHub Actions workflow repeats tests/build/lint on Ubuntu with ffmpeg. Publishing was blocked by GitHub: the configured Git identity `ijduncan-unfold` was denied write access to `ijduncan/video-analyzer` (HTTP 403). Its remote run must be checked after the branch is published; local results do not imply remote CI has already run.
+The GitHub Actions workflow repeats tests/build/lint on Ubuntu with ffmpeg. An initial publishing attempt using `ijduncan-unfold` was denied access to the personal repository. Publishing subsequently used the authorized personal account; successful application and desktop CI runs are recorded in the later verification sections below.
 
 ## Live Gemini compatibility
 
@@ -141,7 +141,7 @@ The [Resolve-enabled Apple Silicon build](https://github.com/ijduncan/video-anal
 
 The source companion was restarted only after its analysis and indexing jobs were idle. Its authenticated Resolve endpoint became available, while both saved footage projects, completed shape/composition caches, and configured Gemini key remained intact. These checks were read-only and made no provider calls.
 
-## Windows native Resolve acceptance, October 10
+## Initial Windows native Resolve acceptance, October 10 (`d355f09`)
 
 Desktop testing with Astra installed the integration into the actual Windows Workflow Integration folder and opened it in Resolve Studio 21.0.1. The ten public resources matched source hashes and the native bridge matched the local SDK. A separate Resolve project and companion database contained one six-second, verified 24 fps synthetic original, three seeded color shots, and three explicitly synthetic dialogue cues. Provider calls were disabled. The source's SHA-256, size, and modification time remained unchanged.
 
@@ -155,9 +155,23 @@ After QA, the normal localhost companion was restored. A read-only comparison co
 
 All workflows passed at `d355f09`: [application checks](https://github.com/ijduncan/video-analyzer/actions/runs/38076147028), [Windows preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019), and [Apple Silicon preview](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014). Windows passed 319 Python tests and 75 subtests; Mac passed 294 and 75 subtests with 25 platform skips. Both passed five packaging guards, 83 Resolve and 57 Premiere checks, frontend lint/build, and isolated frozen-engine checks. Windows verified HTTP and both editor APIs; Mac verified HTTPS, arm64, signatures, and public resources.
 
-The [final Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019/artifacts/11678780721) and [final Apple Silicon artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014/artifacts/11678469463) were downloaded after success. All five Windows and four Mac file checksums matched. The installer had a valid PE header; the Mac executable header confirmed arm64. Both public Resolve ZIPs contained the fifteen expected entries, executable Mac helpers, and all ten resources matching current source after line-ending normalization. The Mac app's embedded Resolve resources also matched source. Neither public package included the vendor bridge. These builds supersede the earlier `b2be764` downloads above.
+The [Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38076147019/artifacts/11678780721) and [Apple Silicon artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38076147014/artifacts/11678469463) for `d355f09` were downloaded after success. All five Windows and four Mac file checksums matched. The installer had a valid PE header; the Mac executable header confirmed arm64. Both public Resolve ZIPs contained the fifteen expected entries, executable Mac helpers, and all ten resources matching that commit after line-ending normalization. The Mac app's embedded Resolve resources also matched source. Neither public package included the vendor bridge. Those builds superseded the earlier `b2be764` downloads above.
 
 Native testing establishes this limited Windows 24 fps workflow. It does not establish fractional rates, nonzero embedded timecode, native failure-injection rollback, recognition accuracy, or Mac SDK compatibility. Exact source-viewer seeking remains unavailable. Earlier isolated installer and mocked-browser checks above predate this actual installation and execution.
+
+## Automatic Resolve connection, October 10 (`833444a`)
+
+Manual pairing was removed from Resolve's interface. The companion publishes a private per-user discovery file only after authenticated readiness, and the native plugin process verifies the running instance. Bearer authentication and loopback restrictions remain enabled; credentials never enter the renderer or saved preferences. Premiere's manual pairing flow is unchanged.
+
+Astra exercised the pristine installed plugin in Windows Resolve Studio 21.0.1. Opening the Workspace integration connected without input. Close/reopen connected automatically. Stopping the companion changed the panel to **Waiting for app** and hid unavailable controls; restarting the companion restored **Connected** and the correct QA project without clicking Retry. All eleven installed public resources matched source, and the native bridge came from the matching local SDK.
+
+The private Windows discovery folder is under `%USERPROFILE%/.video-analyzer`, which is shared between the packaged development app and native Resolve. Its ACL was checked: inheritance disabled and only the current user's SID granted access. Actual Electron testing also exposed differing path/handle volume identifier widths. Exact BigInt inode/device metadata and a Windows-only path-to-handle normalization fix preserve canonical-path, linked-path, and file-change checks. Tests reject wrong device/inode identities and POSIX mismatches.
+
+Following restart, a read-only check confirmed the descriptor reader, authenticated endpoint, and instance identity agreed; unauthenticated Resolve health still returned HTTP 401. No media loading, analysis, or marker writes were initiated by this acceptance round. The initial library baseline was empty; a subsequent read-only check found an active synthetic-clip analysis, which was left running. Credentials and private diagnostic captures remain excluded from source and packages.
+
+All workflows passed for the exact source commit: [application checks](https://github.com/ijduncan/video-analyzer/actions/runs/38090625313), [Windows preview](https://github.com/ijduncan/video-analyzer/actions/runs/38090625438), and [Apple Silicon preview](https://github.com/ijduncan/video-analyzer/actions/runs/38090625515). Windows passed 357 Python tests and 75 subtests; Mac and application checks passed 332 and 75 subtests with 25 Windows-only skips. Resolve passed all 108 Node checks on Mac/Linux and 107 with one POSIX-permission skip on Windows. Premiere's 57 checks passed. Desktop builds also passed five packaging guards, frontend lint/build, isolated frozen startup, and public resource audits.
+
+The verified [Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38090625438/artifacts/11683988079) and [Apple Silicon artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38090625515/artifacts/11684034232) supersede the earlier previews. All five Windows and four Mac downloaded file checksums matched. Both integration ZIPs contained sixteen entries with eleven public resources matching `833444a`, executable Mac helpers, and no vendor bridge. The installer had a valid PE header. The Mac app's executable confirmed native arm64, its embedded public resources matched source, and its isolated smoke report confirmed verified HTTPS. Neither isolated build contained a configured Gemini key. Native Mac editor acceptance remains pending.
 
 ## Remaining validation
 
