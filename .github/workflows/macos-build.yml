@@ -32,7 +32,6 @@ jobs:
     timeout-minutes: 45
     env:
       GOOGLE_API_KEY: ''
-      VIDEO_ANALYZER_DESKTOP: '1'
       VIDEO_ANALYZER_TARGET_ARCH: arm64
     steps:
       - uses: actions/checkout@v7
