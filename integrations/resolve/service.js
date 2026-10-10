@@ -2,8 +2,8 @@
 const helpers = require("./controller");
 const DEFAULT_SERVER = "http://127.0.0.1:8000";
 const MAC_SERVER = "https://localhost:8443";
-const ACTIONS = Object.freeze(["bootstrap", "connect", "disconnect", "refresh", "loadSelection", "selectAsset", "setView", "analyze", "selectClip", "copyTimes", "addMarkers", "exportSubtitles", "openAnalyzer"]);
-const PAYLOAD_FIELDS = Object.freeze({ selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportSubtitles: ["revision"] });
+const ACTIONS = Object.freeze(["bootstrap", "connect", "disconnect", "refresh", "loadSelection", "selectAsset", "setView", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "exportSubtitles", "openAnalyzer"]);
+const PAYLOAD_FIELDS = Object.freeze({ selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportShots: ["revision", "indices", "destination"], exportSubtitles: ["revision"] });
 const OFFLINE = "Start Video Analyzer. This panel connects automatically.";
 function normalizeServer(value) {
   const match = /^(http|https):\/\/(127\.0\.0\.1|localhost):(8000|8443)\/?$/i.exec(String(value || "").trim());
@@ -237,6 +237,22 @@ function createService(dependencies) {
       const summary = await host.addMarkers(binding, asset.technical, results.slice(0, payload.count));
       state.message = summary.added + " source markers added; " + summary.duplicates + " duplicates and " + summary.collisions + " occupied frames skipped."; return view();
     },
+    async exportShots(payload) {
+      const { binding, asset, revision } = await nativeContext(payload);
+      if (state.tab !== "shots") throw new Error("Choose analyzed shots before adding clips to Resolve.");
+      if (!Array.isArray(payload.indices) || !payload.indices.length || payload.indices.length > 50 || new Set(payload.indices).size !== payload.indices.length) throw new Error("Choose between 1 and 50 distinct shots.");
+      if (!["pool", "current", "new"].includes(payload.destination)) throw new Error("Choose Media Pool, current timeline, or a new selects timeline.");
+      const cues = payload.indices.map(index => currentCue({ index }));
+      if (cues.some(cue => !Number.isInteger(cue.shot_number) || cue.shot_number < 1)) throw new Error("Refresh the analyzed shots before exporting.");
+      const pack = await request("/assets/" + encodeURIComponent(asset.job_id) + "/shot-package", { method: "POST", body: JSON.stringify({
+        analysis_session: session(asset), shots: cues.map(cue => ({ shot_number: cue.shot_number, start: cue.start, end: cue.end })) }) });
+      if (revision !== state.revision || pack.asset_id !== asset.job_id || pack.analysis_session !== session(asset)) throw new Error("The selected analysis changed. Refresh the shots before exporting.");
+      await validateConnection();
+      const summary = await host.exportShots(binding, pack, payload.destination);
+      state.message = summary.created + " shots saved; " + summary.reused + " existing shots reused in Video Analyzer shots." +
+        (summary.added ? " " + summary.added + " added to " + (payload.destination === "new" ? "a new selects timeline." : "the end of the current timeline.") : " Drag them from the Media Pool into your edit.") + " Metadata saved in Keywords, Description, and Comments.";
+      return view();
+    },
     async exportSubtitles(payload) { const { asset } = await nativeContext(payload); if (!helpers.cues(asset, [], "transcript", "").length) throw new Error("No timed dialogue to export yet."); const content = await request("/assets/" + encodeURIComponent(asset.job_id) + "/subtitles", {}, true); const result = await saveSubtitle(helpers.subtitleName(asset), content); state.message = result ? "Subtitles exported." : "Export cancelled."; return view(); },
     async openAnalyzer() { assertConnected(); await openBrowser(state.server + "/"); return view(); },
   };
@@ -247,7 +263,7 @@ function createService(dependencies) {
     if (payload && Object.keys(payload).some(key => !allowed.includes(key))) throw new Error("Unsupported plugin action field.");
     if (PAYLOAD_FIELDS[action] && payload === undefined) throw new Error("This plugin action requires its current context.");
     if (nativeBusy && !["refresh", "bootstrap"].includes(action)) throw new Error("Wait for the current native action to finish.");
-    const locked = ["connect", "disconnect", "loadSelection", "selectAsset", "analyze", "selectClip", "copyTimes", "addMarkers", "exportSubtitles"].includes(action);
+    const locked = ["connect", "disconnect", "loadSelection", "selectAsset", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "exportSubtitles"].includes(action);
     if (locked) nativeBusy = true;
     try { return await actions[action](payload); } finally { if (locked) nativeBusy = false; }
   }

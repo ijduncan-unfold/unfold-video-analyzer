@@ -32,7 +32,7 @@
       if (!shot || typeof shot !== "object") return null;
       const timing = range(shot, duration);
       const tags = Array.isArray(shot.tags) ? shot.tags.filter(tag => typeof tag === "string") : [];
-      return timing ? { ...timing, name: "Shot " + String(shot.shot_number || index + 1).padStart(2, "0"), text: String(shot.visual_description || ""),
+      return timing ? { ...timing, shot_number: shot.shot_number, name: "Shot " + String(shot.shot_number || index + 1).padStart(2, "0"), text: String(shot.visual_description || ""),
         detail: [shot.shot_type, shot.camera_movement, shot.mood, tags.join(", ")].filter(Boolean).join(" · "), context: typeof shot.match_context === "string" ? shot.match_context : "" } : null;
     }).filter(Boolean).slice(0, 500);
   }

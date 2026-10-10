@@ -44,6 +44,12 @@ label { display: block; color: #b7c9dd; margin: 12px 0 6px; }
 .result .row button { font-size: 12px; min-height: 30px; }
 mark { background: #4075a4; color: #fff; padding: 0 2px; border-radius: 2px; }
 #show-more { margin-top: 12px; }
+.select-shots { display: flex; gap: 8px; align-items: center; margin: 0; color: inherit; }
+.select-shots input, .shot-checkbox { width: 16px; min-height: 16px; height: 16px; padding: 0; accent-color: #87c4ff; }
+.shot-actions { flex-wrap: wrap; }
+.result-heading { display: flex; gap: 8px; align-items: center; }
+.result-heading h2 { flex: 1; }
+#shot-tools { margin-bottom: 16px; }
 footer { justify-content: space-between; margin-top: 20px !important; }
 [hidden] { display: none !important; }
 @media (max-width: 410px) { main { padding: 12px; } .analysis button { min-width: 90px; } .tools { flex-wrap: wrap; } }

@@ -44,6 +44,7 @@ def register(editor, body, host='resolve'):
     ('post', '/register', {}), ('post', '/settings', {'google_api_key': ''}),
     ('get', '/assets/unknown', None), ('get', '/assets/unknown/shots', None),
     ('get', '/assets/unknown/subtitles', None), ('post', '/assets/unknown/analyze', {}),
+    ('post', '/assets/unknown/shot-package', {'shots': [{'shot_number': 1, 'start': 0, 'end': 1}]}),
 ])
 def test_every_resolve_route_requires_pairing_and_loopback(client, method, route, body):
     token = editor_bridge.get_pairing_token()
@@ -154,8 +155,68 @@ def test_changed_original_blocks_every_read_and_paid_analysis(resolve_editor, re
     for suffix in ('', '/shots', '/subtitles'):
         assert resolve_editor.get(path + suffix).status_code == 409
     assert resolve_editor.post(path + '/analyze', json={'mode': 'flash_pro'}).status_code == 409
+    assert resolve_editor.post(path + '/shot-package', json={'shots': [{'shot_number': 1, 'start': 0, 'end': 1}]}).status_code == 409
     assert get_job(asset['job_id']).status == 'ready'
     assert register(resolve_editor, resolve_source)['job_id'] != asset['job_id']
+
+
+def seed_shots(editor, source):
+    asset = register(editor, source)
+    update_job(asset['job_id'], analysis_config={'started_at': 'session-1'},
+               flash_result={'scenes': [{'scene_number': 1, 'scene_title': 'Desert section', 'shots': [
+                   {'shot_number': 1, 'start_time': '00:00.000', 'end_time': '00:02.000',
+                    'visual_description': 'A red circle', 'tags': ['circle'], 'dominant_colors': ['red']},
+                   {'shot_number': 2, 'start_time': '00:02.000', 'end_time': '00:04.000',
+                    'visual_description': 'A person', 'tags': ['person']},
+               ]}]}, deep_results=[{'scene_number': 1, 'composition': 'Centered shapes', 'api_key': 'private'}],
+               transcript=[{'start_seconds': 1, 'end_seconds': 2, 'text': 'Hello there'}],
+               shot_annotations={'1': {'tags': ['approved'], 'notes': 'Editor note'}})
+    return asset, {'analysis_session': 'session-1', 'shots': [
+        {'shot_number': 1, 'start': 0, 'end': 2}, {'shot_number': 2, 'start': 2, 'end': 4}]}
+
+
+def test_shot_package_contains_public_shot_section_dialogue_and_review_metadata(resolve_editor, resolve_source, monkeypatch):
+    monkeypatch.setattr(job_runner, 'start_job', lambda *args: pytest.fail('Shot export cannot call Gemini'))
+    asset, body = seed_shots(resolve_editor, resolve_source)
+    original = Path(resolve_source['media_path'])
+    before = original.read_bytes(), original.stat().st_mtime_ns
+    response = resolve_editor.post(PREFIX + f"/assets/{asset['job_id']}/shot-package", json={**body, 'shots': list(reversed(body['shots']))})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data['analysis_session'] == 'session-1'
+    assert [shot['shot_number'] for shot in data['shots']] == [1, 2]
+    first = data['shots'][0]
+    assert first['tags'] == ['circle', 'approved'] and first['notes'] == 'Editor note'
+    assert first['section_analysis']['composition'] == 'Centered shapes'
+    assert first['transcript_segments'][0]['text'] == 'Hello there'
+    assert 'private' not in response.text and 'api_key' not in response.text
+    assert 'thumbnail_url' not in first and 'preview_url' not in first
+    assert (original.read_bytes(), original.stat().st_mtime_ns) == before
+
+
+@pytest.mark.parametrize('patch', [
+    {'analysis_session': 'old'}, {'shots': [{'shot_number': 1, 'start': 0.1, 'end': 2}]},
+    {'shots': [{'shot_number': 1, 'start': 0, 'end': 1.9}]},
+    {'shots': [{'shot_number': 99, 'start': 0, 'end': 2}]},
+    {'shots': [{'shot_number': 1, 'start': 2, 'end': 1}]},
+])
+def test_stale_shot_package_is_rejected_atomically(resolve_editor, resolve_source, patch):
+    asset, body = seed_shots(resolve_editor, resolve_source)
+    response = resolve_editor.post(PREFIX + f"/assets/{asset['job_id']}/shot-package", json={**body, **patch})
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize('shots', [[], [{'shot_number': True, 'start': 0, 'end': 2}],
+    [{'shot_number': 1, 'start': 0, 'end': 2}] * 2,
+    [{'shot_number': i + 1, 'start': 0, 'end': 2} for i in range(51)]])
+def test_invalid_shot_package_selections_are_rejected(resolve_editor, resolve_source, shots):
+    asset, body = seed_shots(resolve_editor, resolve_source)
+    assert resolve_editor.post(PREFIX + f"/assets/{asset['job_id']}/shot-package", json={**body, 'shots': shots}).status_code == 422
+
+
+def test_shot_package_requires_resolve_binding(resolve_editor, resolve_source):
+    asset = register(resolve_editor, resolve_source, host='premiere')
+    assert resolve_editor.post(PREFIX + f"/assets/{asset['job_id']}/shot-package", json={'shots': [{'shot_number': 1, 'start': 0, 'end': 2}]}).status_code == 404
 
 
 def test_deleted_library_asset_removes_both_bindings_and_keeps_original(resolve_editor, resolve_source):

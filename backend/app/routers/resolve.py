@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
+from pydantic import BaseModel, Field, StrictInt, model_validator
 
 from app.config import settings
 from app.models.library import AnalyzeRequest
@@ -13,8 +14,26 @@ from app.services.editor_bridge import (
     project_assets, register_source, require_editor, save_desktop_settings,
 )
 from app.services.library_export import export_library
+from app.services.library_service import shot_views
 
 router = APIRouter(prefix='/api/editor/resolve', dependencies=[Depends(require_editor)])
+
+
+class ShotRange(BaseModel):
+    shot_number: StrictInt = Field(gt=0)
+    start: float = Field(ge=0, allow_inf_nan=False)
+    end: float = Field(gt=0, allow_inf_nan=False)
+
+
+class ShotPackageRequest(BaseModel):
+    shots: list[ShotRange] = Field(min_length=1, max_length=50)
+    analysis_session: str = Field(default='', max_length=300)
+
+    @model_validator(mode='after')
+    def distinct_shots(self):
+        if len({shot.shot_number for shot in self.shots}) != len(self.shots):
+            raise ValueError('Choose each shot only once')
+        return self
 
 
 def _resolve_job(job_id):
@@ -70,6 +89,32 @@ async def shots(job_id: str, q: str = Query(default='', max_length=500),
 async def analyze(job_id: str, body: AnalyzeRequest):
     _resolve_job(job_id)
     return await analyze_asset(job_id, body, api_key=None)
+
+
+@router.post('/assets/{job_id}/shot-package')
+async def shot_package(job_id: str, body: ShotPackageRequest):
+    """An atomic, public snapshot for explicit native subclip/timeline writes."""
+    job = _resolve_job(job_id)
+    if str(job.analysis_config.get('started_at') or '') != body.analysis_session:
+        raise HTTPException(409, 'Analysis changed. Refresh the shots before adding them to Resolve.')
+    available = {}
+    for shot in shot_views(job):
+        number = shot.get('shot_number')
+        if number in available:
+            raise HTTPException(409, 'Shot numbers are ambiguous. Analyze the original again.')
+        available[number] = shot
+    selected = []
+    for expected in body.shots:
+        shot = available.get(expected.shot_number)
+        if (not shot or expected.end <= expected.start
+                or abs(shot['start_seconds'] - expected.start) > 0.000001
+                or abs(shot['end_seconds'] - expected.end) > 0.000001):
+            raise HTTPException(409, 'Shot timing changed. Refresh the shots before adding them to Resolve.')
+        selected.append({key: value for key, value in shot.items()
+                         if key not in {'preview_url', 'thumbnail_url', 'match_context', 'match_sources'}})
+    return {'asset_id': job.job_id, 'filename': job.filename,
+            'analysis_session': body.analysis_session, 'technical': job.technical,
+            'shots': sorted(selected, key=lambda shot: (shot['start_seconds'], shot['shot_number']))}
 
 
 @router.get('/assets/{job_id}/subtitles')

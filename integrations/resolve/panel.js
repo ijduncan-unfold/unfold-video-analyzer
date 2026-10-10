@@ -3,7 +3,21 @@
   const bridge = window.videoAnalyzer, helpers = window.ResolvePanelHelpers;
   const el = id => document.getElementById(id);
   let state = { connected: false, assets: [], results: [], queries: { shots: "", transcript: "" }, tab: "shots", mode: "flash_only", revision: 0 };
-  let busy = false, shown = 100, pollTimer = null, searchTimer = null, requestNumber = 0, appliedNumber = 0, disposed = false;
+  let busy = false, shown = 50, pollTimer = null, searchTimer = null, requestNumber = 0, appliedNumber = 0, disposed = false;
+  const selected = new Set();
+  function selectionKey(cue) { return JSON.stringify([cue.shot_number, cue.start, cue.end]); }
+  function selectedIndices() { return state.results.map((cue, index) => selected.has(selectionKey(cue)) ? index : -1).filter(index => index >= 0); }
+  function shotControls() {
+    el("shot-tools").hidden = state.tab !== "shots";
+    const count = selectedIndices().length;
+    el("selection-count").textContent = count + " selected";
+    for (const id of ["save-shots", "append-shots", "selects-timeline"]) el(id).disabled = busy || !state.asset || !count || count > 50;
+    const visible = state.results.slice(0, shown);
+    el("select-shown").checked = visible.length > 0 && visible.every(cue => selected.has(selectionKey(cue)));
+    el("select-shown").disabled = busy || !visible.length || visible.length > 50;
+    el("select-shown").indeterminate = count > 0 && !el("select-shown").checked;
+    for (const input of document.querySelectorAll(".shot-checkbox")) input.disabled = busy || selected.size >= 50 && !input.checked;
+  }
   function message(value, error = false) { el("message").textContent = value; el("message").classList.toggle("error", error); }
   function controls() {
     el("workspace").hidden = !state.connected;
@@ -20,6 +34,7 @@
     el("export-subtitles").disabled = busy || !state.asset || !helpers.cues(state.asset, [], "transcript", "").length;
     el("open-analyzer").disabled = busy;
     for (const button of document.querySelectorAll(".result button,.asset-option")) button.disabled = busy;
+    shotControls();
   }
   function renderPicker() {
     el("project-name").textContent = state.project ? state.project.name : "";
@@ -46,11 +61,20 @@
     for (let index = 0; index < results.length; index++) {
       const result = results[index], article = document.createElement("article"); article.className = "result";
       const time = document.createElement("span"); time.className = "result-time"; time.textContent = helpers.cueTime(result.start) + " – " + helpers.cueTime(result.end); article.appendChild(time);
-      const title = document.createElement("h2"); helpers.appendHighlight(document, title, result.speaker || result.name, query); article.appendChild(title);
+      const heading = document.createElement("div"); heading.className = "result-heading";
+      if (state.tab === "shots") {
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.className = "shot-checkbox"; checkbox.setAttribute("aria-label", "Select " + result.name); checkbox.checked = selected.has(selectionKey(result));
+        checkbox.addEventListener("change", () => { const key = selectionKey(result); if (checkbox.checked && selected.size < 50) selected.add(key); else { selected.delete(key); checkbox.checked = false; } shotControls(); }); heading.appendChild(checkbox);
+      }
+      const title = document.createElement("h2"); helpers.appendHighlight(document, title, result.speaker || result.name, query); heading.appendChild(title); article.appendChild(heading);
       const description = document.createElement("p"); helpers.appendHighlight(document, description, result.text, query); article.appendChild(description);
       for (const text of [result.detail, query && result.context]) if (text) { const detail = document.createElement("p"); detail.className = "result-detail"; helpers.appendHighlight(document, detail, text, query); article.appendChild(detail); }
       const tools = document.createElement("div"); tools.className = "row";
       for (const [label, name] of [["Select clip in Resolve", "selectClip"], ["Copy times", "copyTimes"]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.addEventListener("click", () => action(name, { revision, index })); tools.appendChild(button); }
+      if (state.tab === "shots") for (const [label, destination] of [["Add to timeline", "current"], ["Save shot", "pool"]]) {
+        const button = document.createElement("button"); button.type = "button"; button.textContent = label; if (destination === "current") button.className = "primary";
+        button.addEventListener("click", () => action("exportShots", { revision, indices: [index], destination })); tools.appendChild(button);
+      }
       article.appendChild(tools); list.appendChild(article);
     }
     if (!results.length) { const empty = document.createElement("p"); empty.className = "hint"; empty.textContent = !state.asset ? "Load a clip to begin." : query ? "No matches. Try another search." : state.tab === "transcript" ? "No timed dialogue yet. Analyze footage with audio to populate this tab." : helpers.ACTIVE_STATUSES.includes(state.asset.status) ? "Shots appear as sections finish." : "Analyze this clip to discover shots."; list.appendChild(empty); }
@@ -58,7 +82,10 @@
   }
   function render(previous) {
     const projectChanged = !previous || (previous.project && previous.project.id) !== (state.project && state.project.id);
-    if (projectChanged || previous.asset && state.asset && previous.asset.job_id !== state.asset.job_id || previous.tab !== state.tab) shown = 100;
+    const contextChanged = projectChanged || (previous.asset && previous.asset.job_id) !== (state.asset && state.asset.job_id) || previous.tab !== state.tab || previous.queries[previous.tab] !== state.queries[state.tab] ||
+      (previous.asset && previous.asset.analysis_config && previous.asset.analysis_config.started_at) !== (state.asset && state.asset.analysis_config && state.asset.analysis_config.started_at);
+    if (contextChanged) { shown = 50; selected.clear(); }
+    const valid = new Set(state.results.map(selectionKey)); for (const key of selected) if (!valid.has(key)) selected.delete(key);
     if (projectChanged || previous.tab !== state.tab) el("search").value = state.queries[state.tab];
     el("mode").value = state.mode; el("progress").textContent = helpers.progressText(state.asset);
     renderPicker(); renderResults(); controls();
@@ -94,11 +121,13 @@
   on("mode", "change", () => action("setView", { mode: el("mode").value }));
   on("shots-tab", "click", async () => { await action("setView", { tab: "shots" }); el("search").value = state.queries.shots; });
   on("transcript-tab", "click", async () => { await action("setView", { tab: "transcript" }); el("search").value = state.queries.transcript; });
-  on("search", "input", () => { if (searchTimer !== null) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; shown = 100; action("setView", { query: el("search").value }); }, 250); });
+  on("search", "input", () => { if (searchTimer !== null) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; shown = 50; action("setView", { query: el("search").value }); }, 250); });
+  on("select-shown", "change", () => { for (const cue of state.results.slice(0, shown)) { const key = selectionKey(cue); if (!el("select-shown").checked) selected.delete(key); else if (selected.size < 50) selected.add(key); } renderResults(); shotControls(); });
+  for (const [id, destination] of [["save-shots", "pool"], ["append-shots", "current"], ["selects-timeline", "new"]]) on(id, "click", () => action("exportShots", { revision: state.revision, indices: selectedIndices(), destination }));
   on("add-markers", "click", () => action("addMarkers", { revision: state.revision, count: Math.min(shown, state.results.length) }));
   on("export-subtitles", "click", () => action("exportSubtitles", { revision: state.revision }));
   on("open-analyzer", "click", () => action("openAnalyzer"));
-  on("show-more", "click", () => { shown = Math.min(500, shown + 100); renderResults(); controls(); });
+  on("show-more", "click", () => { shown = Math.min(500, shown + 50); renderResults(); controls(); });
   window.addEventListener("beforeunload", () => { disposed = true; stopPoll(); if (searchTimer !== null) clearTimeout(searchTimer); });
   if (!bridge) { message("Open this integration from Resolve Studio's Workspace menu.", true); controls(); return; }
   call("bootstrap").then(result => { el("search").value = state.queries[state.tab]; message(result.message); }).catch(error => message(error.message, true)).finally(schedulePoll);

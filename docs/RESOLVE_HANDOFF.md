@@ -8,6 +8,8 @@ The integration loads original Media Pool clips into the local Video Analyzer co
 
 ## Windows installation
 
+Shot export actions require the current source companion and integration, or a successful build from the shot-export commit. The older `09f2cbb` downloads below do not contain these actions.
+
 Use the verified [Windows preview artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38091404424/artifacts/11684261687) built from `09f2cbb` with automatic connection and the retired analyzer removed. The companion and integration must both be updated. All five downloaded checksums and isolated frozen-engine checks passed. The artifact includes the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums, and requires signing into GitHub. The older `d355f09` preview verified the native source workflow but still required manual pairing.
 
 1. Get the updated **Video Analyzer companion** and public integration ZIP from the [verified Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38091404424/artifacts/11684261687), a newer successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer and configure your own Gemini key in browser **Settings**.
@@ -43,6 +45,18 @@ Use the SDK belonging to the Resolve installation that will run the integration.
 The searchable clip picker contains clips registered for the active Resolve project. Project and Media Pool identities are stored separately from Premiere identities. An unchanged original registered in both editors can reuse the same saved analysis.
 
 Shots and transcript cues populate as the companion completes analysis sections. Use the **Shots** or **Transcript** tab to search; matching words are highlighted. **Select clip in Resolve** selects the original Media Pool clip. **Copy times** copies an in/out range measured from the beginning of the original file, such as `00:12.500 – 00:15.250`. It does not convert that range into embedded source timecode or timeline timecode. Exact source-viewer seeking is not available in this preview.
+
+### Shots into your edit
+
+Use **Add to timeline** on a shot, or select up to 50 shots and choose **Save to Media Pool**, **Add to timeline**, or **New selects timeline**. Shots become separate native subclips in **Video Analyzer shots**, referencing the original file without copying it. Timeline additions go to the end in source order, with available audio. You can also drag saved subclips from Resolve's Media Pool into your edit; direct dragging from the integration window is not implemented.
+
+Each subclip carries its own **Keywords**, **Description**, and **Comments**. Comments retain structured shot facts, human notes, overlapping dialogue, section analysis, and project context. In Resolve 21, open Media Pool search, choose **Metadata Search**, then **Filter by → All Fields** to search this data. Repeat saves reuse the same source range and preserve human metadata edits. Shot exports require verified constant-rate originals; AI cut boundaries still need editorial review.
+
+The integration requests a fresh snapshot of the selected shot ranges before writing. Source/project changes and stale analysis block export. Gemini's exclusive end time is converted to Resolve's inclusive end frame. The original clip's metadata is preserved, and repeat saves update only the app's structured comment block while retaining human comments, keywords, and revised descriptions.
+
+Creating a timeline is an explicit action; repeating it creates another timeline. Repeating **Add to timeline** appends another edit, even though the underlying saved subclip is reused. Resolve exposes no transaction covering these operations. If an edit is not acknowledged, inspect the Media Pool/timeline before retrying; the panel does not delete clips or issue a generic Undo.
+
+### Dialogue and markers
 
 **Export SRT** saves all available timed dialogue through a native Save dialog. The search does not trim the subtitle export. SRT requires actual saved transcript text; shot descriptions are never turned into captions. Gemini dialogue and shot timing remain approximate and need editorial review.
 

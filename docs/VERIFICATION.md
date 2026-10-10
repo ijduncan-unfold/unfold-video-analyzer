@@ -189,6 +189,16 @@ The verified [Windows artifact](https://github.com/ijduncan/video-analyzer/actio
 
 The Mac app's bundled JavaScript/CSS matched the current build byte for byte, with the same entry references and no old analyzer chunk. Its frozen Python module inventory includes `nle_export` and excludes the ten retired modules plus ReportLab and `sse_starlette`. Windows frontend removal was verified from the exact run's Inno compression file list, which matches the current build; the downloaded installer was not unpacked or executed. These packaging checks do not establish native Mac editor acceptance.
 
+## Resolve shots into timelines, October 10
+
+The panel now saves individual or selected shots as native Media Pool subclips, appends them to the current timeline, or creates a selects timeline. Each subclip retains public shot metadata, overlapping dialogue, section notes, and project context in standard searchable fields. Export requests validate a fresh shot snapshot and native source/project identity. Repeat exports reuse subclips and preserve human metadata edits; timeline additions are explicit and are never automatically replayed after uncertain native writes.
+
+Windows Resolve Studio 21 native SDK acceptance used a separate project and six-second 24 fps synthetic original, with seeded metadata and no provider calls. Two 48-frame shots were created and verified at source frames 0–47 and 48–95. Repeat saves reused both items, a new timeline contained both shots, and a subsequent append used the same metadata-bearing subclip. Native desktop inspection showed three video and three audio clips. The original file's bytes/modification time and original clip metadata were unchanged; the prior project was restored by the SDK probe.
+
+Native Media Pool **Metadata Search → All Fields** found the red shot using “circle” and the blue shot using “Uniform test lighting”, a section note retained in Comments. Selecting the blue result confirmed Shot 02, source frames 48–95, 48 frames, 24 fps and two audio channels. Direct dragging from the integration window is not implemented; saved items use Resolve's native Media Pool workflow.
+
+The Resolve contract suite passed 144 checks with one POSIX permission skip on Windows, including multi-shot selection across polling and stale-analysis resets. Backend and public-package regressions passed 315 checks and 44 subtests with two platform skips. The separate installer/package run passed 42 checks and 25 subtests with two platform skips while Resolve was closed. All eleven installed public resources match pristine current source, and the idle companion was restarted with the new shot-package route while retaining the existing imported asset. Broader footage/timebase coverage and native Apple Silicon acceptance remain pending.
+
 ## Remaining validation
 
 - Recognition/retrieval quality on representative agency and filmmaking footage, including difficult audio, fast montage and multilingual material.

@@ -24,7 +24,12 @@
       <div class="tabs" role="tablist" aria-label="Analysis results"><button id="shots-tab" role="tab" type="button" aria-selected="true" aria-controls="results">Shots</button><button id="transcript-tab" role="tab" type="button" aria-selected="false" aria-controls="results">Transcript</button></div>
       <input id="search" type="search" aria-label="Search shots" placeholder="Search shots, tags, composition…" maxlength="500" />
       <div class="row tools"><p id="result-count" class="hint"></p><button id="add-markers" type="button" disabled>Add source markers</button></div>
-      <p class="hint timing">Times start at the beginning of the original media. Select a clip in Resolve, or copy its times. Exact source-viewer seeking is not available.</p>
+      <section id="shot-tools" aria-label="Selected shots">
+        <div class="row"><label class="select-shots"><input id="select-shown" type="checkbox" /> Select shown</label><span id="selection-count" class="hint">0 selected</span></div>
+        <div class="row shot-actions"><button id="save-shots" type="button" disabled>Save to Media Pool</button><button id="append-shots" type="button" class="primary" disabled>Add to timeline</button><button id="selects-timeline" type="button" disabled>New selects timeline</button></div>
+        <p class="hint">Up to 50 shots at a time. Adds to the end of the current timeline. Saved shots keep their own searchable metadata and reference the original media.</p>
+      </section>
+      <p class="hint timing">Times start at the beginning of the original media. Exact source-viewer seeking is not available.</p>
       <div id="results" role="tabpanel" aria-labelledby="shots-tab"></div>
       <button id="show-more" type="button" class="full" hidden>Show more</button>
       <footer class="row"><button id="export-subtitles" type="button" hidden>Export SRT</button><button id="open-analyzer" type="button" class="quiet">Open full analyzer</button></footer>

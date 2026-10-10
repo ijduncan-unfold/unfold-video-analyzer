@@ -14,6 +14,7 @@ function fixture(options = {}) {
     async getSelection() { return { project_id: project.id, project_name: project.name, clips: [{ item_id: "clip-1", name: "Original", media_path: source.media_path, source_fps: 24, source_frames: 240 }], warnings: [] }; },
     async resolveBinding(binding) { await host.getProjectIdentity(binding.project_id); if (options.relinked) throw new Error("Media changed"); return {}; },
     async selectClip(binding) { native.push(["select", binding]); return { selected: true }; }, async addMarkers(binding, technical, cues) { native.push(["markers", binding, cues]); return { added: cues.length, duplicates: 0, collisions: 0 }; },
+    async exportShots(binding, pack, destination) { native.push(["shots", binding, pack, destination]); if (options.exportShots) return options.exportShots(binding, pack, destination); return { created: pack.shots.length, reused: 0, added: destination === "pool" ? 0 : pack.shots.length }; },
   };
   const service = createService({ platform: options.platform || "win32", host,
     async readConnection() { discoveries.push(true); if (options.discoveryError) throw new Error(options.discoveryError); return connection; },
@@ -28,6 +29,8 @@ function fixture(options = {}) {
       else if (apiPath === "/assets/asset-1") value = asset;
       else if (apiPath === "/assets/asset-1/shots") value = { shots: [{ shot_number: 1, start: 0, end: 2, visual_description: "A centered circle", tags: ["circle"], match_context: "Centered composition" }], total: 1 };
       else if (apiPath === "/assets/asset-1/analyze") value = { status: "queued" };
+      else if (apiPath === "/assets/asset-1/shot-package") value = { asset_id: asset.job_id, analysis_session: asset.analysis_config.started_at, technical: asset.technical,
+        shots: JSON.parse(init.body).shots.map(cue => ({ shot_number: cue.shot_number, start_seconds: cue.start, end_seconds: cue.end, visual_description: "Authoritative public metadata", section_analysis: { composition: "Centered circle" } })) };
       else if (apiPath === "/assets/asset-1/subtitles") return { ok: true, status: 200, text: async () => "1\n00:00:01,000 --> 00:00:02,000\nHello world\n" };
       else throw new Error("Unexpected path " + apiPath);
       return { ok: true, status: 200, text: async () => JSON.stringify(value) };
@@ -61,6 +64,32 @@ test("copy range derives text from current server result, never renderer text", 
 test("source marker export derives cues from current results, with visible count", async () => { const m = fixture(); const state = await m.connect(); await m.service.invoke("addMarkers", { revision: state.revision, count: 1 }); assert.equal(m.native[0][0], "markers"); assert.equal(m.native[0][2][0].name, "Shot 01"); await assert.rejects(m.service.invoke("addMarkers", { revision: state.revision, count: 1, cues: [] }), /Unsupported.*field/); });
 test("SRT export uses main-controlled filename, dialog, and backend subtitle content", async () => { const m = fixture(); const state = await m.connect(); await m.service.invoke("exportSubtitles", { revision: state.revision }); assert.equal(m.exports[0][0], "original_subtitles.srt"); assert.match(m.exports[0][1], /Hello world/); await assert.rejects(m.service.invoke("exportSubtitles", { revision: state.revision, filePath: "C:\\secret" }), /Unsupported.*field/); });
 test("opening full analyzer allows only the discovered loopback root", async () => { const m = fixture(); await m.connect(); await m.service.invoke("openAnalyzer"); assert.deepEqual(m.browser, ["http://127.0.0.1:8000/"]); await assert.rejects(m.service.invoke("openAnalyzer", { url: "https://evil" }), /Unsupported.*field/); });
+test("shot export sends only current identities and ranges, and native writes use the fresh server package", async () => {
+  const m = fixture(); const state = await m.connect(); await m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination: "current" });
+  const request = m.requests.find(([url]) => url.endsWith("/shot-package")); assert.deepEqual(JSON.parse(request[1].body), { analysis_session: "session-1", shots: [{ shot_number: 1, start: 0, end: 2 }] });
+  assert.equal(m.native[0][0], "shots"); assert.equal(m.native[0][3], "current"); assert.equal(m.native[0][2].shots[0].section_analysis.composition, "Centered circle");
+  assert.match(m.service.view().message, /end of the current timeline/); assert.equal(m.requests.some(([url]) => url.endsWith("/analyze")), false);
+});
+test("save shots and selects timeline use explicit destinations", async () => {
+  for (const destination of ["pool", "new"]) { const m = fixture(); const state = await m.connect(); await m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination }); assert.equal(m.native[0][3], destination); }
+});
+test("renderer cannot inject metadata, paths or native clip IDs into shot export", async () => {
+  const m = fixture(); const state = await m.connect(); for (const extra of [{ metadata: {} }, { media_path: "C:\\other.mp4" }, { item_id: "other" }, { shots: [] }]) await assert.rejects(m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination: "pool", ...extra }), /Unsupported.*field/); assert.equal(m.native.length, 0);
+});
+test("shot export rejects dialogue, stale revisions, invalid selections and foreign destinations", async () => {
+  const m = fixture(); const state = await m.connect();
+  for (const fields of [{ indices: [] }, { indices: [0, 0] }, { indices: [-1] }, { indices: [500] }, { indices: [true] }, { indices: Array.from({ length: 51 }, (_, i) => i) }, { destination: "external" }]) await assert.rejects(m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination: "pool", ...fields }));
+  const transcript = await m.service.invoke("setView", { tab: "transcript" }); await assert.rejects(m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination: "pool" }), /results changed/); await assert.rejects(m.service.invoke("exportShots", { revision: transcript.revision, indices: [0], destination: "pool" }), /Choose analyzed shots/); assert.equal(m.native.length, 0);
+});
+test("server snapshot conflicts prevent all native shot writes", async () => {
+  const m = fixture({ onFetch(url) { if (url.endsWith("/shot-package")) return { ok: false, status: 409, text: async () => JSON.stringify({ detail: "Shot timing changed" }) }; } }); const state = await m.connect(); await assert.rejects(m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination: "pool" }), /timing changed/); assert.equal(m.native.length, 0);
+});
+test("a native shot write locks polling and competing actions until acknowledged", async () => {
+  let release, started; const barrier = new Promise(resolve => { release = resolve; }), began = new Promise(resolve => { started = resolve; });
+  const m = fixture({ async exportShots() { started(); await barrier; return { created: 1, reused: 0, added: 1 }; } }); const state = await m.connect();
+  const pending = m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination: "current" }); await began;
+  const before = m.requests.length; await m.service.invoke("refresh"); assert.equal(m.requests.length, before); await assert.rejects(m.service.invoke("setView", { query: "person" }), /Wait for.*native action/); release(); await pending; assert.equal(m.native.length, 1);
+});
 test("disconnect clears context and native actions before discovery reconnects", async () => { const m = fixture(); const prior = await m.connect(); await m.service.invoke("disconnect"); const calls = m.requests.length; await assert.rejects(m.service.invoke("addMarkers", { revision: prior.revision, count: 1 }), /Start Video Analyzer/); assert.equal(m.requests.length, calls); assert.equal(m.service.view().connected, false); assert.equal(m.service.view().asset, null); assert.equal((await m.service.invoke("refresh")).connected, true); assert.equal(m.discoveries.length, 2); });
 test("a delayed stale asset reply cannot repopulate a switched project", async () => {
   let waiting = false, release;

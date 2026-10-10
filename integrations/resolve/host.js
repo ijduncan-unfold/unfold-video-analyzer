@@ -6,6 +6,9 @@ const MAX_ITEMS = 20000;
 const MAX_MARKERS = 500;
 const MARKER_NAMESPACE = "video-analyzer:resolve:v1:";
 const NO_MARKER_RESPONSE = "GetMarkerCustomData: Error response (errorStr:No marker exists at the input frameId argument) (errorCode:2)";
+const SHOT_BIN = "Video Analyzer shots";
+const SHOT_NAMESPACE = "video-analyzer:shot:v1:";
+const RECORD_START = "[Video Analyzer shot]\n", RECORD_END = "\n[/Video Analyzer shot]";
 class HostError extends Error {
   constructor(code, message) { super(message); this.name = "HostError"; this.code = code; }
 }
@@ -48,10 +51,10 @@ function timebase(descriptor, technical) {
   const frames = number(technical && technical.frame_rate_verified_frames);
   if (!technical || technical.nominal_frame_rate_verified !== true || !fps || fps > 1000 || !Number.isInteger(frames) || frames < 2 ||
       !descriptor.source_fps || !Number.isInteger(descriptor.source_frames) || descriptor.source_start !== 0) {
-    fail("UNVERIFIED_TIMEBASE", "Source markers require a verified constant frame rate and complete original clip. Analyze the original media; variable-rate or indeterminate sources cannot receive markers yet.");
+    fail("UNVERIFIED_TIMEBASE", "Resolve exports require a verified constant frame rate and complete original clip. Analyze the original media; variable-rate or indeterminate sources cannot be exported yet.");
   }
   if (Math.abs(fps - descriptor.source_fps) > 0.001 || frames !== descriptor.source_frames) {
-    fail("SOURCE_TIMEBASE_CHANGED", "Resolve's clip frame rate or frame count differs from the analyzed original. Select the full original clip and restore its original frame rate before adding markers.");
+    fail("SOURCE_TIMEBASE_CHANGED", "Resolve's clip frame rate or frame count differs from the analyzed original. Select the full original clip and restore its original frame rate before exporting.");
   }
   return { fps, frames };
 }
@@ -86,6 +89,44 @@ function markerMap(value) {
     result.set(frame, marker);
   }
   return result;
+}
+function shotRecord(comments) {
+  if (typeof comments !== "string") return null;
+  const start = comments.indexOf(RECORD_START), end = comments.indexOf(RECORD_END, start + RECORD_START.length);
+  if (start < 0 || end < 0) return null;
+  try { const record = JSON.parse(comments.slice(start + RECORD_START.length, end)); return record && typeof record.key === "string" && record.key.startsWith(SHOT_NAMESPACE) ? { record, start, end: end + RECORD_END.length } : null; }
+  catch (_) { return null; }
+}
+function keywordValues(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(keywordValues);
+  if (value && typeof value === "object") return Object.values(value).flatMap(keywordValues);
+  return [];
+}
+function prepareShots(binding, pack, timing) {
+  if (!pack || typeof pack.asset_id !== "string" || !Array.isArray(pack.shots) || !pack.shots.length || pack.shots.length > 50) fail("SHOT_LIMIT", "Choose between 1 and 50 analyzed shots.");
+  const seen = new Set();
+  return pack.shots.map(shot => {
+    if (!shot || !Number.isInteger(shot.shot_number) || shot.shot_number < 1 || seen.has(shot.shot_number)) fail("INVALID_SHOT", "Choose distinct analyzed shots.");
+    seen.add(shot.shot_number);
+    const start = seconds(shot.start_seconds, "Shot start"), end = seconds(shot.end_seconds, "Shot end");
+    if (end <= start || end > timing.frames / timing.fps + 0.001) fail("INVALID_SHOT", "Shot timing falls outside the original clip.");
+    // Gemini intervals are [start, end); Resolve's subclip end is inclusive.
+    const startFrame = Math.round(start * timing.fps), endFrame = Math.round(end * timing.fps) - 1;
+    if (startFrame < 0 || endFrame < startFrame || endFrame >= timing.frames) fail("INVALID_SHOT", "This shot has no valid source frame range.");
+    const key = SHOT_NAMESPACE + require("node:crypto").createHash("sha256").update(JSON.stringify([pack.asset_id, binding.item_id, pathKey(binding.media_path), startFrame, endFrame])).digest("hex");
+    const name = (String(pack.filename || "Source").replace(/\.[^.]+$/, "") + " · Shot " + String(shot.shot_number).padStart(2, "0")).slice(0, 200);
+    const description = typeof shot.visual_description === "string" ? shot.visual_description : "";
+    const keywordFields = [shot.tags, shot.human_tags, shot.shot_type, shot.camera_movement, shot.mood, shot.subjects, shot.actions, shot.dominant_colors, shot.location, shot.project_metadata && shot.project_metadata.tags];
+    const keywords = [...new Set(keywordFields.flatMap(keywordValues).map(v => v.trim()).filter(Boolean))];
+    // shot-package contains public shot facts plus explicitly scoped section,
+    // asset and dialogue context, never provider credentials or raw API usage.
+    const record = { key, asset_id: pack.asset_id, analysis_session: pack.analysis_session, source_file: pack.filename,
+      source_range: { start_seconds: start, end_seconds: end, start_frame: startFrame, end_frame_inclusive: endFrame, fps: timing.fps }, description, shot };
+    const json = JSON.stringify(record);
+    if (json.length > 200000) fail("METADATA_LIMIT", "This shot's metadata exceeds Resolve's preview export limit. Export its JSON from the full analyzer instead.");
+    return { key, name, description, keywords, record, json, startFrame, endFrame };
+  }).sort((a, b) => a.startFrame - b.startFrame || a.endFrame - b.endFrame);
 }
 function createHost(resolve) {
   async function readMarkers(item) { return markerMap(await item.GetMarkers()); }
@@ -195,6 +236,147 @@ function createHost(resolve) {
     await active(binding.project_id);
     return { selected: true, source_seek: false };
   }
+  async function exportShots(binding, pack, destination = "pool") {
+    if (!["pool", "current", "new"].includes(destination)) fail("INVALID_DESTINATION", "Choose Media Pool, current timeline, or a new selects timeline.");
+    const { project, media, item: original, descriptor } = await resolveBinding(binding);
+    const timing = timebase(descriptor, pack && pack.technical), plans = prepareShots(binding, pack, timing);
+    method(resolve, "GetMediaStorage"); method(media, "GetCurrentFolder"); method(media, "SetCurrentFolder"); method(media, "AddSubFolder");
+    const storage = await resolve.GetMediaStorage(); method(storage, "AddItemListToMediaPool");
+    let target = null, targetId = null;
+    if (destination === "current") {
+      method(project, "GetCurrentTimeline"); method(media, "AppendToTimeline");
+      target = await project.GetCurrentTimeline();
+      if (!target) fail("NO_TIMELINE", "Open a timeline in Resolve, or choose New selects timeline.");
+      method(target, "GetUniqueId"); targetId = identity(await target.GetUniqueId(), "timeline");
+    } else if (destination === "new") { method(media, "CreateTimelineFromClips"); }
+    async function checkTarget() {
+      const current = await active(binding.project_id), source = await describe(original);
+      if (!source.descriptor || source.descriptor.item_id !== binding.item_id || pathKey(source.descriptor.media_path) !== pathKey(binding.media_path)) fail("MEDIA_CHANGED", "The original clip changed during export. Refresh the Resolve selection.");
+      timebase(source.descriptor, pack.technical);
+      if (targetId) {
+        const timeline = await current.project.GetCurrentTimeline();
+        if (!timeline || await timeline.GetUniqueId() !== targetId) fail("TIMELINE_CHANGED", "The active timeline changed. Saved shots remain in the Media Pool; select the intended timeline before adding them.");
+      }
+    }
+    await checkTarget();
+    const priorFolder = await media.GetCurrentFolder(), root = await media.GetRootFolder();
+    method(root, "GetSubFolderList");
+    let bin = null;
+    for (const folder of list(await root.GetSubFolderList(), "Media Pool bins")) {
+      method(folder, "GetName"); if (await folder.GetName() === SHOT_BIN) { bin = folder; break; }
+    }
+    if (!bin) { await checkTarget(); bin = await media.AddSubFolder(root, SHOT_BIN); }
+    if (!bin) fail("BIN_CREATE_FAILED", "Resolve could not create the Video Analyzer shots bin.");
+    method(bin, "GetClipList");
+    const items = [], summary = { created: 0, reused: 0, added: 0, destination, metadata: true };
+    let changedFolder = false, timelineWriteAttempted = false;
+    try {
+      if (await media.SetCurrentFolder(bin) !== true) fail("BIN_SELECT_FAILED", "Resolve could not select the shots bin.");
+      changedFolder = true;
+      const existing = new Map();
+      for (const candidate of list(await bin.GetClipList(), "saved shots")) {
+        method(candidate, "GetMetadata");
+        const metadata = await candidate.GetMetadata(), receipt = shotRecord(metadata && metadata.Comments);
+        if (receipt) {
+          if (existing.has(receipt.record.key)) fail("AMBIGUOUS_SHOT", "Multiple saved shots have the same Video Analyzer identity. Resolve was left unchanged; inspect the shots bin before retrying.");
+          existing.set(receipt.record.key, candidate);
+        }
+      }
+      for (const plan of plans) {
+        await checkTarget();
+        let item = existing.get(plan.key), created = false;
+        if (!item) {
+          // This documented MediaStorage overload creates a real subclip that
+          // references the original file; it never renders or copies media.
+          const imported = list(await storage.AddItemListToMediaPool([{ media: binding.media_path, startFrame: plan.startFrame, endFrame: plan.endFrame }]), "imported shot");
+          if (imported.length !== 1) fail("SUBCLIP_CREATE_FAILED", "Resolve did not return one trimmed shot. Inspect the shots bin before retrying.");
+          item = imported[0]; created = true;
+        }
+        method(item, "GetUniqueId"); method(item, "GetClipProperty"); method(item, "GetMetadata"); method(item, "SetMetadata");
+        const id = identity(await item.GetUniqueId(), "shot"), properties = await item.GetClipProperty();
+        if (id === binding.item_id || !properties || pathKey(properties["File Path"]) !== pathKey(binding.media_path) ||
+            number(properties.Start) !== plan.startFrame || number(properties.End) !== plan.endFrame ||
+            number(properties.Frames) !== plan.endFrame - plan.startFrame + 1 || !number(properties.FPS) || Math.abs(number(properties.FPS) - timing.fps) > 0.001) {
+          fail("SUBCLIP_VERIFY_FAILED", "Resolve did not confirm a separate subclip with the requested source range. No original metadata was changed. Inspect the shots bin before retrying.");
+        }
+        await checkTarget();
+        if (created) summary.created++; else summary.reused++;
+        const before = await item.GetMetadata();
+        if (!before || typeof before !== "object") fail("METADATA_READ_FAILED", "Resolve could not read this shot's metadata.");
+        const receipt = shotRecord(before.Comments);
+        if (!created && (!receipt || receipt.record.key !== plan.key)) fail("SHOT_CHANGED", "This saved shot's identity changed. Inspect the Media Pool before retrying.");
+        let humanComments = receipt && receipt.record.key === plan.key ? (String(before.Comments || "").slice(0, receipt.start) + String(before.Comments || "").slice(receipt.end)).trim() : String(before.Comments || "").trim();
+        if (created && before.Description && before.Description !== plan.description) humanComments += (humanComments ? "\n\n" : "") + "Source description: " + before.Description;
+        const keywords = [...new Set(String(before.Keywords || "").split(",").concat(plan.keywords).map(v => v.trim()).filter(Boolean))].join(", ");
+        const metadata = { Keywords: keywords, Comments: (humanComments ? humanComments + "\n\n" : "") + RECORD_START + plan.json + RECORD_END,
+          Description: !created && receipt && before.Description !== receipt.record.description ? String(before.Description || "") : plan.description };
+        if (created) {
+          if (typeof item.SetName === "function") { if (await item.SetName(plan.name) !== true) fail("SHOT_NAME_FAILED", "Resolve could not name the saved shot."); }
+          else { method(item, "SetClipProperty"); if (await item.SetClipProperty("Clip Name", plan.name) !== true) fail("SHOT_NAME_FAILED", "Resolve could not name the saved shot."); }
+        }
+        if (await item.SetMetadata(metadata) !== true) fail("METADATA_WRITE_FAILED", "Resolve could not save searchable shot metadata. The shot remains in the Media Pool; nothing was added to the timeline.");
+        const after = await item.GetMetadata();
+        if (!after || Object.entries(metadata).some(([key, value]) => after[key] !== value)) fail("METADATA_VERIFY_FAILED", "Resolve did not confirm the shot metadata. Inspect the saved shot before retrying.");
+        // Standard fields provide native text search. This optional newer SDK
+        // field also retains a structured copy for third-party metadata tools.
+        if (typeof item.SetThirdPartyMetadata === "function") {
+          if (await item.SetThirdPartyMetadata({ "VideoAnalyzer.Shot": plan.json }) !== true) fail("METADATA_WRITE_FAILED", "Searchable metadata was saved, but Resolve rejected the structured copy. Nothing was added to the timeline.");
+        }
+        items.push(item); existing.set(plan.key, item);
+      }
+      await checkTarget();
+      // Recheck Media Pool membership once at the end, rather than scanning a
+      // large project for every individual metadata field written above.
+      await resolveBinding(binding);
+      if (destination === "current") {
+        let appended;
+        timelineWriteAttempted = true;
+        try { appended = await media.AppendToTimeline(items); }
+        catch (_) { fail("TIMELINE_WRITE_UNCERTAIN", "Resolve did not acknowledge the timeline edit. Inspect the timeline before retrying; saved shots and metadata remain in the Media Pool."); }
+        const returned = list(appended, "appended timeline shots");
+        const expected = new Set(); for (const item of items) expected.add(await item.GetUniqueId());
+        const confirmed = new Set();
+        for (const timelineItem of returned) {
+          method(timelineItem, "GetMediaPoolItem"); const source = await timelineItem.GetMediaPoolItem();
+          if (source) { const id = await source.GetUniqueId(); if (expected.has(id)) confirmed.add(id); }
+        }
+        if (confirmed.size !== expected.size) fail("TIMELINE_WRITE_UNCERTAIN", "Resolve did not confirm every appended shot. Inspect the timeline before retrying; saved shots remain in the Media Pool.");
+        await checkTarget(); summary.added = items.length;
+      } else if (destination === "new") {
+        const name = (String(pack.filename || "Footage").replace(/\.[^.]+$/, "") + " · Analyzer selects " + new Date().toISOString().replace(/[:.]/g, "-")).slice(0, 200);
+        let timeline;
+        timelineWriteAttempted = true;
+        try { timeline = await media.CreateTimelineFromClips(name, items); }
+        catch (_) { fail("TIMELINE_WRITE_UNCERTAIN", "Resolve did not acknowledge the selects timeline. Inspect the Media Pool before retrying; saved shots and metadata remain available."); }
+        if (!timeline) fail("TIMELINE_CREATE_FAILED", "Resolve could not create the selects timeline. Saved shots remain in the Media Pool.");
+        method(timeline, "GetItemListInTrack");
+        const videoItems = list(await timeline.GetItemListInTrack("video", 1), "selects timeline shots");
+        const expected = new Set(); for (const item of items) expected.add(await item.GetUniqueId());
+        const confirmed = new Set();
+        for (const videoItem of videoItems) {
+          method(videoItem, "GetMediaPoolItem"); const source = await videoItem.GetMediaPoolItem();
+          if (source && expected.has(await source.GetUniqueId())) confirmed.add(await source.GetUniqueId());
+        }
+        if (videoItems.length !== items.length || confirmed.size !== expected.size) fail("TIMELINE_WRITE_UNCERTAIN", "Resolve did not confirm every shot in the new selects timeline. Inspect it before retrying.");
+        await active(binding.project_id); summary.added = items.length;
+      }
+      return summary;
+    } catch (error) {
+      // Resolve has no documented transaction for subclips + timeline edits.
+      // Never delete user clips or perform a generic Undo on uncertain writes.
+      const failure = error instanceof Error ? error : new Error(String(error || "Resolve export failed."));
+      failure.message += " " + summary.created + " shots created and " + summary.reused + " reused in the Media Pool during this action.";
+      if (timelineWriteAttempted) failure.message += " A timeline edit was attempted; inspect the timeline before repeating this action.";
+      throw failure;
+    } finally {
+      // Restore the previous bin only if the user has not selected another one.
+      if (changedFolder && priorFolder) {
+        try { await active(binding.project_id); const current = await media.GetCurrentFolder();
+          if (current === bin || current && typeof current.GetUniqueId === "function" && typeof bin.GetUniqueId === "function" && await current.GetUniqueId() === await bin.GetUniqueId()) await media.SetCurrentFolder(priorFolder);
+        } catch (_) { /* Keep an unavailable/changed project untouched. */ }
+      }
+    }
+  }
   async function addMarkers(binding, technical, cues) {
     const { item, descriptor } = await resolveBinding(binding);
     const prepared = prepareCues(cues, timebase(descriptor, technical));
@@ -251,6 +433,6 @@ function createHost(resolve) {
     }
     return { added: added.length, duplicates, collisions };
   }
-  return { getProjectIdentity: projectIdentity, getSelection, resolveBinding, selectClip, addMarkers };
+  return { getProjectIdentity: projectIdentity, getSelection, resolveBinding, selectClip, addMarkers, exportShots };
 }
-module.exports = { createHost, HostError, MAX_MARKERS, MARKER_NAMESPACE, pathKey, timebase, prepareCues, markerMap };
+module.exports = { createHost, HostError, MAX_MARKERS, MARKER_NAMESPACE, pathKey, timebase, prepareCues, markerMap, prepareShots, shotRecord, SHOT_BIN };
