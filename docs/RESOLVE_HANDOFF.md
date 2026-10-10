@@ -8,6 +8,8 @@ The integration loads original Media Pool clips into the local Video Analyzer co
 
 ## Windows installation
 
+The [October 10 Windows build](https://github.com/ijduncan/video-analyzer/actions/runs/38072683172) passed at commit `b2be764`. [Download the verified Windows preview](https://github.com/ijduncan/video-analyzer/actions/runs/38072683172/artifacts/11677945174) while signed into GitHub. It includes the installer, Resolve ZIP, Premiere CCX, smoke report, build metadata, and checksums. All five downloaded checksums matched. This unsigned development preview expires October 24, 2026; later builds are available through the workflow below.
+
 1. Get the updated **Video Analyzer companion** and public integration ZIP from a successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer, open browser **Settings**, configure your own Gemini key, and choose **Copy editor pairing code**. The tray's **Pair with editor** command provides the same code through a local file.
 2. Install Resolve Studio 20.1+ and **close Resolve** before installing or updating the integration.
 3. Use **Install Resolve integration** from the Video Analyzer Start menu or tray. For the standalone `VideoAnalyzer-Resolve-0.1.0.zip`, extract the entire ZIP and double-click **Install Resolve on Windows.cmd**. Keep the `VideoAnalyzer` folder beside the helper scripts. Administrator approval may be needed for Resolve's shared plugin folder.
@@ -53,7 +55,7 @@ Original media is referenced without creating a full import copy. The companion 
 
 ## Apple Silicon Mac installation
 
-The companion targets **native arm64 on macOS 15+**. The existing Mac companion build path has native automated verification; the updated Resolve bundle must pass its own run in the [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml) before using that run's artifacts. Download a successful run's artifact, rather than assuming a pending build produced a usable package.
+The companion targets **native arm64 on macOS 15+**. The [October 10 Mac build](https://github.com/ijduncan/video-analyzer/actions/runs/38072683086) passed native automated checks at commit `b2be764`. [Download the verified Apple Silicon preview](https://github.com/ijduncan/video-analyzer/actions/runs/38072683086/artifacts/11676949690) while signed into GitHub. Its app ZIP, DMG, Premiere CCX, and Resolve ZIP checksums matched after download. The artifact expires October 24, 2026; use later successful runs from the [Mac build workflow](https://github.com/ijduncan/video-analyzer/actions/workflows/macos-build.yml) after that date.
 
 1. Install the updated `Video Analyzer.app` in Applications and prepare FFmpeg through **Install FFmpeg.command**.
 2. Run **Prepare Premiere on Mac.command** if local HTTPS is not already configured. Despite its existing name, this setup prepares the companion's shared editor endpoint for both Premiere and Resolve. It uses mkcert and may request an administrator password. Do not disable certificate or hostname verification.
