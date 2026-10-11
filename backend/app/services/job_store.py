@@ -48,6 +48,8 @@ class Job:
     # External editor sources are referenced read-only, never owned by the library.
     media_origin: str = "upload"
     source_fingerprint: str = ""
+    viewing_path: str = ""
+    viewing_fingerprint: str = ""
     rough_cut: dict | None = None
 
 

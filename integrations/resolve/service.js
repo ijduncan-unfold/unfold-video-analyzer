@@ -184,7 +184,8 @@ function createService(dependencies) {
       await validateConnection();
       await host.getProjectIdentity(projectId);
       if (!fresh(epoch, projectId)) throw new Error("The project changed while loading clips. Load the current selection again.");
-      try { await request("/register", { method: "POST", body: JSON.stringify({ project_id: projectId, item_id: clip.item_id, name: clip.name, media_path: clip.media_path, source_fps: clip.source_fps }) }); loaded++; }
+      try { await request("/register", { method: "POST", body: JSON.stringify({ project_id: projectId, item_id: clip.item_id, name: clip.name, media_path: clip.media_path, source_fps: clip.source_fps,
+        ...(clip.viewing_path ? { viewing_path: clip.viewing_path, proxy_alignment_confirmed: clip.proxy_alignment_confirmed === true } : {}) }) }); loaded++; }
       catch (error) { if (error.status === 401 || error.status === 403 || !fresh(epoch, projectId)) throw error; warnings.push(clip.name + ": " + error.message); }
     }
     if (!fresh(epoch, projectId)) throw new Error("The project changed while loading clips.");

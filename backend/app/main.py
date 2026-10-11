@@ -67,7 +67,7 @@ app.add_middleware(
 )
 
 # Import and include routers
-from app.routers import upload, files, thumbnails, library, visual, premiere, resolve, rough_cut
+from app.routers import upload, files, thumbnails, library, visual, premiere, resolve, rough_cut, local_media
 
 app.include_router(upload.router)
 app.include_router(files.router)
@@ -77,6 +77,7 @@ app.include_router(visual.router)
 app.include_router(premiere.router)
 app.include_router(resolve.router)
 app.include_router(rough_cut.router)
+app.include_router(local_media.router)
 
 
 @app.get("/api/health")
@@ -90,7 +91,8 @@ async def capabilities():
     return {"google_configured": bool(settings.google_api_key),
             "models": {"analysis": settings.gemini_analysis_model, "deep": settings.gemini_deep_model},
             "local_media": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
-            "search_type": "keyword", "workspace_mode": "local_single_user"}
+            "search_type": "keyword", "workspace_mode": "local_single_user",
+            "max_file_size_mb": settings.max_file_size_mb, "linked_media_import": True}
 
 
 @app.post("/api/validate-key")

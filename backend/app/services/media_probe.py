@@ -55,6 +55,13 @@ def _packet_cadence(video: dict, packets: list[dict]) -> dict:
 
 async def _probe_packet_cadence(path: str, video: dict) -> dict:
     unverified = _packet_cadence(video, [])
+    # Without an expected frame count the full packet scan cannot establish cadence.
+    # MXF camera originals often omit nb_frames; do not read gigabytes pointlessly.
+    try:
+        if int(video.get('nb_frames', 0)) < 2:
+            return unverified
+    except (TypeError, ValueError):
+        return unverified
     proc = await asyncio.create_subprocess_exec(
         "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_packets",
         "-show_entries", "packet=pts", "-of", "json", path,
@@ -113,6 +120,8 @@ async def probe_media(path: str) -> dict:
             next((s.get("tags", {}).get("timecode") for s in streams if s.get("tags", {}).get("timecode")), None),
         "has_audio": any(s.get("codec_type") == "audio" for s in streams),
         "pixel_format": video.get("pix_fmt"), "color_space": video.get("color_space"),
+        "color_transfer": video.get('color_transfer'), "color_primaries": video.get('color_primaries'),
+        "container": fmt.get('format_name'),
         "rotation": next((s.get("rotation") for s in video.get("side_data_list", []) if "rotation" in s), 0),
         **timing,
     }

@@ -8,7 +8,20 @@ ALLOWED_EXTENSIONS: dict[str, str] = {
     ".webm": "video/webm",
     ".wmv": "video/x-ms-wmv",
     ".3gpp": "video/3gpp",
+    ".mxf": "application/mxf",
+    ".mkv": "video/x-matroska",
+    ".m4v": "video/mp4",
+    ".mts": "video/mp2t",
+    ".m2ts": "video/mp2t",
+    ".braw": "application/octet-stream",
+    ".r3d": "application/octet-stream",
+    ".ari": "application/octet-stream",
+    ".arx": "application/octet-stream",
+    ".crm": "application/octet-stream",
 }
+
+# These are recognized originals, not a promise that the installed decoder supports them.
+CAMERA_EXTENSIONS = {'.mxf', '.braw', '.r3d', '.ari', '.arx', '.crm'}
 
 ALLOWED_MIME_TYPES = set(ALLOWED_EXTENSIONS.values())
 

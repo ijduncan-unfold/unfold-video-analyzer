@@ -126,7 +126,9 @@ class OriginalCutMedia:
             save(self.job.job_id, self.draft)
             self.job = await ensure_remote_file(self.job, self.api_key)
             self.prepared = True
-        return self.job.file_uri, self.job.mime_type, 0.0
+        from app.services.camera_media import viewing_media
+        from app.utils.video_formats import get_mime_type
+        return self.job.file_uri, get_mime_type(viewing_media(self.job)) or self.job.mime_type, 0.0
 
     async def close(self):
         # The shared original upload follows the standard analysis cache lifecycle.

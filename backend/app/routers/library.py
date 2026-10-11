@@ -48,7 +48,7 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
     matched = []
     for job in _filtered(jobs, project, review_status, tag, rights_status, collection):
         public = asset_view(job)
-        score = search_score(q, [job.filename, public['metadata'], job.summary, job.flash_result,
+        score = search_score(q, [job.filename, public['metadata'], public['technical'], job.summary, job.flash_result,
                                  job.deep_results, job.shot_annotations,
                                  public_search_metadata(job.custom_result), public_transcript_segments(job)])
         if score >= 0:
@@ -143,7 +143,12 @@ async def media(job_id: str):
     if not job.local_path or not Path(job.local_path).is_file():
         raise HTTPException(404, 'Local media is unavailable for this asset')
     # Starlette FileResponse handles HTTP Range for seeking without loading the file into memory.
-    return FileResponse(job.local_path, media_type=job.mime_type)
+    from app.services.camera_media import browser_media
+    try:
+        path, mime = await browser_media(job)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return FileResponse(path, media_type=mime)
 
 
 @router.get('/{job_id}/poster')

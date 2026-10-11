@@ -45,7 +45,10 @@ async def ensure_remote_file(job, api_key: str | None = None):
     from app.services.job_store import update_job
     if job.youtube_url:
         return job
-    if not job.local_path or not Path(job.local_path).is_file():
+    from app.services.camera_media import viewing_media
+    from app.utils.video_formats import get_mime_type
+    media = viewing_media(job)
+    if not media or not Path(media).is_file():
         raise ValueError('The original video is no longer available. Import it again.')
     client = get_client(api_key)
     if job.file_id:
@@ -59,7 +62,7 @@ async def ensure_remote_file(job, api_key: str | None = None):
     update_job(job.job_id, progress='Uploading video to Gemini',
                analysis_progress={**job.analysis_progress, 'stage': 'uploading',
                                   'updated_at': datetime.now(timezone.utc).isoformat()})
-    uploaded = await upload_video(job.local_path, job.mime_type, api_key=api_key)
+    uploaded = await upload_video(media, get_mime_type(media) or job.mime_type, api_key=api_key)
     update_job(job.job_id, progress='Gemini is preparing the uploaded video')
     try:
         active = await poll_until_active(uploaded.name, api_key=api_key)

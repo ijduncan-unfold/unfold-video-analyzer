@@ -52,6 +52,14 @@ test("Promise host returns stable project and original Media Pool selection", as
   const m = mock(); m.select(); const result = await m.host.getSelection();
   assert.equal(result.project_id, "project-1"); assert.equal(result.project_name, "Film"); assert.equal(result.clips[0].item_id, "clip-1"); assert.equal(result.clips[0].source_fps, 24); assert.equal(result.clips[0].source_frames, 240); assert.equal(result.capabilities.source_seek, false);
 });
+test("a linked Resolve proxy accompanies the original identity rather than replacing it", async () => {
+  const m = mock({ properties: { "Proxy Media Path": "C:\\Proxies\\original.mov" } }); m.select();
+  const result = await m.host.getSelection();
+  assert.equal(result.clips[0].media_path, binding.media_path);
+  assert.equal(result.clips[0].viewing_path, "C:\\Proxies\\original.mov");
+  assert.equal(result.clips[0].proxy_alignment_confirmed, true);
+  assert.equal(m.events.length, 0);
+});
 test("missing current project returns an actionable error", async () => { await assert.rejects(mock({ noProject: true }).host.getSelection(), { code: "NO_PROJECT" }); });
 test("missing stable project API never substitutes project name", async () => { const host = createHost({ GetProjectManager: async () => ({ GetCurrentProject: async () => ({ GetName: async () => "Film" }) }) }); await assert.rejects(host.getSelection(), { code: "UNSUPPORTED_API" }); });
 test("timeline, generator and unavailable paths are warnings rather than imports", async () => { const m = mock({ properties: { "File Path": "" } }); m.select(); const result = await m.host.getSelection(); assert.equal(result.clips.length, 0); assert.match(result.warnings[0], /original video/); });

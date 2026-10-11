@@ -10,6 +10,7 @@ from app.services.file_manager import poll_until_active
 from app.services.gemini_client import get_client
 from app.services.job_store import get_job, update_job
 from app.services.proxy_policy import proxy_decision
+from app.services.camera_media import viewing_media
 from app.utils.media_process import hidden_process_kwargs
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ class SegmentedVideo:
         self.source_identity = self.identity()
 
     def identity(self):
-        stat = Path(self.job.local_path).stat()
+        stat = Path(viewing_media(self.job)).stat()
         return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
 
     def progress(self, stage, message, **details):
@@ -98,7 +99,7 @@ class SegmentedVideo:
         # never a cleanup target, and no full-film copy is created.
         with tempfile.TemporaryDirectory(prefix='video-analyzer-part-') as directory:
             path = Path(directory) / 'analysis.mp4'
-            await extract_segment(self.job.local_path, path, offset, stop)
+            await extract_segment(viewing_media(self.job), path, offset, stop)
             if self.identity() != self.source_identity:
                 raise ValueError('Original media changed while preparing an analysis part')
             self.progress('uploading', f'Uploading analysis proxy · part {index + 1} of {total}')

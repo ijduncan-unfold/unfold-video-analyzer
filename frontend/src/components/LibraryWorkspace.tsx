@@ -9,6 +9,7 @@ import { Icon } from './library/Icon'
 import { duration, errorMessage, reviewLabel } from './library/format'
 import { isActiveAnalysis } from './library/analysisProgress'
 import { DeleteProjectsDialog } from './library/DeleteProjectsDialog'
+import { ImportMediaDialog } from './library/ImportMediaDialog'
 import type { DeletionProject } from './library/DeleteProjectsDialog'
 import './LibraryWorkspace.css'
 
@@ -43,6 +44,7 @@ export function LibraryWorkspace() {
   const [settings, setSettings] = useState(false)
   const [upload, setUpload] = useState<{ filename: string; current: number; total: number; percent: number } | null>(null)
   const [uploadNotice, setUploadNotice] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [dragging, setDragging] = useState(false)
   const uploadLock = useRef(false)
@@ -158,7 +160,7 @@ export function LibraryWorkspace() {
         const file = incoming[index]
         setUpload({ filename: file.name, current: index + 1, total: incoming.length, percent: 0 })
         try {
-          const result = await uploadVideo(file, percent => setUpload(previous => previous ? { ...previous, percent } : previous))
+          const result = await uploadVideo(file, percent => setUpload(previous => previous ? { ...previous, percent } : previous), capabilities?.max_file_size_mb)
           imported++; refreshLibrary()
           setShotProjectId(result.job_id)
           if (incoming.length === 1) openVideo({ id: result.job_id })
@@ -195,7 +197,7 @@ export function LibraryWorkspace() {
   const displayError = error || (!projects ? projectError : '')
   const hasActiveFilters = !!(project || review || tag || rights || collection)
   return <div ref={workspace} className={`lw-workspace ${selection ? 'has-video-workspace' : ''}`}>
-    <main ref={libraryMain} hidden={!!selection} className="lw-main" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true) } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDragLeave={event => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false) } }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); importFiles(event.dataTransfer.files) }}>
+    <main ref={libraryMain} hidden={!!selection} className="lw-main" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true) } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDragLeave={event => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false) } }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); setImportOpen(true) }}>
       <h1 className="lw-sr-only">Footage library</h1>
       <div className="lw-library-content">
         <header className="lw-toolbar">
@@ -203,7 +205,7 @@ export function LibraryWorkspace() {
           <div className="lw-toolbar-actions">
             <div className="lw-segmented" aria-label="Search result type"><button className={searchMode === 'assets' ? 'is-active' : ''} aria-pressed={searchMode === 'assets'} onClick={() => setSearchMode('assets')}>Projects</button><button className={searchMode === 'shots' ? 'is-active' : ''} aria-pressed={searchMode === 'shots'} onClick={() => setSearchMode('shots')}>Shots</button></div>
             <button className={`lw-button lw-filter-toggle ${hasActiveFilters ? 'has-filters' : ''}`} aria-expanded={filtersOpen} aria-controls="library-filters" onClick={() => setFiltersOpen(open => !open)}>Filters{hasActiveFilters && <span className="lw-filter-dot" aria-label="Filters active" />}</button>
-            <button className="lw-button lw-button-primary" onClick={() => fileInput.current?.click()} disabled={!!upload}><Icon name="plus" size={17} />{upload ? 'Importing…' : 'Import'}</button>
+            <button className="lw-button lw-button-primary" onClick={() => setImportOpen(true)} disabled={!!upload}><Icon name="plus" size={17} />{upload ? 'Importing…' : 'Import'}</button>
             <button className="lw-icon-button" aria-label="Settings" title="Settings" onClick={() => setSettings(true)}><Icon name="settings" size={18} /></button>
           </div>
         </header>
@@ -231,18 +233,19 @@ export function LibraryWorkspace() {
           </div>
           <div className="lw-filter-panel-actions">{hasFilters && <button className="lw-text-button" onClick={clearFilters}>Clear filters</button>}<div className="lw-view-toggle"><button className={layout === 'grid' ? 'is-active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Icon name="grid" size={16} /></button><button className={layout === 'list' ? 'is-active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><Icon name="list" size={17} /></button></div></div>
         </div>}
-        {upload && <div className="lw-upload-progress" role="status"><Icon name="upload" size={17} /><div><strong>{upload.filename} · {upload.current}/{upload.total}</strong><span>{upload.percent === 100 ? 'Preparing video…' : `${upload.percent}% uploaded`}</span><progress max={100} value={upload.percent} /></div></div>}
+        {upload && <div className="lw-upload-progress" role="status"><Icon name="upload" size={17} /><div><strong>{upload.filename} · {upload.current}/{upload.total}</strong><span>{upload.percent === 100 ? 'Inspecting local copy…' : `${upload.percent}% copied into local library`}</span><progress max={100} value={upload.percent} /></div></div>}
         {uploadNotice && <div className="lw-notice" role="status"><Icon name="check" size={17} /><span>{uploadNotice}</span><button className="lw-icon-button" aria-label="Dismiss notification" onClick={() => setUploadNotice('')}><Icon name="close" size={15} /></button></div>}
         {uploadError && <div className="lw-inline-error" role="alert">{uploadError}<button className="lw-text-button" onClick={() => setUploadError('')}>Dismiss</button></div>}
         {(loading || projectLoading || shotScopeLoading) && library && <span className="lw-loading-status" role="status">Loading…</span>}
-        {displayError ? <div className="lw-empty-state lw-error-state"><h2>Couldn’t load {projectError && !projects ? 'projects' : 'footage'}</h2><p>{displayError}</p><button className="lw-button" onClick={refreshLibrary}>Try again</button></div> : (loading && !library) || projectLoading || shotScopeLoading ? <div className="lw-asset-grid" aria-label="Loading library" aria-busy="true">{Array.from({ length: 6 }, (_, index) => <div className="lw-skeleton" key={index}><div /><span /><span /></div>)}</div> : !count ? <EmptyState hasLibrary={!!library?.stats.assets} filtered={hasFilters} shots={searchMode === 'shots'} onImport={() => fileInput.current?.click()} importing={!!upload} onClear={clearFilters} onVideos={() => setSearchMode('assets')} /> : <div className={`${layout === 'grid' ? 'lw-asset-grid' : 'lw-asset-list'} ${loading ? 'is-updating' : ''}`}>{searchMode === 'assets' ? assets.map(asset => <AssetCard key={asset.job_id} asset={asset} selected={selection?.id === asset.job_id} onClick={() => openVideo({ id: asset.job_id })} checked={checkedProjects.some(item => item.id === asset.job_id)} onToggle={() => toggleProject(asset)} onDelete={() => setDeletingProjects([{ id: asset.job_id, title: asset.metadata.title || asset.filename }])} />) : shots.map(shot => <ShotCard key={`${shot.job_id}-${shot.shot_number}`} shot={shot} selected={selection?.id === shot.job_id && selection?.shot === shot.shot_number} onClick={() => openVideo({ id: shot.job_id, seconds: shot.start_seconds, shot: shot.shot_number })} />)}</div>}
+        {displayError ? <div className="lw-empty-state lw-error-state"><h2>Couldn’t load {projectError && !projects ? 'projects' : 'footage'}</h2><p>{displayError}</p><button className="lw-button" onClick={refreshLibrary}>Try again</button></div> : (loading && !library) || projectLoading || shotScopeLoading ? <div className="lw-asset-grid" aria-label="Loading library" aria-busy="true">{Array.from({ length: 6 }, (_, index) => <div className="lw-skeleton" key={index}><div /><span /><span /></div>)}</div> : !count ? <EmptyState hasLibrary={!!library?.stats.assets} filtered={hasFilters} shots={searchMode === 'shots'} onImport={() => setImportOpen(true)} importing={!!upload} onClear={clearFilters} onVideos={() => setSearchMode('assets')} /> : <div className={`${layout === 'grid' ? 'lw-asset-grid' : 'lw-asset-list'} ${loading ? 'is-updating' : ''}`}>{searchMode === 'assets' ? assets.map(asset => <AssetCard key={asset.job_id} asset={asset} selected={selection?.id === asset.job_id} onClick={() => openVideo({ id: asset.job_id })} checked={checkedProjects.some(item => item.id === asset.job_id)} onToggle={() => toggleProject(asset)} onDelete={() => setDeletingProjects([{ id: asset.job_id, title: asset.metadata.title || asset.filename }])} />) : shots.map(shot => <ShotCard key={`${shot.job_id}-${shot.shot_number}`} shot={shot} selected={selection?.id === shot.job_id && selection?.shot === shot.shot_number} onClick={() => openVideo({ id: shot.job_id, seconds: shot.start_seconds, shot: shot.shot_number })} />)}</div>}
         {!displayError && count > pageSize && <div className="lw-pagination"><span>{(page * pageSize + 1).toLocaleString()}–{Math.min((page + 1) * pageSize, count).toLocaleString()} of {count.toLocaleString()}</span><div><button className="lw-button" disabled={page === 0 || loading} onClick={() => setPagination({ context: pageContext, page: page - 1 })}>Previous</button><button className="lw-button" disabled={(page + 1) * pageSize >= count || loading} onClick={() => setPagination({ context: pageContext, page: page + 1 })}>Next</button></div></div>}
       </div>
-      {dragging && <div className="lw-drop-overlay"><Icon name="upload" size={32} /><h2>Drop videos here</h2></div>}
+      {dragging && <div className="lw-drop-overlay"><Icon name="film" size={32} /><h2>Link camera media</h2><p>Drop to open linked import. Paste the original file path.</p></div>}
     </main>
     {selection && (detail?.job_id === selection.id ? <AssetInspector key={`${selection.id}-${selection.shot || 'asset'}`} asset={detail} initialSeconds={selection.seconds} initialShot={selection.shot} capabilities={capabilities} onClose={() => setSelection(current => current?.id === selection.id ? null : current)} onRefresh={refreshLibrary} onConfigure={() => setSettings(true)} onRemoved={note => setUploadNotice(`Video removed.${note ? ` ${note}` : ''}`)} /> : <main className="lw-inspector lw-video-workspace lw-video-workspace-loading" aria-label="Video workspace"><button className="lw-button lw-back-to-library" data-video-back onClick={() => setSelection(null)}><Icon name="back" />Back to library</button>{detailError ? <><p role="alert">{detailError}</p><button className="lw-button" onClick={refreshLibrary}>Try again</button></> : <p role="status">Opening video…</p>}</main>)}
     {deletingProjects && <DeleteProjectsDialog projects={deletingProjects} onClose={() => setDeletingProjects(null)} onDeleted={projectsDeleted} />}
     {settings && <SettingsDialog capabilities={capabilities} onClose={() => setSettings(false)} />}
+    {importOpen && <ImportMediaDialog onClose={() => setImportOpen(false)} onImported={asset => { setImportOpen(false); setDetail(asset); refreshLibrary(); openVideo({ id: asset.job_id }) }} onCopy={() => { setImportOpen(false); fileInput.current?.click() }} />}
   </div>
 }
 
@@ -263,7 +266,7 @@ function ShotCard({ shot, selected, onClick }: { shot: LibraryShot; selected: bo
 }
 function EmptyState({ hasLibrary, filtered, shots, importing, onImport, onClear, onVideos }: { hasLibrary: boolean; filtered: boolean; shots: boolean; importing: boolean; onImport: () => void; onClear: () => void; onVideos: () => void }) {
   if (hasLibrary || filtered) return <div className="lw-empty-state"><h2>{shots && !filtered ? 'No analyzed shots yet' : 'No matches'}</h2>{shots && !filtered ? <><p>Open a project to analyze its shots.</p><button className="lw-button" onClick={onVideos}>Browse projects</button></> : filtered && <button className="lw-button" onClick={onClear}>Clear filters</button>}</div>
-  return <button className="lw-empty-import" onClick={onImport} disabled={importing}><Icon name="upload" size={24} /><span>Drop videos here</span><small>or choose files</small></button>
+  return <button className="lw-empty-import" onClick={onImport} disabled={importing}><Icon name="film" size={24} /><span>Link a video</span><small>Keep the original where it is</small></button>
 }
 function SettingsDialog({ capabilities, onClose }: { capabilities: Capabilities | null; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)

@@ -22,6 +22,8 @@ export interface LibraryAsset {
   created_at: string
   size_bytes: number
   mime_type: string
+  media_origin?: 'upload' | 'external'
+  uses_viewing_proxy?: boolean
   youtube_url?: string | null
   metadata: AssetMetadata
   technical: {
@@ -32,6 +34,9 @@ export interface LibraryAsset {
     codec?: string | null
     source_timecode?: string | null
     has_audio?: boolean | null
+    playback_proxy_required?: boolean
+    technical_basis?: string
+    camera_metadata?: { manufacturer?: string; camera_model?: string; recording_format?: string; recorder_model?: string }
   }
   shot_count: number
   summary: string
@@ -182,6 +187,13 @@ export interface Capabilities {
   google_configured: boolean
   models: { analysis: string; deep: string }
   local_media: boolean
+  max_file_size_mb?: number
+  linked_media_import?: boolean
+}
+export function importLocalMedia(mediaPath: string, viewingPath: string, confirmed: boolean) {
+  return request<AssetDetail>('/api/local-media/import', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ media_path: mediaPath, viewing_path: viewingPath, proxy_alignment_confirmed: confirmed }) })
 }
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)

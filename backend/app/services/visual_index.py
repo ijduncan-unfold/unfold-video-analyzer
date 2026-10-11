@@ -13,6 +13,7 @@ from app.services.job_store import get_job
 from app.services.library_service import shot_views
 from app.services.thumbnail_service import _extract_frame
 from app.services.visual_features import describe, compare
+from app.services.camera_media import viewing_media
 
 VERSION = 2
 _tasks = {}
@@ -24,13 +25,14 @@ _frame_gate = asyncio.Semaphore(2)
 def source_info(job):
     if job.status in ('queued', 'analyzing', 'processing', 'deleting'):
         raise ValueError('Finish or cancel analysis before indexing visual matches.')
-    if not job.local_path or not Path(job.local_path).is_file():
+    media = viewing_media(job)
+    if not media or not Path(media).is_file():
         raise ValueError('Visual matching needs the locally imported video.')
     shots = list(shot_views(job))
     if not shots:
         raise ValueError('Analyze this video to find shots first.')
-    stat = Path(job.local_path).stat()
-    key = hashlib.sha256(json.dumps([VERSION, str(Path(job.local_path).resolve()), stat.st_size, stat.st_mtime_ns,
+    stat = Path(media).stat()
+    key = hashlib.sha256(json.dumps([VERSION, str(Path(media).resolve()), stat.st_size, stat.st_mtime_ns,
         job.analysis_config.get('started_at'), [(s['shot_number'], s['start_seconds'], s['end_seconds']) for s in shots]]).encode()).hexdigest()[:24]
     return key, shots
 
@@ -82,7 +84,7 @@ async def frame(job, key, seconds):
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f'frame_{round(seconds * 1000)}.jpg'
     async with _frame_gate:
-        if not path.is_file() and not await _extract_frame(job.local_path, seconds, str(path)):
+        if not path.is_file() and not await _extract_frame(viewing_media(job), seconds, str(path)):
             raise ValueError('Could not decode this frame. Try another point in the shot.')
     return path
 

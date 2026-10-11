@@ -9,7 +9,7 @@ from app.services.library_export import parse_seconds, segment_times
 
 
 _PRIVATE_SEARCH_KEYS = {
-    'localpath', 'fileuri', 'fileid', 'apikey', 'googleapikey', 'credentials',
+    'localpath', 'viewingpath', 'viewingfingerprint', 'fileuri', 'fileid', 'apikey', 'googleapikey', 'credentials',
     'authorization', 'accesstoken', 'refreshtoken', 'token', 'secret', 'password',
     'warnings', 'analysiswarnings', 'internalwarnings', 'analysishistory',
     'analysisconfig', 'analysisprogress', 'progress', 'error', 'traceback',
@@ -143,6 +143,7 @@ def asset_view(job, detail=False):
         'job_id': job.job_id, 'filename': job.filename, 'status': job.status,
         'created_at': job.created_at.isoformat(), 'size_bytes': job.size_bytes,
         'mime_type': job.mime_type, 'youtube_url': job.youtube_url,
+        'media_origin': job.media_origin, 'uses_viewing_proxy': bool(job.viewing_path),
         'metadata': metadata, 'technical': job.technical,
         'shot_count': sum(len(scene.get('shots', [])) for scene in (job.flash_result or {}).get('scenes', [])),
         'summary': (job.summary or {}).get('executive_summary', ''),

@@ -20,6 +20,8 @@ from app.services.summary_pass import run_summary_pass
 from app.services.thumbnail_service import extract_thumbnails
 from app.services.notes_synthesis import synthesize_notes
 from app.services.proxy_policy import proxy_decision
+from app.services.camera_media import viewing_media
+from app.utils.video_formats import get_mime_type
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,7 @@ async def run_analysis(
     summary_dict = custom_result_dict = None
     transcript = []
     previous_config = dict(job.analysis_config)
+    upload_mime = get_mime_type(job.viewing_path) if job.viewing_path else job.mime_type
     analysis_progress = {
         "stage": "indexing", "completed_sections": 0, "total_sections": 0,
         "failed_sections": 0, "completed_shots": 0,
@@ -157,7 +160,7 @@ async def run_analysis(
             # Probe-less legacy assets need a safe fallback before choosing bounds.
             persist(progress="Estimating source duration before indexing")
             scenes_result, usage = await run_scene_detection(
-                job.file_uri, job.mime_type, api_key=api_key, duration_seconds=None,
+                job.file_uri, upload_mime, api_key=api_key, duration_seconds=None,
             )
             usage_records.append(usage)
             scenes_result = validate_scenes(scenes_result)
@@ -184,7 +187,7 @@ async def run_analysis(
                          scene_title=outline.scene_title, grouping="processing_sections")
             try:
                 uri, mime, offset = (await media.get(start, end) if media
-                                     else (job.file_uri, job.mime_type, 0))
+                                     else (job.file_uri, upload_mime, 0))
                 shots, usage = await run_shot_detection(
                     uri, mime, outline, shot_counter, fps, api_key=api_key,
                     **({'source_offset': offset} if media else {}),
@@ -250,7 +253,7 @@ async def run_analysis(
                 # Finish this section's thumbnails before processing another one.
                 try:
                     await asyncio.wait_for(extract_thumbnails(
-                        job.local_path, job.job_id, [assembled_scenes[-1].model_dump()], settings.upload_dir,
+                        viewing_media(job), job.job_id, [assembled_scenes[-1].model_dump()], settings.upload_dir,
                     ), timeout=45)
                     persist()
                     yield _event("thumbnails_ready", job_id=job.job_id, section=outline.scene_number)
@@ -276,7 +279,7 @@ async def run_analysis(
                 try:
                     uri, mime, offset = (await media.get(time_to_seconds(scene.start_time),
                                                        time_to_seconds(scene.end_time)) if media
-                                         else (job.file_uri, job.mime_type, 0))
+                                         else (job.file_uri, upload_mime, 0))
                     deep, usage = await asyncio.wait_for(
                         run_pro_scene(uri, mime, scene, api_key=api_key,
                                       **({'source_offset': offset} if media else {})), timeout=120,
@@ -307,7 +310,7 @@ async def run_analysis(
                                                        on_usage=note_usage)
                 else:
                     summary, usage = await asyncio.wait_for(
-                        run_summary_pass(job.file_uri, job.mime_type, flash_result, api_key=api_key), timeout=120,
+                        run_summary_pass(job.file_uri, upload_mime, flash_result, api_key=api_key), timeout=120,
                     )
                     usage_records.append(usage)
                 summary_dict = summary.model_dump()
@@ -330,7 +333,7 @@ async def run_analysis(
                         on_usage=note_usage)
                 else:
                     custom_result_dict, usage = await asyncio.wait_for(
-                        run_custom_pass(job.file_uri, job.mime_type, custom_prompt, api_key=api_key), timeout=120,
+                        run_custom_pass(job.file_uri, upload_mime, custom_prompt, api_key=api_key), timeout=120,
                     )
                     usage_records.append(usage)
                 persist(custom_result=custom_result_dict)

@@ -175,7 +175,9 @@ function createHost(resolve) {
     if (!absolutePath(path)) return { warning: name + ": select accessible original video media, rather than timelines, generators, or compound clips." };
     const fps = number(properties.FPS);
     const frames = number(properties.Frames);
-    return { item, descriptor: { item_id: id, name, media_path: path, source_fps: fps && fps <= 1000 ? fps : null, source_frames: Number.isInteger(frames) && frames > 0 ? frames : null, source_start: number(properties.Start) } };
+    const proxy = properties["Proxy Media Path"];
+    return { item, descriptor: { item_id: id, name, media_path: path, source_fps: fps && fps <= 1000 ? fps : null, source_frames: Number.isInteger(frames) && frames > 0 ? frames : null, source_start: number(properties.Start),
+      ...(absolutePath(proxy) ? { viewing_path: proxy, proxy_alignment_confirmed: true } : {}) } };
   }
   async function getSelection() {
     const { project, id } = await active();

@@ -29,6 +29,8 @@ class EditorSource(BaseModel):
     media_path: str = Field(min_length=1, max_length=4096)
     name: str = Field(default='', max_length=250)
     source_fps: float | None = Field(default=None, gt=0, le=1000, allow_inf_nan=False)
+    viewing_path: str = Field(default='', max_length=4096)
+    proxy_alignment_confirmed: bool = False
 
     @field_validator('project_id', 'item_id', 'media_path')
     @classmethod
@@ -116,6 +118,13 @@ def ensure_source_unchanged(job):
         raise HTTPException(409, 'The original media is offline. Relink it in your editor and load the selection again.')
     if not hmac.compare_digest(fingerprint, job.source_fingerprint):
         raise HTTPException(409, 'The source file changed. Load the editor selection again before using this analysis.')
+    if job.viewing_path:
+        try:
+            current, _, _ = source_fingerprint(job.viewing_path)
+        except (OSError, ValueError):
+            raise HTTPException(409, 'The linked viewing proxy is offline. Relink it before using this analysis.')
+        if not hmac.compare_digest(current, job.viewing_fingerprint):
+            raise HTTPException(409, 'The linked viewing proxy changed. Import the original and proxy again.')
 
 
 def editor_sources(job_id, host=None):
@@ -172,6 +181,13 @@ async def register_source(body, host='premiere'):
         fingerprint, path, size = source_fingerprint(requested)
     except (OSError, ValueError):
         raise HTTPException(422, 'The selected source is offline, inaccessible, or empty. Relink it in your editor first.')
+    from app.utils.video_formats import CAMERA_EXTENSIONS
+    if body.viewing_path or path.suffix.lower() in CAMERA_EXTENSIONS:
+        from app.services.camera_media import register_camera_source
+        async with _registration_lock:
+            job = await register_camera_source(str(path), body.viewing_path, body.proxy_alignment_confirmed, body.source_fps)
+            _bind(job, body, path, fingerprint, host=host)
+            return editor_view(job, host=host)
     # Serialize registration so selecting the same clip twice cannot create duplicate assets.
     async with _registration_lock:
         with connection() as db:

@@ -36,6 +36,8 @@ def proxy_decision(job, mode='auto'):
         reason = 'Source is larger than 1 GiB'
     elif codec in HEAVY_CODECS or Path(job.filename).suffix.lower() in CAMERA_RAW_EXTENSIONS:
         reason = f'Heavy camera format: {codec or Path(job.filename).suffix.lower()}'
+    elif Path(job.filename).suffix.lower() in {'.mxf', '.mts', '.m2ts', '.mkv'}:
+        reason = 'Camera/container format needs an analysis MP4'
     elif duration > 0 and job.size_bytes * 8 / duration >= HIGH_BITRATE:
         reason = 'Source data rate is at least 50 Mb/s'
     if reason:

@@ -4,7 +4,14 @@ import type { UploadResponse } from './types'
 export async function uploadVideo(
   file: File,
   onProgress?: (percent: number) => void,
+  maxFileSizeMb = 2000,
 ): Promise<UploadResponse> {
+  if (file.size > maxFileSizeMb * 1024 * 1024) {
+    throw new Error(`This file exceeds the ${maxFileSizeMb} MB copy limit. Use Link original to reference it without copying.`)
+  }
+  if (/\.(braw|r3d|ari|arx|crm)$/i.test(file.name)) {
+    throw new Error('Use Link original for RAW camera media, with a full-length viewing proxy if needed.')
+  }
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     const formData = new FormData()
