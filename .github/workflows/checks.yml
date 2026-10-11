@@ -50,4 +50,4 @@ jobs:
       - name: Install frontend
         run: npm --prefix frontend ci
       - name: Check frontend
-        run: npm --prefix frontend run build && npm --prefix frontend run lint
+        run: npm --prefix frontend test && npm --prefix frontend run build && npm --prefix frontend run lint

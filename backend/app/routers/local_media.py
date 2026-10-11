@@ -72,6 +72,36 @@ async def choose_originals():
         raise HTTPException(503, str(exc))
 
 
+@router.post('/choose-folders')
+async def choose_original_folders():
+    from app.native_picker import choose_folders
+    try:
+        return {'paths': await asyncio.to_thread(choose_folders)}
+    except (OSError, ValueError) as exc:
+        raise HTTPException(503, str(exc))
+
+
+class DiscoverMediaRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    paths: list[str] = Field(min_length=1, max_length=1000)
+
+    @field_validator('paths')
+    @classmethod
+    def path_texts(cls, values):
+        if any(not value.strip() or len(value) > 4096 or '\x00' in value for value in values):
+            raise ValueError('Invalid media or folder path')
+        return values
+
+
+@router.post('/discover')
+async def discover_originals(body: DiscoverMediaRequest):
+    from app.services.media_discovery import discover_media
+    try:
+        return await asyncio.to_thread(discover_media, body.paths)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
 class LocalMediaRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     media_path: str = Field(min_length=1, max_length=4096)

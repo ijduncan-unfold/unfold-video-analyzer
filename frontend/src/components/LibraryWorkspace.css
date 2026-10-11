@@ -62,3 +62,14 @@
 .lw-upload-progress progress.is-indeterminate::-webkit-progress-bar{background:linear-gradient(90deg,#364353 0%,#93c5fd 45%,#364353 80%);background-size:220% 100%;animation:lw-import-inspection 1.4s linear infinite}
 @keyframes lw-import-inspection{from{background-position:100% 0}to{background-position:-100% 0}}
 @media(prefers-reduced-motion:reduce){.lw-upload-progress progress.is-indeterminate::-webkit-progress-bar{animation:none}}
+
+.lw-import-controls{display:flex;align-items:stretch;gap:1px}
+.lw-import-controls>.lw-button{border-top-right-radius:0;border-bottom-right-radius:0}
+.lw-import-options{position:relative;display:flex}
+.lw-import-options summary{list-style:none;cursor:pointer;background:#93c5fd;color:#142339;padding:0 9px;height:100%;display:flex;align-items:center;border-radius:0 4px 4px 0}
+.lw-import-options summary::-webkit-details-marker{display:none}
+.lw-import-options summary[aria-disabled=true]{opacity:.5;cursor:default}
+.lw-import-options summary:focus-visible{outline:2px solid #bfdbfe;outline-offset:3px}
+.lw-import-menu{position:absolute;top:calc(100% + 7px);right:0;width:185px;padding:6px;z-index:65;background:#262c35;border:1px solid #4e6179;border-radius:6px;box-shadow:0 12px 32px #080a0caa}
+.lw-import-menu>.lw-button{width:100%;justify-content:flex-start;background:transparent;border:0!important;padding:10px;gap:9px}
+.lw-import-menu>.lw-button:hover{background:#2f3b4b}

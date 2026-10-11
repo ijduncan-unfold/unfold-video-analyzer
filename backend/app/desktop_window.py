@@ -68,6 +68,12 @@ class NativeFiles:
         paths = list(dict.fromkeys(path for path in paths if isinstance(path, str) and Path(path).is_absolute()))
         self._dispatch(paths)
 
+    def choose_folders(self):
+        if not self._trusted():
+            raise ValueError('Open the local Video Analyzer window to select folders.')
+        from app.native_picker import choose_folders
+        return choose_folders()
+
     def _dispatch(self, paths):
         if paths and self._trusted():
             payload = json.dumps(paths, ensure_ascii=True)

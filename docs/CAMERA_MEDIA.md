@@ -1,8 +1,12 @@
 # Camera originals and RAW workflows
 
-Drop videos into the desktop window or use Import. The native drop/picker supplies the original absolute path, including Windows UNC paths. Originals are referenced in place, never copied into the library, changed or deleted. Keep the source share online, with its recording sidecars and file parts together.
+Drop videos or whole folders into the desktop window, including multiple folders and loose clips together. The app searches all subfolders and imports recognized video/camera files, ignoring XML, audio-only files, photos and other sidecars. Overlapping selections are deduplicated; numbered RED parts and ARRI image frames are grouped into their recording. Sidecars remain beside the original for the decoder to use.
 
-A normal browser cannot reveal a dropped file's full local path. Browser Import opens the native desktop picker. The library import UI does not copy-upload camera originals.
+Use the arrow beside **Import → Import folders** to select multiple folders on Windows or macOS. Scanning reports “Finding video files in subfolders,” followed by each clip's import/proxy progress. Completed clips appear in the library as the batch continues; a clip that fails does not stop the remaining clips. Very large trees are limited to 500,000 directory entries and 10,000 recordings per selection; exceeding a limit asks for smaller folders instead of silently omitting clips.
+
+The native drop/picker supplies the original absolute path, including Windows UNC paths. Originals are referenced in place, never copied into the library, changed or deleted. Keep the source share online, with its recording sidecars and file parts together. Recursive scans do not follow nested directory symlinks or junctions.
+
+A normal browser cannot reveal a dropped file's full local path. For known camera locations, browser drops verify a video's bounded edge fingerprint to recover its original location; folder drops use a verified member and its relative path to recover the folder. Unknown folders open the native folder picker once, allowing selection of whole parent folders instead of every clip. Browser Import opens an OS picker without a second app window. The library import UI does not copy-upload camera originals.
 
 ## Connected decoder routes
 

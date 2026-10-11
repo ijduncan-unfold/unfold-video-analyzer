@@ -67,3 +67,30 @@ end try'''
         raise OSError('Native browser import is available on Windows and macOS. Use the desktop importer.')
     finally:
         _picker_lock.release()
+
+
+def choose_folders():
+    if not _picker_lock.acquire(blocking=False):
+        raise ValueError('The media picker is already open. Select your folders there.')
+    try:
+        if sys.platform == 'win32':
+            from app.windows_folder_picker import choose_windows_folders
+            return choose_windows_folders()
+        if sys.platform == 'darwin':
+            script = '''try
+set chosen to choose folder with prompt "Choose video folders — Video Analyzer" with multiple selections allowed
+set resultText to ""
+repeat with itemPath in chosen
+set resultText to resultText & POSIX path of itemPath & linefeed
+end repeat
+return resultText
+on error number -128
+return ""
+end try'''
+            result = subprocess.run(['/usr/bin/osascript', '-e', script], capture_output=True, text=True)
+            if result.returncode:
+                raise OSError('The folder picker could not open. Drop folders into the desktop window instead.')
+            return [path for path in result.stdout.splitlines() if path]
+        raise OSError('Native folder selection is available on Windows and macOS. Drop folders into the desktop window instead.')
+    finally:
+        _picker_lock.release()

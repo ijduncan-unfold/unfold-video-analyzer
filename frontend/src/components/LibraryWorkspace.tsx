@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { getAsset, getCapabilities, getLibrary, getProjects, getShots, importLocalMedia } from '../api/library'
 import type { AssetDetail, Capabilities, ImportProgress, LibraryAsset, LibraryResponse, LibraryShot } from '../api/library'
-import { chooseNativeMedia, nativeMediaAvailable, resolveBrowserDrop } from '../api/nativeMedia'
+import { chooseNativeMedia, chooseNativeFolders, discoverNativeMedia, getDroppedFolders, isVideoMedia, nativeMediaAvailable, resolveBrowserDrop, resolveBrowserFolderDrop } from '../api/nativeMedia'
 import { copyEditorPairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
 import { useSettingsStore } from '../stores/settingsStore'
 import { AssetInspector } from './library/AssetInspector'
@@ -46,6 +46,7 @@ export function LibraryWorkspace() {
   const [uploadError, setUploadError] = useState('')
   const [dragging, setDragging] = useState(false)
   const uploadLock = useRef(false)
+  const importMenu = useRef<HTMLDetailsElement>(null)
   const dragDepth = useRef(0)
   const searchInput = useRef<HTMLInputElement>(null)
   const workspace = useRef<HTMLDivElement>(null)
@@ -141,18 +142,28 @@ export function LibraryWorkspace() {
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (!selectedId && (event.metaKey || event.ctrlKey) && event.key === 'k') { event.preventDefault(); searchInput.current?.focus() }
+      if (event.key === 'Escape' && importMenu.current?.open) { importMenu.current.open = false; importMenu.current.querySelector('summary')?.focus() }
+    }
+    function outside(event: PointerEvent) {
+      if (importMenu.current && !importMenu.current.contains(event.target as Node)) importMenu.current.open = false
     }
     window.addEventListener('keydown', keydown)
-    return () => window.removeEventListener('keydown', keydown)
+    window.addEventListener('pointerdown', outside)
+    return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('pointerdown', outside) }
   }, [selectedId])
 
   async function importPaths(paths: string[]) {
-    const incoming = [...new Set(paths)]
-    if (!incoming.length || uploadLock.current) return
+    if (!paths.length || uploadLock.current) return
     uploadLock.current = true; setUploadNotice(''); setUploadError('')
     let imported = 0
     const errors: string[] = []
     try {
+      setUpload({ filename: paths.length === 1 ? paths[0].split(/[/\\]/).pop() || paths[0] : 'Folders and clips', current: 0, total: 0,
+        progress: { stage: 'scanning', message: 'Finding video files in subfolders…' } })
+      const discovered = await discoverNativeMedia([...new Set(paths)])
+      const incoming = discovered.paths
+      errors.push(...discovered.warnings)
+      if (!incoming.length) setUploadNotice('No video files found in this selection.')
       for (let index = 0; index < incoming.length; index++) {
         const path = incoming[index]
         const filename = path.split(/[/\\]/).pop() || path
@@ -168,6 +179,7 @@ export function LibraryWorkspace() {
       }
       if (imported) setUploadNotice(`${imported} ${imported === 1 ? 'project' : 'projects'} imported.`)
       if (errors.length) setUploadError(errors.join('\n'))
+    } catch (err) { setUploadError(errorMessage(err))
     } finally { setUpload(null); uploadLock.current = false }
   }
 
@@ -181,21 +193,35 @@ export function LibraryWorkspace() {
     return () => window.removeEventListener('video-analyzer-files', receive)
   }, [])
 
-  async function selectMedia() {
+  async function selectMedia(folders = false) {
     if (uploadLock.current) return
+    if (importMenu.current) importMenu.current.open = false
     setUploadError('')
     try {
-      await importPaths(await chooseNativeMedia())
+      await importPaths(await (folders ? chooseNativeFolders() : chooseNativeMedia()))
     } catch (err) { setUploadError(errorMessage(err)) }
   }
 
-  async function browserDrop(files: File[]) {
+  async function browserDrop(files: File[], folders: FileSystemDirectoryEntry[]) {
     if (nativeMediaAvailable()) return // The native drop handler supplies the original paths.
     if (uploadLock.current) return
     uploadLock.current = true; setUploadError(''); setUploadNotice('')
     const paths: string[] = []
     try {
+      let unresolvedFolders = false
+      for (const folder of folders) {
+        setUpload({ filename: folder.name, current: 0, total: 0, progress: { stage: 'locating', message: 'Locating original folder…' } })
+        const path = await resolveBrowserFolderDrop(folder)
+        if (path) paths.push(path)
+        else unresolvedFolders = true
+      }
+      if (unresolvedFolders) {
+        setUploadNotice('Choose the remaining dropped folders in the folder picker. Video subfolders will be included; originals stay in place.')
+        setUpload({ filename: 'Video folders', current: 0, total: 0, progress: { stage: 'choosing', message: 'Choose original folders in the folder picker' } })
+        paths.push(...await chooseNativeFolders())
+      }
       for (const [index, file] of files.entries()) {
+        if (!isVideoMedia(file.name)) continue
         setUpload({ filename: file.name, current: index + 1, total: files.length,
           progress: { stage: 'locating', message: 'Locating original in known camera folders…' } })
         const path = await resolveBrowserDrop(file)
@@ -240,7 +266,12 @@ export function LibraryWorkspace() {
   const displayError = error || (!projects ? projectError : '')
   const hasActiveFilters = !!(project || review || tag || rights || collection)
   return <div ref={workspace} className={`lw-workspace ${selection ? 'has-video-workspace' : ''}`}>
-    <main ref={libraryMain} hidden={!!selection} className="lw-main" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true) } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDragLeave={event => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false) } }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (event.dataTransfer.files.length) void browserDrop(Array.from(event.dataTransfer.files)) }}>
+    <main ref={libraryMain} hidden={!!selection} className="lw-main" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true) } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDragLeave={event => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false) } }} onDrop={event => {
+      event.preventDefault(); dragDepth.current = 0; setDragging(false)
+      const folders = getDroppedFolders(event.dataTransfer)
+      const files = Array.from(event.dataTransfer.items).filter(item => !item.webkitGetAsEntry?.()?.isDirectory).map(item => item.getAsFile()).filter((file): file is File => file !== null)
+      if (files.length || folders.length) void browserDrop(files, folders)
+    }}>
       <h1 className="lw-sr-only">Footage library</h1>
       <div className="lw-library-content">
         <header className="lw-toolbar">
@@ -248,7 +279,13 @@ export function LibraryWorkspace() {
           <div className="lw-toolbar-actions">
             <div className="lw-segmented" aria-label="Search result type"><button className={searchMode === 'assets' ? 'is-active' : ''} aria-pressed={searchMode === 'assets'} onClick={() => setSearchMode('assets')}>Projects</button><button className={searchMode === 'shots' ? 'is-active' : ''} aria-pressed={searchMode === 'shots'} onClick={() => setSearchMode('shots')}>Shots</button></div>
             <button className={`lw-button lw-filter-toggle ${hasActiveFilters ? 'has-filters' : ''}`} aria-expanded={filtersOpen} aria-controls="library-filters" onClick={() => setFiltersOpen(open => !open)}>Filters{hasActiveFilters && <span className="lw-filter-dot" aria-label="Filters active" />}</button>
-            <button className="lw-button lw-button-primary" onClick={() => void selectMedia()} disabled={!!upload}><Icon name="plus" size={17} />{upload ? 'Importing…' : 'Import'}</button>
+            <div className="lw-import-controls">
+              <button className="lw-button lw-button-primary" onClick={() => void selectMedia()} disabled={!!upload}><Icon name="plus" size={17} />{upload ? 'Importing…' : 'Import'}</button>
+              <details ref={importMenu} className="lw-import-options" onToggle={event => { if (upload) event.currentTarget.open = false }}>
+                <summary aria-label="Import options" title="Import files or folders" aria-disabled={!!upload}><Icon name="down" size={15} /></summary>
+                <div className="lw-import-menu"><button className="lw-button" disabled={!!upload} onClick={() => void selectMedia()}><Icon name="film" size={16} />Import files</button><button className="lw-button" disabled={!!upload} onClick={() => void selectMedia(true)}><Icon name="folder" size={16} />Import folders</button></div>
+              </details>
+            </div>
             <button className="lw-icon-button" aria-label="Settings" title="Settings" onClick={() => setSettings(true)}><Icon name="settings" size={18} /></button>
           </div>
         </header>
@@ -275,14 +312,14 @@ export function LibraryWorkspace() {
           </div>
           <div className="lw-filter-panel-actions">{hasFilters && <button className="lw-text-button" onClick={clearFilters}>Clear filters</button>}<div className="lw-view-toggle"><button className={layout === 'grid' ? 'is-active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Icon name="grid" size={16} /></button><button className={layout === 'list' ? 'is-active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><Icon name="list" size={17} /></button></div></div>
         </div>}
-        {upload && <div className="lw-upload-progress" role="status"><Icon name="film" size={17} /><div><strong>{upload.filename} · {upload.current}/{upload.total}</strong><span>{upload.progress?.message || 'Checking original file…'}{upload.progress?.percent !== undefined ? ` · ${upload.progress.percent}%` : ''}{(upload.progress?.elapsed_seconds || 0) >= 5 ? ` · ${upload.progress?.elapsed_seconds}s elapsed` : ''}</span><progress className={upload.progress?.percent === undefined ? 'is-indeterminate' : ''} aria-label="Import progress" max={100} value={upload.progress?.percent} /></div></div>}
+        {upload && <div className="lw-upload-progress" role="status"><Icon name="film" size={17} /><div><strong>{upload.filename}{upload.total > 0 ? ` · ${upload.current}/${upload.total}` : ''}</strong><span>{upload.progress?.message || 'Checking original file…'}{upload.progress?.percent !== undefined ? ` · ${upload.progress.percent}%` : ''}{(upload.progress?.elapsed_seconds || 0) >= 5 ? ` · ${upload.progress?.elapsed_seconds}s elapsed` : ''}</span><progress className={upload.progress?.percent === undefined ? 'is-indeterminate' : ''} aria-label="Import progress" max={100} value={upload.progress?.percent} /></div></div>}
         {uploadNotice && <div className="lw-notice" role="status"><Icon name="check" size={17} /><span>{uploadNotice}</span><button className="lw-icon-button" aria-label="Dismiss notification" onClick={() => setUploadNotice('')}><Icon name="close" size={15} /></button></div>}
         {uploadError && <div className="lw-inline-error" role="alert">{uploadError}<button className="lw-text-button" onClick={() => setUploadError('')}>Dismiss</button></div>}
         {(loading || projectLoading || shotScopeLoading) && library && <span className="lw-loading-status" role="status">Loading…</span>}
         {displayError ? <div className="lw-empty-state lw-error-state"><h2>Couldn’t load {projectError && !projects ? 'projects' : 'footage'}</h2><p>{displayError}</p><button className="lw-button" onClick={refreshLibrary}>Try again</button></div> : (loading && !library) || projectLoading || shotScopeLoading ? <div className="lw-asset-grid" aria-label="Loading library" aria-busy="true">{Array.from({ length: 6 }, (_, index) => <div className="lw-skeleton" key={index}><div /><span /><span /></div>)}</div> : !count ? <EmptyState hasLibrary={!!library?.stats.assets} filtered={hasFilters} shots={searchMode === 'shots'} onImport={() => void selectMedia()} importing={!!upload} onClear={clearFilters} onVideos={() => setSearchMode('assets')} /> : <div className={`${layout === 'grid' ? 'lw-asset-grid' : 'lw-asset-list'} ${loading ? 'is-updating' : ''}`}>{searchMode === 'assets' ? assets.map(asset => <AssetCard key={asset.job_id} asset={asset} selected={selection?.id === asset.job_id} onClick={() => openVideo({ id: asset.job_id })} checked={checkedProjects.some(item => item.id === asset.job_id)} onToggle={() => toggleProject(asset)} onDelete={() => setDeletingProjects([{ id: asset.job_id, title: asset.metadata.title || asset.filename }])} />) : shots.map(shot => <ShotCard key={`${shot.job_id}-${shot.shot_number}`} shot={shot} selected={selection?.id === shot.job_id && selection?.shot === shot.shot_number} onClick={() => openVideo({ id: shot.job_id, seconds: shot.start_seconds, shot: shot.shot_number })} />)}</div>}
         {!displayError && count > pageSize && <div className="lw-pagination"><span>{(page * pageSize + 1).toLocaleString()}–{Math.min((page + 1) * pageSize, count).toLocaleString()} of {count.toLocaleString()}</span><div><button className="lw-button" disabled={page === 0 || loading} onClick={() => setPagination({ context: pageContext, page: page - 1 })}>Previous</button><button className="lw-button" disabled={(page + 1) * pageSize >= count || loading} onClick={() => setPagination({ context: pageContext, page: page + 1 })}>Next</button></div></div>}
       </div>
-      {dragging && <div className="lw-drop-overlay"><Icon name="film" size={32} /><h2>Drop videos here</h2></div>}
+      {dragging && <div className="lw-drop-overlay"><Icon name="film" size={32} /><h2>Drop videos or folders here</h2></div>}
     </main>
     {selection && (detail?.job_id === selection.id ? <AssetInspector key={`${selection.id}-${selection.shot || 'asset'}`} asset={detail} initialSeconds={selection.seconds} initialShot={selection.shot} capabilities={capabilities} onClose={() => setSelection(current => current?.id === selection.id ? null : current)} onRefresh={refreshLibrary} onConfigure={() => setSettings(true)} onRemoved={note => setUploadNotice(`Video removed.${note ? ` ${note}` : ''}`)} /> : <main className="lw-inspector lw-video-workspace lw-video-workspace-loading" aria-label="Video workspace"><button className="lw-button lw-back-to-library" data-video-back onClick={() => setSelection(null)}><Icon name="back" />Back to library</button>{detailError ? <><p role="alert">{detailError}</p><button className="lw-button" onClick={refreshLibrary}>Try again</button></> : <p role="status">Opening video…</p>}</main>)}
     {deletingProjects && <DeleteProjectsDialog projects={deletingProjects} onClose={() => setDeletingProjects(null)} onDeleted={projectsDeleted} />}
@@ -307,7 +344,7 @@ function ShotCard({ shot, selected, onClick }: { shot: LibraryShot; selected: bo
 }
 function EmptyState({ hasLibrary, filtered, shots, importing, onImport, onClear, onVideos }: { hasLibrary: boolean; filtered: boolean; shots: boolean; importing: boolean; onImport: () => void; onClear: () => void; onVideos: () => void }) {
   if (hasLibrary || filtered) return <div className="lw-empty-state"><h2>{shots && !filtered ? 'No analyzed shots yet' : 'No matches'}</h2>{shots && !filtered ? <><p>Open a project to analyze its shots.</p><button className="lw-button" onClick={onVideos}>Browse projects</button></> : filtered && <button className="lw-button" onClick={onClear}>Clear filters</button>}</div>
-  return <button className="lw-empty-import" onClick={onImport} disabled={importing}><Icon name="film" size={24} /><span>Drop videos here</span><small>or choose files</small></button>
+  return <button className="lw-empty-import" onClick={onImport} disabled={importing}><Icon name="film" size={24} /><span>Drop videos or folders here</span><small>or choose files</small></button>
 }
 function SettingsDialog({ capabilities, onClose }: { capabilities: Capabilities | null; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
