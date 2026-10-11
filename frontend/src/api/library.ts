@@ -100,7 +100,7 @@ export interface AssetDetail extends LibraryAsset {
   analysis_progress?: AnalysisProgress | null
   error?: string | null
   warnings?: string[]
-  analysis_config?: { provider?: string; analysis_model?: string; deep_model?: string; fps?: number; mode?: string; started_at?: string; timestamp_accuracy?: string; grouping?: string; proxy_mode?: ProxyMode; proxy_used?: boolean; proxy_reason?: string }
+  analysis_config?: { provider?: string; analysis_model?: string; deep_model?: string; fps?: number; mode?: string; shot_mode?: 'auto' | 'single_take' | 'detect_cuts'; resolved_shot_mode?: string; started_at?: string; timestamp_accuracy?: string; grouping?: string; proxy_mode?: ProxyMode; proxy_used?: boolean; proxy_reason?: string }
   cost_estimate?: { estimated_cost_usd: number | null; pricing_status?: string; pricing_as_of?: string; warnings?: string[]; total_input_tokens?: number; total_output_tokens?: number } | null
   transcript: TranscriptSegment[]
 }
@@ -289,12 +289,12 @@ export function saveShot(id: string, number: number, annotation: ShotAnnotation,
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(annotation),
   })
 }
-export function analyzeAsset(id: string, mode: 'flash_only' | 'flash_pro', fps: number, customPrompt: string, proxyMode: ProxyMode = 'auto') {
+export function analyzeAsset(id: string, mode: 'flash_only' | 'flash_pro', fps: number, customPrompt: string, proxyMode: ProxyMode = 'auto', shotMode: 'auto' | 'single_take' | 'detect_cuts' = 'auto') {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const apiKey = getApiKey()
   if (apiKey) headers['X-API-Key'] = apiKey
   return request<{ job_id: string; status: string }>(`/api/library/${encodeURIComponent(id)}/analyze`, {
-    method: 'POST', headers, body: JSON.stringify({ mode, fps, custom_prompt: customPrompt, proxy_mode: proxyMode }),
+    method: 'POST', headers, body: JSON.stringify({ mode, fps, custom_prompt: customPrompt, proxy_mode: proxyMode, shot_mode: shotMode }),
   })
 }
 export function getCapabilities() { return request<Capabilities>('/api/capabilities') }

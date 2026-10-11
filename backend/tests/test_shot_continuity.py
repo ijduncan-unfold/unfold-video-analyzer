@@ -10,7 +10,8 @@ from app.config import settings
 from app.models.analysis import Evidence, FlashAnalysis, SceneDeepAnalysis, Shot, VideoSummary
 from app.services import analyzer, flash_pass
 from app.services.analysis_support import format_time, processing_sections
-from app.services.job_store import Job, create_job, get_job
+from app.services.job_store import Job, create_job, get_job, update_job
+from app.services.shot_continuity import resolve_shot_mode
 from app.services.library_service import shot_views, match_shot
 from app.services.library_export import export_library
 from app.services.thumbnail_service import _thumbnail_time
@@ -95,6 +96,50 @@ class ContinuousAnalysisTests(unittest.IsolatedAsyncioTestCase):
         saved, *_ = await self.analyze(detect)
         self.assertEqual(saved.flash_result['total_shots'], 3)
         self.assertEqual([s['shot_number'] for s in shot_views(saved)], [1, 2, 3])
+
+    async def test_raw_take_ignores_action_based_splits_and_retains_full_timed_metadata(self):
+        self.job = update_job(self.job.job_id, technical={**self.job.technical,
+            'viewing_proxy': {'decoder': 'sony_f55_raw'}})
+        async def detect(_uri, _mime, section, number, fps, **kwargs):
+            self.assertTrue(kwargs['single_take'])
+            a, b = (section.scene_number - 1) * 30, min(section.scene_number * 30, 62.375)
+            mid = (a + b) / 2
+            first, second = fragment(a, mid, 'cut', number), fragment(mid, b, 'cut', number + 1)
+            first.visual_description, second.visual_description = f'Action {a}', f'Pan {mid}'
+            return [first, second], {}
+        saved, *_ = await self.analyze(detect, 'flash_pro')
+        self.assertEqual(saved.status, 'complete')
+        shots = list(shot_views(saved))
+        self.assertEqual(len(shots), 1)
+        self.assertEqual((shots[0]['start_time'], shots[0]['end_time']), ('00:00.000', '01:02.375'))
+        self.assertEqual(len(shots[0]['evidence']), 6)
+        self.assertEqual(len(saved.transcript), 6)
+        self.assertEqual([cue['shot_number'] for cue in saved.transcript], [1] * 6)
+        self.assertIn('Action 0', shots[0]['visual_description'])
+        self.assertIn('Pan 61.1875', shots[0]['visual_description'])
+        self.assertEqual(saved.analysis_config['resolved_shot_mode'], 'single_take')
+
+    async def test_single_take_never_fills_failed_provider_coverage(self):
+        self.job = update_job(self.job.job_id, technical={**self.job.technical,
+            'viewing_proxy': {'decoder': 'sony_f55_raw'}})
+        async def detect(_uri, _mime, section, number, fps, **kwargs):
+            if section.scene_number == 2:
+                raise RuntimeError('failure')
+            a = (section.scene_number - 1) * 30
+            return [fragment(a, min(a + 30, 62.375), 'cut', number)], {}
+        saved, *_ = await self.analyze(detect)
+        self.assertEqual(saved.status, 'error')
+        self.assertEqual([(s['start_time'], s['end_time']) for s in shot_views(saved)],
+                         [('00:00.000', '00:30.000'), ('01:00.000', '01:02.375')])
+
+    def test_raw_auto_policy_can_be_overridden_for_edited_sources(self):
+        for decoder in ('sony_f55_raw', 'arri_raw', 'red_raw', 'blackmagic_raw'):
+            self.job.technical['viewing_proxy'] = {'decoder': decoder}
+            self.assertEqual(resolve_shot_mode(self.job), 'single_take')
+            self.assertEqual(resolve_shot_mode(self.job, 'detect_cuts'), 'detect_cuts')
+        self.job.technical = {}
+        self.assertEqual(resolve_shot_mode(self.job), 'detect_cuts')
+        self.assertEqual(resolve_shot_mode(self.job, 'single_take'), 'single_take')
 
     async def test_joined_interior_fragments_keep_dialogue_coordinates_across_sections(self):
         async def detect(_uri, _mime, section, number, fps, **kwargs):

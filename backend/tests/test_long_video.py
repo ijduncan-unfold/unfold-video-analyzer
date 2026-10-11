@@ -174,7 +174,7 @@ class LongVideoTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_deep_evidence_is_validated_in_part_time_then_restored_to_film_time(self):
         result = SceneDeepAnalysis(scene_number=1, evidence=[Evidence(description='Person', start_time='00:01', end_time='00:02')])
-        client = Mock(); client.models.generate_content = Mock(return_value=SimpleNamespace(text=result.model_dump_json(), usage_metadata=None, candidates=[]))
+        client = Mock(); client.aio.models.generate_content = AsyncMock(return_value=SimpleNamespace(text=result.model_dump_json(), usage_metadata=None, candidates=[]))
         scene = Scene(scene_number=121, scene_title='Section', scene_description='', start_time='01:00:00', end_time='01:00:30')
         with patch.object(pro_pass, 'get_client', return_value=client):
             deep, _ = await pro_pass.run_pro_scene('part', 'video/mp4', scene, source_offset=3600)

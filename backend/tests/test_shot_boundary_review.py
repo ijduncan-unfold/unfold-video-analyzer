@@ -86,12 +86,11 @@ def test_missing_coverage_is_never_joined_or_reviewed():
 
 
 def test_reviews_are_batched_without_exceeding_video_limit():
-    generate = AsyncMock(side_effect=[response([review(i, 'cut') for i in range(2, 10)]),
-                                     response([review(i, 'cut') for i in range(10, 12)])])
+    generate = AsyncMock(side_effect=[response([review(i, 'cut')]) for i in range(2, 12)])
     result, _ = asyncio.run(review_boundaries(Mock(), generate, 'uri', 'video/mp4',
         [shot(i + 1, i * 2, (i + 1) * 2) for i in range(11)], 0, 22))
-    assert len(result) == 11 and generate.await_count == 2
-    assert [len(call.kwargs['contents']) - 1 for call in generate.await_args_list] == [8, 2]
+    assert len(result) == 11 and generate.await_count == 10
+    assert [len(call.kwargs['contents']) - 1 for call in generate.await_args_list] == [1] * 10
 
 
 def test_uploaded_part_offset_and_billed_usage_applied_exactly_once():

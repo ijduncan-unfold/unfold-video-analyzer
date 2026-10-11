@@ -60,6 +60,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const [selection, setSelection] = useState<{ run?: string; shots: Shot[] }>({ run: asset.analysis_config?.started_at, shots: [] })
   const [sectionFilter, setSectionFilter] = useState<number | null>(null)
   const [mode, setMode] = useState<'flash_only' | 'flash_pro'>(() => asset.analysis_config?.mode === 'flash_pro' ? 'flash_pro' : 'flash_only')
+  const [shotMode, setShotMode] = useState<'auto' | 'single_take' | 'detect_cuts'>(asset.analysis_config?.shot_mode || 'auto')
   const [fps, setFps] = useState(() => {
     const saved = asset.analysis_config?.fps
     return typeof saved === 'number' && Number.isFinite(saved) && saved >= 0.5 && saved <= 5 ? saved : 1
@@ -69,6 +70,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     setSavedRun(asset.analysis_config?.started_at)
     setSectionFilter(null)
     setMode(asset.analysis_config?.mode === 'flash_pro' ? 'flash_pro' : 'flash_only')
+    setShotMode(asset.analysis_config?.shot_mode || 'auto')
     const savedFps = asset.analysis_config?.fps
     setFps(typeof savedFps === 'number' && Number.isFinite(savedFps) && savedFps >= 0.5 && savedFps <= 5 ? savedFps : 1)
   }
@@ -126,7 +128,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     if (!capabilities?.google_configured && !apiKey) { onConfigure(); return }
     setTab('shots'); body.current?.scrollTo({ top: 0 })
     setStarting(true); setError(''); setNotice('')
-    try { await analyzeAsset(asset.job_id, mode, fps, prompt, proxyMode); onRefresh() }
+    try { await analyzeAsset(asset.job_id, mode, fps, prompt, proxyMode, shotMode); onRefresh() }
     catch (err) { setError(errorMessage(err)) }
     finally { setStarting(false) }
   }
@@ -233,6 +235,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
         {asset.custom_result && <details className="lw-details"><summary>Custom analysis<Icon name="down" size={14} /></summary><AnalysisFields value={asset.custom_result} /></details>}
         <details className="lw-details vw-analysis-settings" open={!asset.flash}><summary>Analysis settings<Icon name="down" size={14} /></summary><div className="vw-settings-content">
         <details className="lw-details"><summary>Options<Icon name="down" size={14} /></summary><div style={{ paddingTop: 14 }}>
+          <label className="lw-field">Clip boundaries<select value={shotMode} disabled={busy} onChange={event => setShotMode(event.target.value as typeof shotMode)}><option value="auto">Auto</option><option value="single_take">Single take</option><option value="detect_cuts">Detect cuts</option></select><span className="lw-field-hint">Auto keeps camera RAW recordings as one take and detects cuts in other videos. Single take keeps pans, action changes and slates together.</span></label>
           <label className="lw-field">Sampling<select value={fps} onChange={event => setFps(Number(event.target.value))}>{![0.5, 1, 2, 3, 4, 5].includes(fps) && <option value={fps}>{fps} fps</option>}{[0.5, 1, 2, 3, 4, 5].map(value => <option value={value} key={value}>{value} fps{value === 4 ? ' · fast action' : ''}</option>)}</select><span className="lw-field-hint">Higher sampling uses more tokens. Short cuts may be missed.</span></label>
           <label className="lw-field">Instructions<textarea rows={3} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="Optional analysis instructions" /></label>
           <p className="lw-model-note">{capabilities?.models ? `${capabilities.models.analysis}${mode === 'flash_pro' ? ` + ${capabilities.models.deep}` : ''}` : 'Gemini'}</p>

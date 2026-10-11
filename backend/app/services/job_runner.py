@@ -47,6 +47,7 @@ async def _run(job_id, request, api_key):
             async for event in run_analysis(job, request.fps, request.mode,
                     custom_prompt=request.custom_prompt.strip() or None, api_key=api_key,
                     proxy_mode=request.proxy_mode,
+                    shot_mode=request.shot_mode,
                     **({'media': media} if media else {})):
                 data = json.loads(event.get('data', '{}'))
                 kind = event.get('event')

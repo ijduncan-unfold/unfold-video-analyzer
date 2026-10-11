@@ -187,6 +187,7 @@ class ProgressiveAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(e["event"] == "section_complete" for e in events), 3)
         self.assertFalse(any(e["event"] == "analysis_complete" for e in events))
         self.assertNotIn("DO_NOT_SAVE", json.dumps(events) + json.dumps(saved.warnings) + saved.error)
+        self.assertTrue(any('Shot analysis for section 2' in warning for warning in saved.warnings))
 
     async def test_failed_initial_checkpoint_on_new_asset_is_not_archived_as_an_older_run(self):
         async def detect(_uri, _mime, section, offset, _fps, **_kwargs):
@@ -269,8 +270,9 @@ class ProviderDeadlineTests(unittest.IsolatedAsyncioTestCase):
         fake = Mock()
         fake.aio.models.generate_content = AsyncMock(side_effect=hang)
         with patch.object(flash_pass, "get_client", return_value=fake), \
-             patch.object(flash_pass, "REQUEST_TIMEOUT_SECONDS", .01):
+             patch.object(flash_pass, "REQUEST_TIMEOUT_SECONDS", .01), \
+             patch('app.services.provider_retry.asyncio.sleep', AsyncMock()):
             with self.assertRaises(TimeoutError):
                 await flash_pass.run_shot_detection("uri", "video/mp4", processing_sections(2)[0], 1, 1)
         self.assertTrue(cancelled.is_set())
-        fake.aio.models.generate_content.assert_awaited_once()
+        self.assertEqual(fake.aio.models.generate_content.await_count, 3)

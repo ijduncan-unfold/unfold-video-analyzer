@@ -48,6 +48,7 @@ class AnalyzeRequest(BaseModel):
     fps: float = Field(default=1, ge=0.5, le=5)
     custom_prompt: str = Field(default='', max_length=10000)
     proxy_mode: Literal['auto', 'always', 'off'] = 'auto'
+    shot_mode: Literal['auto', 'single_take', 'detect_cuts'] = 'auto'
 
 
 class FolderName(BaseModel):

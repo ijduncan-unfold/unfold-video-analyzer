@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
@@ -20,7 +21,7 @@ from app.services.summary_pass import run_summary_pass
 from app.services.thumbnail_service import extract_thumbnails
 from app.services.notes_synthesis import synthesize_notes
 from app.services.proxy_policy import proxy_decision
-from app.services.shot_continuity import PENDING_CONTINUITY, previous_at_boundary, stitch_section, section_has_shots
+from app.services.shot_continuity import PENDING_CONTINUITY, previous_at_boundary, stitch_section, section_has_shots, resolve_shot_mode, coalesce_take
 from app.services.camera_media import viewing_media
 from app.services.slate_reader import refine_slates
 from app.utils.video_formats import get_mime_type
@@ -39,6 +40,9 @@ def _failure(stage: str, error: Exception) -> str:
         return f"{stage} did not return valid analysis. Retry this asset or use another configured model."
     if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
         return f"{stage} timed out. Retry this asset."
+    code = getattr(error, 'code', None)
+    if code in {408, 429, 500, 502, 503, 504}:
+        return f"{stage}: Gemini is temporarily unavailable (HTTP {code}) after retries. Saved analysis is preserved; retry later."
     return f"{stage} could not complete. Check provider access, model availability and quota, then retry."
 
 
@@ -59,6 +63,7 @@ async def run_analysis(
     api_key: str | None = None,
     media=None,
     proxy_mode='auto',
+    shot_mode='auto',
 ) -> AsyncGenerator[dict, None]:
     """Yield compatible progress events while persisting every completed stage.
 
@@ -140,6 +145,7 @@ async def run_analysis(
             if duration <= 0:
                 raise ValueError("Source duration must be positive")
         config = dict(job.analysis_config)
+        resolved_mode = resolve_shot_mode(job, shot_mode)
         config.update(proxy_decision(job, proxy_mode))
         config['proxy_used'] = media is not None
         for key in ('upload_part_seconds', 'proxy_max_resolution', 'summary_input'):
@@ -152,7 +158,8 @@ async def run_analysis(
                        "schema_version": "2.0", "processing": "static",
                        "timestamp_accuracy": "approximate", "grouping": "processing_sections",
                        "section_duration_seconds": 30,
-                       "shot_boundaries": "contextual_continuity", "continuity_lookback_seconds": 2,
+                       "shot_mode": shot_mode, "resolved_shot_mode": resolved_mode,
+                       "shot_boundaries": "single_take" if resolved_mode == 'single_take' else "contextual_continuity", "continuity_lookback_seconds": 2,
                        "boundary_review_fps": 8, "boundary_review_window_seconds": 2,
                        "started_at": datetime.now(timezone.utc).isoformat()})
         if media:
@@ -203,9 +210,12 @@ async def run_analysis(
                     uri, mime, outline, shot_counter, fps, api_key=api_key,
                     **({'source_offset': offset} if media else {}),
                     **({'previous_shot': previous} if previous is not None else {}),
+                    **({'single_take': True} if resolved_mode == 'single_take' else {}),
                 )
                 usage_records.append(usage)
                 shots = validate_shots(shots, start, end, shot_counter)
+                if resolved_mode == 'single_take':
+                    shots = coalesce_take(shots, previous)
                 for shot in shots:
                     shot.section_numbers = [outline.scene_number]
                     if outline.scene_number < total_sections and time_to_seconds(shot.end_time) == end:
@@ -246,7 +256,7 @@ async def run_analysis(
                 end_time=outline.end_time, shots=shots,
             ))
             shot_counter = 1 + sum(len(scene.shots) for scene in assembled_scenes)
-            warnings = [w for w in warnings if not w.startswith('Shot ')] + [
+            warnings = [w for w in warnings if not re.match(r'^Shot \d+:', w)] + [
                 f'Shot {shot.shot_number}: {w}' for scene in assembled_scenes for shot in scene.shots for w in shot.analysis_warnings]
             analysis_progress["completed_shots"] = shot_counter - 1
             flash_result = FlashAnalysis(
@@ -279,6 +289,13 @@ async def run_analysis(
                     warnings.append(_failure(f"Thumbnails for section {outline.scene_number}", error))
                     persist()
         if shot_counter == 1:
+            if analysis_progress['failed_sections']:
+                message = 'Gemini could not analyze any sections. Previous results are preserved; check the analysis notes and retry later.'
+                analysis_progress['stage'] = 'error'
+                persist(status='error', error=message, current_pass=None, current_scene=None,
+                        progress='Analysis failed; previous results preserved')
+                yield _event('error_event', message=message, recoverable=False)
+                return
             raise ValueError("No valid shot metadata was generated")
         persist(flash_result=flash_dict, total_scenes=len(assembled_scenes))
         yield _event("pass_complete", **{"pass": 1, "result": flash_dict})
@@ -300,7 +317,7 @@ async def run_analysis(
                                          else (job.file_uri, upload_mime, 0))
                     deep, usage = await asyncio.wait_for(
                         run_pro_scene(uri, mime, scene, api_key=api_key,
-                                      **({'source_offset': offset} if media else {})), timeout=120,
+                                      **({'source_offset': offset} if media else {})), timeout=300,
                     )
                     usage_records.append(usage)
                     if job.technical.get("has_audio") is False:
@@ -328,7 +345,7 @@ async def run_analysis(
                                                        on_usage=note_usage)
                 else:
                     summary, usage = await asyncio.wait_for(
-                        run_summary_pass(job.file_uri, upload_mime, flash_result, api_key=api_key), timeout=120,
+                        run_summary_pass(job.file_uri, upload_mime, flash_result, api_key=api_key), timeout=300,
                     )
                     usage_records.append(usage)
                 summary_dict = summary.model_dump()

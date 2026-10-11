@@ -14,7 +14,7 @@ from app.services.shot_continuity import stitch_section
 logger = logging.getLogger(__name__)
 REVIEW_FPS = 8
 WINDOW_SECONDS = 2
-BATCH_SIZE = 8  # Below Gemini's ten-video request limit.
+BATCH_SIZE = 1  # One excerpt per request avoids failures on repeated ranges of the same file.
 UNCONFIRMED = 'Proposed edit could not be confirmed by the motion review; review this boundary.'
 
 

@@ -7,6 +7,7 @@ from app.config import settings
 from app.models.analysis import SceneDeepAnalysis, Scene
 from app.prompts.pro_prompt import PRO_SCENE_ANALYSIS_PROMPT
 from app.services.gemini_client import get_client
+from app.services.provider_retry import retry_temporary
 from app.services.analysis_support import (
     EVIDENCE_INSTRUCTION, clip_offset, extract_usage, response_text,
     time_to_seconds, validate_evidence, format_time,
@@ -54,8 +55,7 @@ async def run_pro_scene(
         ]
     )
 
-    response = await asyncio.to_thread(
-        client.models.generate_content,
+    response = await retry_temporary(lambda: client.aio.models.generate_content(
         model=settings.gemini_deep_model,
         contents=contents,
         config=types.GenerateContentConfig(
@@ -64,7 +64,7 @@ async def run_pro_scene(
             response_mime_type="application/json",
             response_schema=SceneDeepAnalysis,
         ),
-    )
+    ), stage='deep_analysis', timeout=90)
 
     usage = extract_usage(response, settings.gemini_deep_model, "deep_analysis")
     parsed = SceneDeepAnalysis.model_validate_json(response_text(response))
