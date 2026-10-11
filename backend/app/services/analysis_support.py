@@ -172,6 +172,26 @@ def validate_shots(shots: list[Shot], start: float, end: float, offset: int) -> 
         shot.start_time, shot.end_time = format_time(a), format_time(b)
         shot.evidence, warnings = validate_evidence(shot.evidence, a, b)
         shot.analysis_warnings.extend(warnings)
+        slates = []
+        for slate in shot.slates:
+            try:
+                slate_start, slate_end = time_to_seconds(slate.start_time), time_to_seconds(slate.end_time)
+                if not a <= slate_start < slate_end <= b:
+                    raise ValueError('Slate interval outside shot')
+                for key in type(slate).model_fields:
+                    if key not in {'start_time', 'end_time', 'bounding_box'}:
+                        setattr(slate, key, getattr(slate, key).strip())
+                box = slate.bounding_box
+                if box and (len(box) != 4 or not all(math.isfinite(v) and 0 <= v <= 1 for v in box)
+                            or box[2] <= 0 or box[3] <= 0 or box[0] + box[2] > 1.001 or box[1] + box[3] > 1.001):
+                    slate.bounding_box = []
+                    shot.analysis_warnings.append('Invalid slate crop discarded; reading will use the complete frame.')
+                slate.start_time, slate.end_time = format_time(slate_start), format_time(slate_end)
+                slate.review_status = 'unreviewed'
+                slates.append(slate)
+            except ValueError:
+                shot.analysis_warnings.append('Discarded slate metadata with an invalid visible interval.')
+        shot.slates = slates
         if not shot.evidence:
             shot.analysis_warnings.append("No timestamped supporting observations were provided.")
         shot.review_status = "unreviewed"

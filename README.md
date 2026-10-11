@@ -37,6 +37,8 @@ Search shot descriptions, colors, shot types, camera work, transcripts, section 
 
 Text search uses keywords over saved metadata and highlights matching words in shot details and source excerpts.
 
+Visible **slates/clapperboards** are read during analysis. Scene, take, the board's shot identifier, camera roll, production title, cinematographer, director, and other legible fields appear under **Slate** on the shot and **Slates** in Metadata. Click the recorded time to inspect the board. Readings retain the original text and visibility interval, are searchable, and accompany JSON, CSV, XMP, FCPXML, and Resolve shot metadata. For linked media, detected boards receive an additional cropped-image reading through Gemini; its API usage is included in analysis costs. No additional slate image requests are made when no board is detected. Missing or illegible values stay blank; slate text never replaces source technical facts, human project metadata, or spoken dialogue. Existing analyses need another analysis run to extract slate fields. Readings are unreviewed: handwriting can be ambiguous, and brief, blurred, or dark boards can be missed at the selected sampling rate.
+
 ## Read and search dialogue
 
 Open a video’s **Transcript** tab to read its saved spoken dialogue beside the player. Search the dialogue to highlight matching words, then click a line to play from that moment. The current timed line is highlighted during playback, and the search stays in place when you switch tabs.

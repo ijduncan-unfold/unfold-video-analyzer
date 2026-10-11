@@ -36,6 +36,7 @@ def stitch_section(previous, shots):
     previous.location = first.location or previous.location
     previous.mood = first.mood or previous.mood
     previous.evidence.extend(first.evidence)
+    previous.slates.extend(first.slates)
     for key in ('subjects', 'actions', 'tags', 'dominant_colors', 'visible_text', 'logos', 'section_numbers'):
         setattr(previous, key, list(dict.fromkeys([*getattr(previous, key), *getattr(first, key)])))
     previous.analysis_warnings = list(dict.fromkeys(

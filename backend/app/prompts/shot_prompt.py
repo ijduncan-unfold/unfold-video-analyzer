@@ -30,6 +30,26 @@ For each shot, beginning with shot number {shot_number_offset}, return:
 - start_boundary: "cut" only for an observed editorial cut/transition, "continuation"
   when the provided look-back footage confirms the same continuous take, otherwise "unknown".
 - section_numbers: leave empty; the application assigns processing-section membership.
+- slates: read any visible film slate/clapperboard, including head and tail slates.
+  Record its visible start_time/end_time within this shot, production_title, scene,
+  take, slate_shot (the board's shot identifier, NOT the application's shot_number),
+  camera_roll, camera identifier, director, cinematographer (also labeled DP/DOP),
+  date, sound_roll, displayed timecode, and written frame_rate. Preserve letters,
+  leading zeroes, punctuation and circled take markings as written. Keep raw_text
+  as a transcription of readable board text, and notes for ambiguity or partial
+  legibility. Read each field independently: empty strings for unreadable/missing
+  values. Never infer slate fields from filenames, actors, dialogue, or prior
+  context. Readable words without a clear field label belong in raw_text only.
+  A slate appearing/disappearing or clapping does not create a camera cut. Keep
+  multiple different slates as separate observations. Never treat the board's
+  date, timecode or frame rate as verified source-file technical metadata.
+  Return [] if no slate is visible; slate text is visual metadata, not dialogue.
+  Preserve a combined scene identifier like "9A" in scene; do not split its letter
+  into slate_shot. Set slate_shot only when a separate SHOT field is readable.
+  ROLL may list more than one camera's roll: retain all readable values together.
+  A person's name beside CAMERA identifies the credited cinematographer; it is
+  not a camera letter/model. Record bounding_box as [x,y,width,height], normalized
+  0–1 against the complete frame, around the board; [] if unsure.
 
 Keep shots in chronological order without overlap. Do not manufacture observations to fill a coverage gap.
 Empty values are appropriate for absent or unknown attributes. All generated metadata remains unreviewed.

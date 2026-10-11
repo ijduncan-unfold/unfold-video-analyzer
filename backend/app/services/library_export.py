@@ -19,6 +19,13 @@ from typing import Any, Mapping
 
 
 SCHEMA_VERSION = "1.0"
+SLATE_COLUMNS = (
+    ('production_title', 'Production'), ('scene', 'Scene'), ('take', 'Take'),
+    ('slate_shot', 'Shot'), ('camera_roll', 'Camera Roll'), ('camera', 'Camera'),
+    ('director', 'Director'), ('cinematographer', 'Cinematographer'), ('date', 'Date'),
+    ('sound_roll', 'Sound Roll'), ('timecode', 'Timecode'), ('frame_rate', 'Frame Rate'),
+    ('raw_text', 'Text'), ('notes', 'Notes'),
+)
 EXPORT_FORMATS = (
     ("json", "JSON metadata"), ("csv", "CSV shot list"), ("xmp", "XMP sidecar"),
     ("srt", "SRT subtitles"), ("edl", "EDL edit list"), ("fcpxml", "Final Cut Pro XML"),
@@ -271,6 +278,7 @@ def _csv_document(data: dict) -> str:
                "Subjects", "Dominant Colors", "Mood", "Reviewed Tags", "Shot Notes",
                "Shot Review Status", "Source Frame Rate", "Source Timecode", "Timing Status",
                "AI Tags", "Actions", "Visible Text", "Potential Logos", "Location", "Transcript", "Evidence"]
+    headers += ['Slate ' + title for _, title in SLATE_COLUMNS] + ['Slate Observations']
     writer.writerow(headers)
     meta, technical = data.get("metadata") or {}, data.get("technical") or {}
     common = [data.get("job_id"), source_filename(data.get("filename")), meta.get("title"),
@@ -283,7 +291,7 @@ def _csv_document(data: dict) -> str:
         # An asset can have valuable human metadata before AI analysis exists.
         row = common + [""] * 17 + [technical.get("frame_rate_fraction") or technical.get("frame_rate"),
                                      technical.get("source_timecode"), "No shot analysis available"] + [""] * 7
-        writer.writerow([_cell(value) for value in row])
+        writer.writerow([_cell(value) for value in row] + [''] * (len(SLATE_COLUMNS) + 1))
     for scene, shot, reviewed in shots:
         try:
             start, end = segment_times(shot, technical.get("duration_seconds"))
@@ -302,6 +310,10 @@ def _csv_document(data: dict) -> str:
                         shot.get("tags"), shot.get("actions"), shot.get("visible_text"), shot.get("logos"),
                         shot.get("location"), shot.get("transcript"),
                         json.dumps(_public(shot.get("evidence") or []), ensure_ascii=False)]
+        slates = shot.get('slates') or []
+        row += ['; '.join(dict.fromkeys(slate.get(key, '') for slate in slates if slate.get(key)))
+                for key, _ in SLATE_COLUMNS]
+        row.append(json.dumps(_public(slates), ensure_ascii=False))
         writer.writerow([_cell(value) for value in row])
     return out.getvalue()
 

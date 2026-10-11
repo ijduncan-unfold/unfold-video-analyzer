@@ -1,5 +1,6 @@
 """Source-timed EDL and FCPXML exporters used by the library workspace."""
 import re
+import json
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from fractions import Fraction
@@ -209,6 +210,10 @@ def export_fcpxml(job, *, preserve_order=False, title=None) -> str:
             f"{shot.get('visual_description', '')} | Reviewed notes: {reviewed.get('notes', '')}")
         for tag in reviewed.get("tags") or []:
             ET.SubElement(clip, "keyword", start=time(source_start + first), duration=time(count), value=str(tag))
+        if shot.get('slates'):
+            metadata = ET.SubElement(clip, 'metadata')
+            ET.SubElement(metadata, 'md', key='org.videoanalyzer.slates',
+                          value=json.dumps(shot['slates'], ensure_ascii=False))
         record += count
     ET.indent(root)
     return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + ET.tostring(root, encoding="unicode")

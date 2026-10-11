@@ -58,6 +58,15 @@ test("saved shots are distinct source references with their own complete searcha
   assert.equal(shotRecord(first.Comments).record.shot.section_analysis.lighting, "Soft light");
   assert.equal(shotRecord(second.Comments).record.shot.shot_number, 2); assert.match(second.Keywords, /campaign/);
 });
+test("slate readings travel with the shot and are searchable without overwriting original metadata", async () => {
+  const m = fixture();
+  const slate = { production_title: "Orchard", scene: "012B", take: "03", camera_roll: "A001", cinematographer: "J. Doe", start_time: "00:01.100", end_time: "00:01.500" };
+  await m.host.exportShots(binding, { ...pack, shots: [{ ...pack.shots[0], slates: [slate] }] });
+  const metadata = await m.saved[0].GetMetadata();
+  assert.match(metadata.Keywords, /scene: 012B/); assert.match(metadata.Keywords, /camera roll: A001/);
+  assert.deepEqual(shotRecord(metadata.Comments).record.shot.slates, [slate]);
+  assert.deepEqual(m.originalMetadata, { Description: "Human original notes", Keywords: "original" });
+});
 test("repeat exports reuse the same subclips and preserve human comments, descriptions and keywords", async () => {
   const m = fixture(); await m.host.exportShots(binding, pack);
   const before = await m.saved[0].GetMetadata(); m.saved[0].edit({ Description: "Editor revised description", Keywords: before.Keywords + ", approved", Comments: "Editor's prefix\n" + before.Comments + "\nEditor's suffix" });

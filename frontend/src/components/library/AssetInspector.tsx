@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeAsset, cancelAnalysis, deleteAsset, getShots, saveMetadata, saveShot } from '../../api/library'
 import type { AssetDetail, AssetMetadata, Capabilities, LibraryShot, ProxyMode, ReviewStatus, ShotAnnotation } from '../../api/library'
-import type { Shot } from '../../api/types'
+import type { Shot, Slate } from '../../api/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from './Icon'
 import { bytes, duration, errorMessage, reviewLabel, splitTags, timestamp } from './format'
@@ -16,6 +16,18 @@ import { RoughCutPanel } from './RoughCutPanel'
 
 const ASSET_TABS = ['shots', 'match cuts', 'transcript', 'rough cut', 'analysis', 'metadata', 'export'] as const
 type AssetTab = typeof ASSET_TABS[number]
+
+const SLATE_FIELDS: [Exclude<keyof Slate, 'bounding_box'>, string][] = [
+  ['production_title', 'Production'], ['scene', 'Scene'], ['take', 'Take'],
+  ['slate_shot', 'Slate shot'], ['camera_roll', 'Camera roll'], ['camera', 'Camera'],
+  ['director', 'Director'], ['cinematographer', 'Cinematographer'], ['date', 'Date'],
+  ['sound_roll', 'Sound roll'], ['timecode', 'Slate timecode'], ['frame_rate', 'Written frame rate'],
+  ['raw_text', 'Read text'], ['notes', 'Reading notes'],
+]
+
+function SlateFields({ slate, query = '' }: { slate: Slate; query?: string }) {
+  return <dl>{SLATE_FIELDS.filter(([key]) => slate[key]).map(([key, label]) => <div key={key}><dt>{label}</dt><dd style={{ whiteSpace: 'pre-wrap' }}><SearchHighlight text={slate[key] || ''} query={query} /></dd></div>)}</dl>
+}
 
 interface Props {
   asset: AssetDetail
@@ -184,6 +196,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       {error && <div className="lw-inline-error" role="alert">{error}</div>}{notice && <div className="lw-inline-success" role="status">{notice}</div>}
       {tab === 'analysis' && warnings.length > 0 && <details className="lw-details"><summary>Analysis notes<Icon name="down" size={14} /></summary><div className="lw-analysis-warning">{warnings.map(warning => <p key={warning}>{warning}</p>)}</div></details>}
       {tab === 'metadata' && <>
+        {shots.some(shot => shot.slates?.length) && <details className="lw-details" open><summary>Slates<Icon name="down" size={14} /></summary>{shots.flatMap(shot => (shot.slates || []).map((slate, index) => <div key={`${shot.shot_number}-${index}`}><button className="lw-text-button" onClick={() => { setPreviewedShot(shot.shot_number); seek(timestamp(slate.start_time)) }}>Shot {String(shot.shot_number).padStart(2, '0')} · {slate.start_time}–{slate.end_time}</button><SlateFields slate={slate} /></div>))}<small className="lw-model-note">Read from the slate · unreviewed</small></details>}
         {asset.summary && <details className="lw-details"><summary>AI summary<Icon name="down" size={14} /></summary><p className="lw-panel-description">{asset.summary}</p></details>}
         <label className="lw-field">Title<input value={draft.title} onChange={event => field('title', event.target.value)} placeholder={asset.filename} /></label>
         <label className="lw-field">Tags<textarea rows={2} value={tags} onChange={event => setTags(event.target.value)} placeholder="Separate tags with commas" /></label>
@@ -348,6 +361,7 @@ function ShotEditor({ jobId, shot, annotation, selected, exportSelected, match, 
     <div className="vw-shot-actions"><button className="lw-text-button" onClick={onExport}>Export shot</button><button className="lw-text-button" onClick={copyTimes}>Copy times</button></div>{copyMessage && <small className="vw-copy-message" role="status">{copyMessage}</small>}
     {!!shot.dominant_colors?.length && <details className="lw-details"><summary>Colors<Icon name="down" size={13} /></summary><p><SearchHighlight text={shot.dominant_colors.join(' · ')} query={query} /></p></details>}
     {!!shot.tags?.length && <details className="lw-details"><summary>AI tags<Icon name="down" size={13} /></summary><div className="lw-tags">{shot.tags.map(tag => <span key={tag}><SearchHighlight text={tag} query={query} /></span>)}</div></details>}
+    {!!shot.slates?.length && <details className="lw-details" open={!!query}><summary>Slate<Icon name="down" size={13} /></summary>{shot.slates.map((slate, index) => <div key={index}><small>{slate.start_time}–{slate.end_time}</small><SlateFields slate={slate} query={query} /></div>)}<small className="lw-model-note">Read from the slate · unreviewed</small></details>}
     {(shot.evidence?.length || shot.visible_text?.length || shot.logos?.length || shot.subjects?.length || shot.actions?.length || shot.location || shot.transcript || shot.audio_notes) ? <details className="lw-details lw-shot-evidence"><summary>Details<Icon name="down" size={13} /></summary><dl>{shot.subjects?.length > 0 && <div><dt>Subjects</dt><dd><SearchHighlight text={shot.subjects.join(', ')} query={query} /></dd></div>}{!!shot.actions?.length && <div><dt>Actions</dt><dd><SearchHighlight text={shot.actions.join(', ')} query={query} /></dd></div>}{!!shot.visible_text?.length && <div><dt>Visible text</dt><dd><SearchHighlight text={shot.visible_text.join(' · ')} query={query} /></dd></div>}{!!shot.logos?.length && <div><dt>Potential logos</dt><dd><SearchHighlight text={shot.logos.join(', ')} query={query} /></dd></div>}{shot.location && <div><dt>Location description</dt><dd><SearchHighlight text={shot.location} query={query} /></dd></div>}{shot.transcript && <div><dt>Model transcript</dt><dd><SearchHighlight text={shot.transcript} query={query} /></dd></div>}{shot.audio_notes && <div><dt>Audio observations</dt><dd><SearchHighlight text={shot.audio_notes} query={query} /></dd></div>}{shot.evidence?.map((evidence, index) => <div key={index}><dt>{evidence.modality} · {evidence.start_time}–{evidence.end_time}</dt><dd><SearchHighlight text={evidence.description} query={query} /></dd></div>)}</dl><p className="lw-model-note">Model observations are unverified. Shot timestamps are approximate.{shot.confidence != null ? ' Model confidence is uncalibrated and is not a reliability score.' : ''}</p></details> : null}
     {!!shot.analysis_warnings?.length && <details className="lw-details"><summary>Notes<Icon name="down" size={13} /></summary><div className="lw-analysis-warning">{shot.analysis_warnings.map(warning => <p key={warning}><SearchHighlight text={warning} query={query} /></p>)}</div></details>}
     <button className="lw-text-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>{expanded ? 'Close edit' : 'Edit'}<Icon name="down" size={13} /></button>

@@ -39,6 +39,32 @@ class Evidence(BaseModel):
     end_time: str
 
 
+class SlateReading(BaseModel):
+    """Literal board fields, separate from source technical facts."""
+    production_title: str = ""
+    scene: str = ""
+    take: str = ""
+    slate_shot: str = ""
+    camera_roll: str = ""
+    camera: str = ""
+    director: str = ""
+    cinematographer: str = ""
+    date: str = ""
+    sound_roll: str = ""
+    timecode: str = ""
+    frame_rate: str = ""
+    raw_text: str = ""
+    notes: str = ""
+    review_status: str = "unreviewed"
+
+
+class Slate(SlateReading):
+    """A reading tied to when and where the board is visible."""
+    start_time: str
+    end_time: str
+    bounding_box: list[float] = Field(default_factory=list)
+
+
 class Shot(BaseModel):
     shot_number: int
     start_time: str  # MM:SS.mmm or HH:MM:SS.mmm on the source timeline
@@ -64,6 +90,7 @@ class Shot(BaseModel):
     analysis_warnings: list[str] = Field(default_factory=list)
     start_boundary: Literal['cut', 'continuation', 'unknown'] = 'unknown'
     section_numbers: list[int] = Field(default_factory=list)
+    slates: list[Slate] = Field(default_factory=list)
 
 
 class Scene(BaseModel):

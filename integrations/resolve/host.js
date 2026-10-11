@@ -118,6 +118,11 @@ function prepareShots(binding, pack, timing) {
     const name = (String(pack.filename || "Source").replace(/\.[^.]+$/, "") + " · Shot " + String(shot.shot_number).padStart(2, "0")).slice(0, 200);
     const description = typeof shot.visual_description === "string" ? shot.visual_description : "";
     const keywordFields = [shot.tags, shot.human_tags, shot.shot_type, shot.camera_movement, shot.mood, shot.subjects, shot.actions, shot.dominant_colors, shot.location, shot.project_metadata && shot.project_metadata.tags];
+    for (const slate of shot.slates || []) {
+      for (const field of ['production_title', 'scene', 'take', 'slate_shot', 'camera_roll', 'camera', 'director', 'cinematographer', 'date', 'sound_roll']) {
+        if (typeof slate[field] === 'string' && slate[field].trim()) keywordFields.push(field.replaceAll('_', ' ') + ': ' + slate[field].trim());
+      }
+    }
     const keywords = [...new Set(keywordFields.flatMap(keywordValues).map(v => v.trim()).filter(Boolean))];
     // shot-package contains public shot facts plus explicitly scoped section,
     // asset and dialogue context, never provider credentials or raw API usage.

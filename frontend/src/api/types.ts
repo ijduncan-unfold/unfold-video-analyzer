@@ -1,5 +1,26 @@
 // --- Pass 1: Flash Analysis ---
 
+export interface Slate {
+  bounding_box?: number[]
+  start_time: string
+  end_time: string
+  production_title?: string
+  scene?: string
+  take?: string
+  slate_shot?: string
+  camera_roll?: string
+  camera?: string
+  director?: string
+  cinematographer?: string
+  date?: string
+  sound_roll?: string
+  timecode?: string
+  frame_rate?: string
+  raw_text?: string
+  notes?: string
+  review_status?: string
+}
+
 export interface Shot {
   shot_number: number
   thumbnail_url?: string | null
@@ -23,6 +44,7 @@ export interface Shot {
   confidence_basis?: string
   timestamp_accuracy?: string
   analysis_warnings?: string[]
+  slates?: Slate[]
 }
 
 export interface Scene {

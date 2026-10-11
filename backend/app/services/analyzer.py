@@ -22,6 +22,7 @@ from app.services.notes_synthesis import synthesize_notes
 from app.services.proxy_policy import proxy_decision
 from app.services.shot_continuity import PENDING_CONTINUITY, previous_at_boundary, stitch_section, section_has_shots
 from app.services.camera_media import viewing_media
+from app.services.slate_reader import refine_slates
 from app.utils.video_formats import get_mime_type
 
 logger = logging.getLogger(__name__)
@@ -214,6 +215,9 @@ async def run_analysis(
                         shot.transcript = ""
                         shot.audio_notes = "No audio stream in source."
                         shot.evidence = [e for e in shot.evidence if e.modality == "visual"]
+                if any(shot.slates for shot in shots):
+                    persist(progress=f'Reading slate metadata in section {outline.scene_number} of {total_sections}')
+                    await refine_slates(job, shots, api_key, on_usage=note_usage)
                 fragments = list(shots)
                 shots, changed_shots = stitch_section(previous, shots)
                 for shot in fragments:
