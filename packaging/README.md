@@ -12,6 +12,11 @@ The [Windows build workflow](https://github.com/ijduncan/video-analyzer/actions/
 produces the companion installer and public integration packages. Download the
 artifact from a successful completed run while signed into GitHub.
 
+Desktop preview builds are **manual**: open the Windows or Apple Silicon workflow
+in GitHub Actions and choose **Run workflow** for the branch to package. Ordinary
+code pushes to `main` and pull requests run Application checks; pushing the same
+commit to a feature branch does not start another set of installer builds.
+
 Build on Windows with Python 3.11+, the frontend's Node dependencies, and
 [Inno Setup 6](https://jrsoftware.org/isinfo.php):
 

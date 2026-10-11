@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import camera_media
+from app.services import camera_media, native_camera
 from app.services.job_store import get_job, list_jobs, update_job
 from app.services.media_cleanup import cleanup
 from app.services.editor_bridge import ensure_source_unchanged
@@ -65,7 +65,8 @@ def test_mismatched_viewing_copy_rejected_without_creating_project(client, tmp_p
 
 def test_unreadable_raw_requires_explicit_full_clip_proxy_confirmation(client, tmp_path):
     original, proxy = files(tmp_path, '.braw')
-    with patch.object(camera_media, 'probe_media', AsyncMock(side_effect=ValueError('not readable'))):
+    with patch.object(camera_media, 'probe_media', AsyncMock(side_effect=ValueError('not readable'))), \
+         patch.object(native_camera, 'prepare_braw_viewing', AsyncMock(side_effect=ValueError('Blackmagic RAW decoder unavailable'))):
         with pytest.raises(HTTPException, match='Blackmagic RAW'):
             asyncio.run(camera_media.register_camera_source(str(original)))
         with pytest.raises(HTTPException, match='Confirm'):

@@ -2,25 +2,6 @@ name: Apple Silicon desktop preview
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/macos-build.yml'
-      - 'scripts/*macos*'
-      - 'packaging/macos/**'
-      - 'packaging/resolve/**'
-      - 'packaging/desktop.spec'
-      - 'packaging/verify_macos_build.py'
-      - 'packaging/test_verify_macos_build.py'
-      - 'packaging/build_inventory.py'
-      - 'packaging/README.md'
-      - 'packaging/THIRD_PARTY.md'
-      - 'backend/**'
-      - 'frontend/**'
-      - 'integrations/premiere/**'
-      - 'integrations/resolve/**'
-      - 'scripts/package-premiere.py'
-      - 'scripts/package-resolve.py'
-      - 'requirements-desktop.txt'
 
 permissions:
   contents: read

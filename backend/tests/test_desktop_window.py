@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -60,6 +61,9 @@ def test_native_picker_cancel_returns_no_files(monkeypatch):
 
 def test_native_launcher_keeps_pairing_out_of_command_line_and_reuses_window(monkeypatch):
     monkeypatch.setattr(desktop_window, '_process', None)
+    # The launcher contract uses a stub process; it does not require a GUI
+    # package or display server on backend-only CI runners.
+    monkeypatch.setattr(importlib.util, 'find_spec', Mock(return_value=object()))
     launch = Mock(return_value=Mock(poll=Mock(return_value=None)))
     monkeypatch.setattr(desktop_window.subprocess, 'Popen', launch)
     desktop_window.launch_window('https://localhost:8443', 'private-test-token')
@@ -67,6 +71,16 @@ def test_native_launcher_keeps_pairing_out_of_command_line_and_reuses_window(mon
     launch.assert_called_once()
     assert 'private-test-token' not in ' '.join(launch.call_args.args[0])
     assert launch.call_args.kwargs['env']['VIDEO_ANALYZER_WINDOW_URL'] == 'https://localhost:8443/#desktop-token=private-test-token'
+
+
+def test_native_launcher_without_desktop_dependencies_explains_the_requirement(monkeypatch):
+    monkeypatch.setattr(desktop_window, '_process', None)
+    monkeypatch.setattr(importlib.util, 'find_spec', Mock(return_value=None))
+    launch = Mock()
+    monkeypatch.setattr(desktop_window.subprocess, 'Popen', launch)
+    with pytest.raises(ValueError, match='desktop dependencies'):
+        desktop_window.launch_window('http://127.0.0.1:8000')
+    launch.assert_not_called()
 
 
 def test_browser_handoff_requires_local_origin_and_does_not_import_or_copy(client):

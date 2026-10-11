@@ -277,10 +277,13 @@ def test_publication_waits_for_readiness_then_refreshes_rotated_token(instance, 
     async def exercise():
         task = asyncio.create_task(instance.run())
         try:
-            await wait_until(lambda: instance.path.exists())
+            await wait_until(lambda: instance._published_token == old)
             assert descriptor(instance)['token'] == old
             fresh = editor_bridge.get_pairing_token(rotate=True)
-            await wait_until(lambda: descriptor(instance)['token'] == fresh)
+            # Wait for atomic publication to finish before opening the file.
+            # A tight read loop can lock the target during replacement on Windows.
+            await wait_until(lambda: instance._published_token == fresh)
+            assert descriptor(instance)['token'] == fresh
             assert fresh != old
             assert calls[-1][1] == fresh and calls[-1][2] == instance.instance_id
         finally:

@@ -3,6 +3,7 @@ import ctypes
 from fractions import Fraction
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 import zipfile
 
@@ -131,6 +132,15 @@ def test_official_arri_package_rejects_escape_before_extracting(tmp_path):
 
 def test_empty_cached_manifest_cannot_bypass_runtime_pins(client, monkeypatch, tmp_path):
     monkeypatch.delenv('VIDEO_ANALYZER_DECODER_DIR', raising=False)
+    # Exercise cache validation with fixture resources on every OS. CI must not
+    # need this workstation's Windows SDKs or the optional LFS camera bundle.
+    monkeypatch.setattr(native_camera, 'sys', SimpleNamespace(platform='win32', frozen=False))
+    repo = tmp_path / 'repo'
+    monkeypatch.setattr(native_camera, '__file__', str(repo / 'backend/app/services/native_camera.py'))
+    archive = repo / 'portable/VideoAnalyzer-windows-x64.zip'
+    archive.parent.mkdir(parents=True)
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('manifest.json', json.dumps({'files': []}))
     cache = Path(settings.database_path).parent / 'camera-decoders' / 'not-real'
     cache.mkdir(parents=True)
     (cache / 'complete.json').write_text('{}')
