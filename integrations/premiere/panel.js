@@ -111,7 +111,8 @@ function progressText(asset) {
   if (!asset) return "Load clips, then choose what to analyze.";
   const progress = asset.analysis_progress || {};
   const parts = [];
-  if (progress.stage) parts.push(String(progress.stage).replace(/_/g, " "));
+  if (progress.stage) parts.push(progress.stage === "preparing_proxy" || progress.stage === "preparing_part" ? "Preparing analysis proxy" : String(progress.stage).replace(/_/g, " "));
+  if (progress.upload_part && progress.total_upload_parts && ["preparing_proxy", "preparing_part", "uploading", "processing"].indexOf(progress.stage) !== -1) parts.push("Part " + progress.upload_part + "/" + progress.total_upload_parts);
   if (progress.total_sections) parts.push((progress.completed_sections || 0) + "/" + progress.total_sections + " sections");
   if (Number.isFinite(progress.processed_seconds) && progress.total_seconds) parts.push(cueTime(progress.processed_seconds) + " / " + cueTime(progress.total_seconds));
   if (progress.completed_shots) parts.push(progress.completed_shots + " shots");

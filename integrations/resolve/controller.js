@@ -56,7 +56,8 @@
     if (!asset) return "Load selected clips, then choose an analysis type.";
     const progress = asset.analysis_progress || {};
     const parts = [];
-    if (progress.stage) parts.push(String(progress.stage).replace(/_/g, " "));
+    if (progress.stage) parts.push(progress.stage === "preparing_proxy" || progress.stage === "preparing_part" ? "Preparing analysis proxy" : String(progress.stage).replace(/_/g, " "));
+    if (progress.upload_part && progress.total_upload_parts && ["preparing_proxy", "preparing_part", "uploading", "processing"].includes(progress.stage)) parts.push("Part " + progress.upload_part + "/" + progress.total_upload_parts);
     if (progress.completed_sections !== undefined && progress.total_sections) parts.push(progress.completed_sections + "/" + progress.total_sections + " sections");
     if (asset.shot_count) parts.push(asset.shot_count + " shots");
     if (asset.status === "error") return "Analysis stopped. Saved results remain available. " + String(asset.error || "Retry to continue.");

@@ -25,6 +25,11 @@ async def read_cut(job_id: str):
 @router.post('/{job_id}/rough-cut', status_code=202)
 async def create_cut(job_id: str, body: RoughCutRequest, api_key: str | None = Depends(get_api_key)):
     job = require_job(job_id)
+    from app.services.proxy_policy import proxy_decision
+    try:
+        proxy_decision(job, body.proxy_mode)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if not (api_key or settings.google_api_key):
         raise HTTPException(400, 'Connect Gemini in Settings to generate a rough cut')
     try:

@@ -9,6 +9,7 @@ from app.services.analysis_support import time_to_seconds
 from app.services.file_manager import poll_until_active
 from app.services.gemini_client import get_client
 from app.services.job_store import get_job, update_job
+from app.services.proxy_policy import proxy_decision
 from app.utils.media_process import hidden_process_kwargs
 
 logger = logging.getLogger(__name__)
@@ -21,8 +22,7 @@ def needs_segments(job):
     if job.youtube_url or not job.local_path:
         return False
     duration = job.technical.get('duration_seconds')
-    return duration is not None and time_to_seconds(duration) > 0 and (
-        time_to_seconds(duration) >= LONG_VIDEO_SECONDS or job.size_bytes > 1024 ** 3)
+    return duration is not None and time_to_seconds(duration) > 0 and proxy_decision(job)['proxy_used']
 
 
 async def extract_segment(source, destination, start, end):
@@ -92,7 +92,7 @@ class SegmentedVideo:
 
     async def prepare(self, index, offset, stop):
         total = math.ceil(self.duration / SEGMENT_SECONDS)
-        self.progress('preparing_part', f'Preparing analysis part {index + 1} of {total}',
+        self.progress('preparing_proxy', f'Preparing analysis proxy · part {index + 1} of {total}',
                       upload_part=index + 1, total_upload_parts=total)
         # Only this app-owned temporary proxy is removed. Original path is
         # never a cleanup target, and no full-film copy is created.
@@ -101,7 +101,7 @@ class SegmentedVideo:
             await extract_segment(self.job.local_path, path, offset, stop)
             if self.identity() != self.source_identity:
                 raise ValueError('Original media changed while preparing an analysis part')
-            self.progress('uploading', f'Uploading analysis part {index + 1} of {total}')
+            self.progress('uploading', f'Uploading analysis proxy · part {index + 1} of {total}')
             client = get_client(self.api_key)
             remote = await asyncio.wait_for(client.aio.files.upload(
                 file=path, config={'mime_type': 'video/mp4'}), timeout=300)

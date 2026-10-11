@@ -3,6 +3,7 @@ import { cancelRoughCut, generateRoughCut, getRoughCut, roughCutExportUrl, saveR
 import type { AssetDetail, CutClipEdit, CutMoment, RoughCutDraft } from '../../api/library'
 import { duration, errorMessage } from './format'
 import { SearchHighlight } from './SearchHighlight'
+import { useSettingsStore } from '../../stores/settingsStore'
 import './RoughCutPanel.css'
 
 interface Props { asset: AssetDetail; active: boolean; onRefresh: () => void; onConfigure: () => void; configured: boolean }
@@ -10,6 +11,7 @@ const isRunning = (draft?: RoughCutDraft | null) => !!draft && ['queued', 'analy
 const editsFor = (draft?: RoughCutDraft | null): CutClipEdit[] => (draft?.clips || []).map(({ moment_id, start_seconds, end_seconds }) => ({ moment_id, start_seconds, end_seconds }))
 
 export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configured }: Props) {
+  const proxyMode = useSettingsStore(state => state.proxyMode)
   const [draft, setDraft] = useState<RoughCutDraft | null>(asset.rough_cut || null)
   const [edits, setEdits] = useState<CutClipEdit[]>(() => editsFor(asset.rough_cut))
   const [mode, setMode] = useState<RoughCutDraft['mode']>(asset.rough_cut?.mode || 'cleanup')
@@ -98,7 +100,7 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
     if (!configured) { onConfigure(); return }
     mutationRef.current++; stop(); setWorking(true); setError('')
     try {
-      const value = await generateRoughCut(asset.job_id, mode, Math.round(minutes * 60), brief)
+      const value = await generateRoughCut(asset.job_id, mode, Math.round(minutes * 60), brief, proxyMode)
       setDraft(value); setEdits([]); setPage(0); onRefresh()
     } catch (cause) { setError(errorMessage(cause)) } finally { setWorking(false) }
   }

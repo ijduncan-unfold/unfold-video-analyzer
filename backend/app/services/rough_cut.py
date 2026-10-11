@@ -18,6 +18,8 @@ from app.services.gemini_schema import provider_schema
 from app.services.job_store import get_job, update_job
 from app.services.notes_synthesis import groups
 from app.services.video_segments import SegmentedVideo
+from app.services.proxy_policy import proxy_decision
+from app.services.file_manager import ensure_remote_file
 
 logger = logging.getLogger(__name__)
 WINDOW_SECONDS = 120
@@ -36,6 +38,7 @@ def new_draft(job, request):
     if duration <= 0 or not job.local_path or job.technical.get('has_audio') is False:
         raise ValueError('Rough cuts require local video with audio and a measured duration')
     return {'revision': str(uuid.uuid4()), 'source_revision': source_revision(job),
+        **proxy_decision(job, request.proxy_mode),
         'status': 'queued', 'mode': request.mode, 'target_seconds': request.target_seconds,
         'brief': request.brief, 'source_seconds': duration, 'moments': [], 'clips': [],
         'completed_windows': 0, 'total_windows': math.ceil(duration / WINDOW_SECONDS),
@@ -109,6 +112,27 @@ class CutMedia(SegmentedVideo):
         save(self.job.job_id, self.draft)
 
 
+class OriginalCutMedia:
+    """Reuse the original upload; every speech window stays source-relative."""
+    def __init__(self, job, api_key, draft):
+        self.job, self.api_key, self.draft = job, api_key, draft
+        self.prepared = False
+
+    async def get(self, start, end):
+        if source_revision(self.job) != self.draft['source_revision']:
+            raise ValueError('Original recording changed during analysis')
+        if not self.prepared:
+            self.draft['progress'] = 'Preparing original upload · proxy not used'
+            save(self.job.job_id, self.draft)
+            self.job = await ensure_remote_file(self.job, self.api_key)
+            self.prepared = True
+        return self.job.file_uri, self.job.mime_type, 0.0
+
+    async def close(self):
+        # The shared original upload follows the standard analysis cache lifecycle.
+        pass
+
+
 async def build(job_id, api_key):
     global _gate
     if _gate is None:
@@ -119,7 +143,7 @@ async def build(job_id, api_key):
         async with _gate:
             job = get_job(job_id)
             validate_current(job, draft['revision'], ready=False)
-            media = CutMedia(job, api_key, draft)
+            media = (CutMedia if draft.get('proxy_used', True) else OriginalCutMedia)(job, api_key, draft)
             client = get_client(api_key)
             duration = draft['source_seconds']
             draft['status'] = 'analyzing'

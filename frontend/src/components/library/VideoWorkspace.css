@@ -24,6 +24,11 @@
 .lw-video-workspace .vw-back { display: flex; align-items: center; gap: 9px; color: #aab0b9; font-size: 13px !important; }
 .vw-header h1 { min-width: 0; flex: 1; margin: 0; font-size: 18px; font-weight: 500; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vw-header-actions { display: flex; align-items: center; gap: 12px; }
+.vw-proxy-control { display: flex; align-items: center; gap: 8px; color: #aab0b9; font-size: 12px; }
+.vw-proxy-control select { min-height: 42px; padding: 8px; border: 1px solid #424953; border-radius: 5px; background: #272d34; color: #cfdae8; font: inherit; }
+.vw-proxy-control select:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+.vw-proxy-control select:disabled { opacity: .6; }
+.vw-header-actions { flex-wrap: wrap; justify-content: flex-end; }
 .lw-video-workspace .vw-header .lw-button { min-height: 42px; font-size: 12px; }
 .lw-video-workspace .lw-analyze-primary { width: auto; min-width: 170px; padding: 11px 18px; font-size: 13px !important; }
 .vw-analyze-control { display: flex; align-items: stretch; border: 1px solid #93c5fd; border-radius: 5px; min-width: 0; }

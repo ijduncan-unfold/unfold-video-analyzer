@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeAsset, cancelAnalysis, deleteAsset, getShots, saveMetadata, saveShot } from '../../api/library'
-import type { AssetDetail, AssetMetadata, Capabilities, LibraryShot, ReviewStatus, ShotAnnotation } from '../../api/library'
+import type { AssetDetail, AssetMetadata, Capabilities, LibraryShot, ProxyMode, ReviewStatus, ShotAnnotation } from '../../api/library'
 import type { Shot } from '../../api/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from './Icon'
@@ -62,6 +62,8 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const [removing, setRemoving] = useState(false)
   const [previewedShot, setPreviewedShot] = useState(initialShot)
   const apiKey = useSettingsStore(state => state.apiKey)
+  const proxyMode = useSettingsStore(state => state.proxyMode)
+  const setProxyMode = useSettingsStore(state => state.setProxyMode)
   const video = useRef<HTMLVideoElement>(null)
   const body = useRef<HTMLDivElement>(null)
   const busy = isActiveAnalysis(asset.status) || starting
@@ -107,7 +109,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     if (!capabilities?.google_configured && !apiKey) { onConfigure(); return }
     setTab('shots'); body.current?.scrollTo({ top: 0 })
     setStarting(true); setError(''); setNotice('')
-    try { await analyzeAsset(asset.job_id, mode, fps, prompt); onRefresh() }
+    try { await analyzeAsset(asset.job_id, mode, fps, prompt, proxyMode); onRefresh() }
     catch (err) { setError(errorMessage(err)) }
     finally { setStarting(false) }
   }
@@ -152,6 +154,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       <button className="lw-text-button vw-back" data-video-back aria-label="Back to library" onClick={onClose}><Icon name="back" />Library</button>
       <h1 title={asset.filename}>{asset.metadata.title || asset.filename}</h1>
       <div className="vw-header-actions">
+        <label className="vw-proxy-control" title={asset.youtube_url ? 'YouTube uses its URL directly; proxies require a local video.' : 'Auto proxies long videos, large files, heavy camera formats, and data rates of 50 Mb/s or more. Always creates a proxy. Off uploads the original.'}>Proxy<select aria-label="Analysis proxy mode" value={asset.youtube_url ? 'auto' : proxyMode} disabled={!!asset.youtube_url || busy || cutBusy || removing || asset.status === 'deleting'} onChange={event => setProxyMode(event.target.value as ProxyMode)}><option value="auto">Auto</option><option value="always">Always</option><option value="off">Off</option></select></label>
         <button className="lw-button" onClick={() => openExport()}><Icon name="download" size={16} />Export{selection.shots.length > 0 ? ` (${selection.shots.length})` : ''}</button>
       <div className="vw-analyze-control" role="group" aria-label="Start video analysis">
         <label className="vw-analysis-type"><span className="lw-sr-only">Analysis type</span><select value={mode} disabled={busy || removing || asset.status === 'deleting'} onChange={event => setMode(event.target.value as 'flash_only' | 'flash_pro')}><option value="flash_only">Shots and tags</option><option value="flash_pro">Full analysis</option></select><Icon name="down" size={14} /></label>
@@ -171,7 +174,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
           <div className="vw-shot-transport"><strong>Shot {String(selectedShot.shot_number).padStart(2, '0')}</strong><time>{selectedShot.start_time} – {selectedShot.end_time}</time><div><button className="lw-icon-button" aria-label="Previous shot" disabled={selectedIndex === 0 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex - 1])}><Icon name="chevron" style={{ transform: 'rotate(180deg)' }} /></button><button className="lw-icon-button" aria-label="Next shot" disabled={selectedIndex >= shots.length - 1 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex + 1])}><Icon name="chevron" /></button></div></div>
           <p>{selectedShot.visual_description}</p><button className="lw-text-button" onClick={() => { video.current?.pause(); setMatchCutFromShot(true); setTab('match cuts') }}>Explore match cuts</button>
         </div>}
-        {busy && <div className="vw-progress"><div className="lw-analysis-progress" role="status" aria-live="polite" aria-atomic="true"><div className="lw-progress-orbit" /><div><strong>{stageLabel}</strong><p>{progressFacts.summary}</p>{progressFacts.coverage && <small>{progressFacts.coverage}</small>}</div></div><button className="lw-text-button" onClick={cancel} disabled={starting}>Cancel analysis</button></div>}
+        {busy && <div className="vw-progress"><div className="lw-analysis-progress" role="status" aria-live="polite" aria-atomic="true"><div className="lw-progress-orbit" /><div><strong>{stageLabel}</strong><p>{progressFacts.summary}</p>{stage === "preparing_proxy" && asset.analysis_config?.proxy_reason && <small>{asset.analysis_config.proxy_reason}</small>}{progressFacts.coverage && <small>{progressFacts.coverage}</small>}</div></div><button className="lw-text-button" onClick={cancel} disabled={starting}>Cancel analysis</button></div>}
         {asset.error && <div className="lw-inline-error" role="alert">{asset.error}</div>}
       </div>
       <div className="vw-data">
@@ -213,7 +216,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
           <p className="lw-model-note">{capabilities?.models ? `${capabilities.models.analysis}${mode === 'flash_pro' ? ` + ${capabilities.models.deep}` : ''}` : 'Gemini'}</p>
         </div></details>
         <p className="lw-model-note">Gemini API charges apply.</p>
-        {asset.analysis_config?.analysis_model && <details className="lw-details"><summary>Run details<Icon name="down" size={14} /></summary><dl><div><dt>Index model</dt><dd>{asset.analysis_config.analysis_model}</dd></div>{asset.analysis_config.mode === 'flash_pro' && <div><dt>Creative model</dt><dd>{asset.analysis_config.deep_model}</dd></div>}<div><dt>Sampling</dt><dd>{asset.analysis_config.fps} frame(s) per second</dd></div><div><dt>Schema</dt><dd>{asset.flash?.schema_version || 'Legacy'}</dd></div><div><dt>Started</dt><dd>{asset.analysis_config.started_at ? new Date(asset.analysis_config.started_at).toLocaleString() : 'Not recorded'}</dd></div><div><dt>Timestamp precision</dt><dd>Approximate · verify against source before editing</dd></div>{asset.cost_estimate && <div><dt>Estimated API cost</dt><dd>{asset.cost_estimate.estimated_cost_usd == null ? 'Unavailable for this model or usage record' : `$${asset.cost_estimate.estimated_cost_usd.toFixed(4)} USD`}</dd></div>}</dl>{asset.cost_estimate?.warnings?.map(warning => <p className="lw-model-note" key={warning}>{warning}</p>)}</details>}
+        {asset.analysis_config?.analysis_model && <details className="lw-details"><summary>Run details<Icon name="down" size={14} /></summary><dl><div><dt>Index model</dt><dd>{asset.analysis_config.analysis_model}</dd></div>{asset.analysis_config.mode === 'flash_pro' && <div><dt>Creative model</dt><dd>{asset.analysis_config.deep_model}</dd></div>}{asset.analysis_config.proxy_mode && <div><dt>Analysis media</dt><dd>{asset.analysis_config.proxy_used ? "Temporary proxy" : asset.youtube_url ? "YouTube URL" : "Original upload"} · {asset.analysis_config.proxy_mode}<br />{asset.analysis_config.proxy_reason}</dd></div>}<div><dt>Sampling</dt><dd>{asset.analysis_config.fps} frame(s) per second</dd></div><div><dt>Schema</dt><dd>{asset.flash?.schema_version || 'Legacy'}</dd></div><div><dt>Started</dt><dd>{asset.analysis_config.started_at ? new Date(asset.analysis_config.started_at).toLocaleString() : 'Not recorded'}</dd></div><div><dt>Timestamp precision</dt><dd>Approximate · verify against source before editing</dd></div>{asset.cost_estimate && <div><dt>Estimated API cost</dt><dd>{asset.cost_estimate.estimated_cost_usd == null ? 'Unavailable for this model or usage record' : `$${asset.cost_estimate.estimated_cost_usd.toFixed(4)} USD`}</dd></div>}</dl>{asset.cost_estimate?.warnings?.map(warning => <p className="lw-model-note" key={warning}>{warning}</p>)}</details>}
         </div></details>
       </>}
     </div>

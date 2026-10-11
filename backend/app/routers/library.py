@@ -158,6 +158,11 @@ async def poster(job_id: str):
 @router.post('/{job_id}/analyze', status_code=202)
 async def analyze_asset(job_id: str, body: AnalyzeRequest, api_key: str | None = Depends(get_api_key)):
     job = require_job(job_id)
+    from app.services.proxy_policy import proxy_decision
+    try:
+        proxy_decision(job, body.proxy_mode)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if job.media_origin == 'external':
         from app.services.editor_bridge import ensure_source_unchanged
         ensure_source_unchanged(job)

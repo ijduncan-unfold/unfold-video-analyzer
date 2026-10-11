@@ -19,6 +19,7 @@ from app.services.pro_pass import run_pro_scene
 from app.services.summary_pass import run_summary_pass
 from app.services.thumbnail_service import extract_thumbnails
 from app.services.notes_synthesis import synthesize_notes
+from app.services.proxy_policy import proxy_decision
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ async def run_analysis(
     job: Job, fps: float = 1.0, mode: str = "flash_pro", custom_prompt: str | None = None,
     api_key: str | None = None,
     media=None,
+    proxy_mode='auto',
 ) -> AsyncGenerator[dict, None]:
     """Yield compatible progress events while persisting every completed stage.
 
@@ -129,6 +131,12 @@ async def run_analysis(
             if duration <= 0:
                 raise ValueError("Source duration must be positive")
         config = dict(job.analysis_config)
+        config.update(proxy_decision(job, proxy_mode))
+        config['proxy_used'] = media is not None
+        for key in ('upload_part_seconds', 'proxy_max_resolution', 'summary_input'):
+            config.pop(key, None)
+        if media is None:
+            config['upload_strategy'] = 'youtube_url' if job.youtube_url else 'original'
         config.update({"provider": "gemini", "analysis_model": settings.gemini_analysis_model,
                        "deep_model": settings.gemini_deep_model, "fps": fps, "mode": mode,
                        "schema_version": "2.0", "processing": "static",
@@ -138,7 +146,7 @@ async def run_analysis(
         if media:
             config.update(upload_strategy='segmented_proxy', upload_part_seconds=600,
                           proxy_max_resolution='1280x720', summary_input='saved_section_evidence')
-            warnings.append('Long-video analysis uses temporary 720p parts. Film-wide summary and custom '
+            warnings.append('Proxy analysis uses temporary up-to-720p parts. Film-wide summary and custom '
                             'briefs synthesize saved section evidence; omissions in that evidence may carry through.')
         analysis_progress["total_seconds"] = duration
         analysis_progress["started_at"] = config["started_at"]

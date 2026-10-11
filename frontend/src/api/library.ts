@@ -2,6 +2,7 @@ import { getApiKey } from './apiKey'
 import type { FlashAnalysis, SceneDeepAnalysis, VideoSummary, Shot } from './types'
 
 export type ReviewStatus = 'unreviewed' | 'reviewed' | 'needs_changes'
+export type ProxyMode = 'auto' | 'always' | 'off'
 export type RightsStatus = 'unknown' | 'cleared' | 'restricted'
 export interface AssetMetadata {
   title: string
@@ -83,7 +84,7 @@ export interface AssetDetail extends LibraryAsset {
   analysis_progress?: AnalysisProgress | null
   error?: string | null
   warnings?: string[]
-  analysis_config?: { provider?: string; analysis_model?: string; deep_model?: string; fps?: number; mode?: string; started_at?: string; timestamp_accuracy?: string; grouping?: string }
+  analysis_config?: { provider?: string; analysis_model?: string; deep_model?: string; fps?: number; mode?: string; started_at?: string; timestamp_accuracy?: string; grouping?: string; proxy_mode?: ProxyMode; proxy_used?: boolean; proxy_reason?: string }
   cost_estimate?: { estimated_cost_usd: number | null; pricing_status?: string; pricing_as_of?: string; warnings?: string[]; total_input_tokens?: number; total_output_tokens?: number } | null
   transcript: TranscriptSegment[]
 }
@@ -99,6 +100,9 @@ export interface CutMoment {
   reason: string
 }
 export interface RoughCutDraft {
+  proxy_mode?: ProxyMode
+  proxy_used?: boolean
+  proxy_reason?: string
   revision: string
   status: 'queued' | 'analyzing' | 'assembling' | 'ready' | 'error' | 'cancelled'
   mode: 'cleanup' | 'condense'
@@ -120,12 +124,12 @@ export interface CutClipEdit { moment_id: string; start_seconds: number; end_sec
 export function getRoughCut(id: string, signal?: AbortSignal) {
   return request<RoughCutDraft | null>(`/api/library/${encodeURIComponent(id)}/rough-cut`, { signal })
 }
-export function generateRoughCut(id: string, mode: RoughCutDraft['mode'], targetSeconds: number, brief: string) {
+export function generateRoughCut(id: string, mode: RoughCutDraft['mode'], targetSeconds: number, brief: string, proxyMode: ProxyMode = 'auto') {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const apiKey = getApiKey()
   if (apiKey) headers['X-API-Key'] = apiKey
   return request<RoughCutDraft>(`/api/library/${encodeURIComponent(id)}/rough-cut`, {
-    method: 'POST', headers, body: JSON.stringify({ mode, target_seconds: targetSeconds, brief }),
+    method: 'POST', headers, body: JSON.stringify({ mode, target_seconds: targetSeconds, brief, proxy_mode: proxyMode }),
   })
 }
 export function saveRoughCut(id: string, revision: string, clips: CutClipEdit[]) {
@@ -214,12 +218,12 @@ export function saveShot(id: string, number: number, annotation: ShotAnnotation,
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(annotation),
   })
 }
-export function analyzeAsset(id: string, mode: 'flash_only' | 'flash_pro', fps: number, customPrompt: string) {
+export function analyzeAsset(id: string, mode: 'flash_only' | 'flash_pro', fps: number, customPrompt: string, proxyMode: ProxyMode = 'auto') {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const apiKey = getApiKey()
   if (apiKey) headers['X-API-Key'] = apiKey
   return request<{ job_id: string; status: string }>(`/api/library/${encodeURIComponent(id)}/analyze`, {
-    method: 'POST', headers, body: JSON.stringify({ mode, fps, custom_prompt: customPrompt }),
+    method: 'POST', headers, body: JSON.stringify({ mode, fps, custom_prompt: customPrompt, proxy_mode: proxyMode }),
   })
 }
 export function getCapabilities() { return request<Capabilities>('/api/capabilities') }

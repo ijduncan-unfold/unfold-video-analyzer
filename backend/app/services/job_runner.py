@@ -8,7 +8,8 @@ from app.config import settings
 from app.services.analyzer import run_analysis
 from app.services.file_manager import ensure_remote_file
 from app.services.job_store import get_job, update_job
-from app.services.video_segments import SegmentedVideo, needs_segments
+from app.services.video_segments import SegmentedVideo
+from app.services.proxy_policy import proxy_decision
 
 logger = logging.getLogger(__name__)
 _tasks: dict[str, asyncio.Task] = {}
@@ -38,13 +39,14 @@ async def _run(job_id, request, api_key):
                 ensure_source_unchanged(job)
             _stage(job_id, 'uploading', status='analyzing', error=None, warnings=[],
                    progress='Preparing video for analysis')
-            if needs_segments(job):
+            if proxy_decision(job, request.proxy_mode)['proxy_used']:
                 media = SegmentedVideo(job, api_key)
             else:
                 await ensure_remote_file(job, api_key)
             job = get_job(job_id)
             async for event in run_analysis(job, request.fps, request.mode,
                     custom_prompt=request.custom_prompt.strip() or None, api_key=api_key,
+                    proxy_mode=request.proxy_mode,
                     **({'media': media} if media else {})):
                 data = json.loads(event.get('data', '{}'))
                 kind = event.get('event')

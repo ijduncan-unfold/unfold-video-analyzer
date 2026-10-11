@@ -7,6 +7,7 @@ class RoughCutRequest(BaseModel):
     mode: Literal['cleanup', 'condense'] = 'cleanup'
     target_seconds: int = Field(default=600, ge=30, le=7200)
     brief: str = Field(default='', max_length=3000)
+    proxy_mode: Literal['auto', 'always', 'off'] = 'auto'
 
 
 class SpeechMoment(BaseModel):

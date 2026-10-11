@@ -20,7 +20,7 @@ def prepare(asset, tmp_path, duration=240):
     job = update_job(asset.job_id, local_path=str(source), technical={
         'duration_seconds': duration, 'has_audio': True, 'width': 1920, 'height': 1080,
         'frame_rate': 24, 'frame_rate_fraction': '24'})
-    draft = rough_cut.new_draft(job, RoughCutRequest(mode='condense', target_seconds=60))
+    draft = rough_cut.new_draft(job, RoughCutRequest(mode='condense', target_seconds=60, proxy_mode='always'))
     assert claim_rough_cut(job.job_id, draft)
     return job, draft, source
 
