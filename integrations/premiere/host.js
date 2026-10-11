@@ -419,11 +419,13 @@ function createHost(injectedApi, injectedXmp) {
         if (item.name !== name) return false;
         const candidate = asClip(item);
         if (!candidate || await candidate.isOffline() || await candidate.isSequence()) return false;
-        if (normalizedPath(await candidate.getMediaFilePath()) !== normalizedPath(binding.media_path)) return false;
+        const windowsSource = isWindowsPath(binding.media_path);
+        if (normalizedPath(await candidate.getMediaFilePath(), windowsSource) !== normalizedPath(binding.media_path, windowsSource)) return false;
         requiredMethod(candidate, "getInPoint"); requiredMethod(candidate, "getOutPoint");
         const mediaType = ppro.Constants.MediaType.VIDEO;
         const a = await candidate.getInPoint(mediaType), b = await candidate.getOutPoint(mediaType);
-        if (Math.abs(a.seconds - frameStart) > 0.00001 || Math.abs(b.seconds - frameEnd) > 0.00001) return false;
+        const tolerance = 0.5 / (fps || 24) + 0.000001;
+        if (Math.abs(a.seconds - frameStart) > tolerance || Math.abs(b.seconds - frameEnd) > tolerance) return false;
         found = candidate; return true;
       });
       return found;

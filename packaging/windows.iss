@@ -5,7 +5,7 @@
   #define BundleDir "..\dist\desktop\VideoAnalyzer"
 #endif
 #ifndef PremierePackage
-  #define PremierePackage "..\dist\installers\VideoAnalyzer-Premiere-0.1.10.ccx"
+  #define PremierePackage "..\dist\installers\VideoAnalyzer-Premiere-0.1.11.ccx"
 #endif
 
 [Setup]
@@ -40,7 +40,7 @@ Source: "{#PremierePackage}"; DestDir: "{app}\plugins"; Flags: ignoreversion
 [Icons]
 Name: "{group}\Video Analyzer"; Filename: "{app}\VideoAnalyzer.exe"
 Name: "{group}\Pair Video Analyzer with editor"; Filename: "{app}\VideoAnalyzer.exe"; Parameters: "--pair-editor"
-Name: "{group}\Install Premiere panel"; Filename: "{app}\plugins\VideoAnalyzer-Premiere-0.1.10.ccx"
+Name: "{group}\Install Premiere panel"; Filename: "{app}\plugins\VideoAnalyzer-Premiere-0.1.11.ccx"
 Name: "{group}\Install Resolve integration"; Filename: "{app}\VideoAnalyzer.exe"; Parameters: "--install-resolve-panel"
 Name: "{group}\Uninstall Video Analyzer"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\Video Analyzer"; Filename: "{app}\VideoAnalyzer.exe"; Tasks: desktopicon

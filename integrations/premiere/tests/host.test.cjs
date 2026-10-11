@@ -97,9 +97,11 @@ function editFixture() {
   f.project.executeTransaction = (build, label) => {
     const pending = []; build({ addAction: action => { pending.push(action); return true; } });
     for (const action of pending) {
-      if (action.kind === 'subclip') items.push({ ...f.clip, name: action.name,
-        getId: () => 'sub-' + items.length,
-        getInPoint: async () => action.start, getOutPoint: async () => action.end });
+      if (action.kind === 'subclip') {
+        const id = 'sub-' + items.length;
+        items.push({ ...f.clip, name: action.name, getId: () => id,
+          getInPoint: async () => action.start, getOutPoint: async () => action.end });
+      }
       edits.push({ label, ...action });
     }
     return true;
@@ -147,6 +149,21 @@ test('a native transaction without timeline readback cannot report a successful 
   const f = editFixture();
   f.sequence.getVideoTrack = async () => ({ getTrackItems: () => [] });
   await assert.rejects(f.host.insertClip(f.binding, f.range), errorCode('TIMELINE_VERIFY_FAILED'));
+});
+
+test('subclip readback accepts Windows UNC slash aliases and native fractional-frame rounding', async () => {
+  const f = editFixture();
+  f.binding.media_path = '\\\\Server\\Footage\\camera-a.mp4';
+  f.clip.getMediaFilePath = async () => f.binding.media_path;
+  await f.host.makeSubclip(f.binding, f.range);
+  const subclip = f.items[1];
+  subclip.getMediaFilePath = async () => '//Server/Footage/camera-a.mp4';
+  subclip.getInPoint = async () => ({ seconds: 1.001 });
+  await f.host.makeSubclip(f.binding, f.range);
+  assert.equal(f.items.length, 2);
+  subclip.getInPoint = async () => ({ seconds: 1.05 });
+  await f.host.makeSubclip(f.binding, f.range);
+  assert.equal(f.items.length, 3, 'A changed in point must not reuse a different range');
 });
 
 test("Project selection returns stable identities and original path, without copying or touching timelines", async () => {

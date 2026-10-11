@@ -2,7 +2,7 @@
   "manifestVersion": 5,
   "id": "com.ijduncan.video-analyzer.premiere",
   "name": "Video Analyzer",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "main": "index.html",
   "host": { "app": "premierepro", "minVersion": "26.3.0" },
   "entrypoints": [
