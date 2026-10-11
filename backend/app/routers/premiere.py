@@ -10,7 +10,7 @@ from app.models.library import AnalyzeRequest
 from app.routers.library import analyze_asset, require_job, search_shots
 from app.services.editor_bridge import (
     PremiereSource, editor_view, ensure_source_unchanged, project_assets,
-    register_source, require_editor, DesktopSettings, save_desktop_settings,
+    register_source, require_editor, DesktopSettings, save_desktop_settings, saved_editor_view,
 )
 from app.services.library_export import export_library
 from app.services.editor_metadata import editor_metadata
@@ -40,22 +40,26 @@ async def register(body: PremiereSource):
 
 
 @router.get('/assets')
-async def assets(project_id: str = Query(min_length=1, max_length=500)):
-    result = project_assets(project_id)
+async def assets(project_id: str = Query(min_length=1, max_length=500), include_saved: bool = False):
+    result = project_assets(project_id, include_saved=include_saved)
     return {'assets': result, 'total': len(result)}
 
 
 @router.get('/assets/{job_id}')
-async def asset(job_id: str):
+async def asset(job_id: str, saved: bool = False):
     job = require_job(job_id)
+    if saved:
+        return saved_editor_view(job)
     ensure_source_unchanged(job)
     return editor_view(job)
 
 
 @router.get('/assets/{job_id}/shots')
 async def shots(job_id: str, q: str = Query(default='', max_length=500),
-                limit: int = Query(default=500, ge=1, le=500)):
-    ensure_source_unchanged(require_job(job_id))
+                limit: int = Query(default=500, ge=1, le=500), saved: bool = False):
+    job = require_job(job_id)
+    if not saved:
+        ensure_source_unchanged(job)
     return await search_shots(q=q, job_id=job_id, limit=limit, offset=0,
                               project='', review_status='', tag='', rights_status='', collection='')
 

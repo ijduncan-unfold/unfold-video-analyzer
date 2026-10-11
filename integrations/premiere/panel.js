@@ -135,7 +135,7 @@ function createPanel(dependencies) {
     connected: false, token: "", server: defaultServer, project: null, assets: [], asset: null,
     tab: "shots", queries: { shots: "", transcript: "" }, shots: [], shotTotal: 0, shown: PAGE_SIZE,
     scope: 0, resultRevision: 0, resultsPending: false, nativeBlocked: true, polling: false, timer: null, searchTimer: null, initialized: false,
-    busy: {}, resultActions: [], preferences: { projects: {}, mode: "flash_only", server: defaultServer },
+    busy: {}, resultActions: [], actionFeedback: {}, preferences: { projects: {}, mode: "flash_only", server: defaultServer },
   };
   let initialization;
   let connectionTimer = null;
@@ -161,25 +161,28 @@ function createPanel(dependencies) {
   }
   function show(id, visible) { el(id).classList.toggle("hidden", !visible); }
   function isAnalyzing() { return state.asset && ACTIVE_STATUSES.indexOf(state.asset.status) !== -1; }
-  function binding() { return sourceBinding(state.asset, state.project && state.project.id); }
+  function binding() { return state.asset && state.asset.source_available === false ? null : sourceBinding(state.asset, state.project && state.project.id); }
   function controls() {
     const active = !!state.asset;
     const mutation = !!(state.busy.selection || state.busy.analyze || state.busy.markers || state.busy.metadata || state.busy.timeline);
     el("connect").disabled = !!state.busy.connect;
     el("disconnect").disabled = !state.connected || !!state.busy.connect;
     el("load-selection").disabled = !state.connected || mutation;
-    el("refresh-analysis").disabled = !state.connected || !active || mutation;
+    el("refresh-analysis").disabled = !state.connected || mutation;
     for (const button of state.resultActions) button.disabled = !state.connected || !binding() || mutation || state.resultsPending || state.nativeBlocked;
-    el("analyze").disabled = !state.connected || !active || mutation || !!isAnalyzing();
+    el("analyze").disabled = !state.connected || !active || state.asset.source_available === false || mutation || !!isAnalyzing();
     el("mode").disabled = mutation || !!isAnalyzing();
     el("analyze").textContent = isAnalyzing() ? "Analyzing…" : active && (state.asset.shot_count || state.asset.flash) ? "Analyze again" : "Analyze";
     el("add-markers").disabled = !state.connected || !binding() || !visibleResults().length || mutation || state.resultsPending || state.nativeBlocked;
-    el("add-markers").textContent = state.busy.markers ? "Adding…" : "Add " + visibleResults().length + " markers";
+    const markerCount = visibleResults().length;
+    el("add-markers").textContent = state.busy.markers ? "Adding…" : "Add " + markerCount + " source " + (markerCount === 1 ? "marker" : "markers");
+    show("add-markers", markerCount > 0);
+    show("marker-help", markerCount > 0);
     el("sync-metadata").disabled = !state.connected || !binding() || !active || mutation || !!isAnalyzing() || state.nativeBlocked;
     el("sync-metadata").textContent = state.busy.metadata ? "Syncing metadata…" : "Sync metadata to Premiere";
     el("export-subtitles").disabled = !state.connected || !active || !transcriptCues(state.asset.transcript, state.asset.technical && state.asset.technical.duration_seconds).length || !!state.busy.export;
     show("workspace", state.connected);
-    el("progress").textContent = progressText(state.asset);
+    el("progress").textContent = state.asset && state.asset.source_available === false ? "Saved results · source changed or offline. Load the original Premiere source to analyze its current version." : progressText(state.asset);
   }
 
   function remember() {
@@ -265,13 +268,13 @@ function createPanel(dependencies) {
     const revision = assetRevision;
     state.polling = true;
     try {
-      const asset = await request("/assets/" + encodeURIComponent(id));
-      if (scope !== state.scope || revision !== assetRevision) return;
+      const asset = await request("/assets/" + encodeURIComponent(id) + "?saved=true");
+      if (scope !== state.scope || revision !== assetRevision || state.busy.timeline || state.busy.markers || state.busy.metadata) return;
       state.asset = asset;
       const index = state.assets.findIndex(item => item.job_id === id);
       if (index !== -1) state.assets[index] = asset;
       renderPicker();
-      if (state.tab === "shots") await refreshShots();
+      if (state.tab === "shots") await refreshShots(true);
       else renderResults();
       controls();
     } catch (error) {
@@ -293,16 +296,17 @@ function createPanel(dependencies) {
     const q = el("asset-search").value;
     const assets = state.assets.filter(asset => includesQuery(assetName(asset), q));
     assets.forEach(asset => {
-      const item = document.createElement("button");
+      const item = document.createElement("sp-button");
       item.type = "button";
       item.className = "asset-option" + (state.asset && state.asset.job_id === asset.job_id ? " selected" : "");
+      item.setAttribute("variant", "secondary");
       item.setAttribute("role", "listitem");
       item.setAttribute("aria-label", "Choose " + assetName(asset));
       const title = document.createElement("span");
       appendHighlight(document, title, assetName(asset), q);
       const status = document.createElement("span");
       status.className = "asset-status";
-      status.textContent = (asset.shot_count || 0) + " shots · " + (asset.status || "imported");
+      status.textContent = (asset.shot_count || 0) + " clips · " + (asset.source_available === false ? "saved results; source changed/offline" : asset.status || "imported");
       item.appendChild(title);
       item.appendChild(status);
       item.addEventListener("click", () => run(() => selectAsset(asset.job_id)));
@@ -384,12 +388,15 @@ function createPanel(dependencies) {
     const q = state.queries[tab];
     const results = visibleResults();
     const total = tab === "shots" ? state.shotTotal : allResults().length;
-    el("result-count").textContent = results.length + (total > results.length ? " of " + total : "") + (tab === "shots" ? " shots" : " lines");
+    el("result-count").textContent = results.length + (total > results.length ? " of " + total : "") + (tab === "shots" ? " clips" : " lines");
     el("shots-tab").setAttribute("aria-selected", String(tab === "shots"));
     el("transcript-tab").setAttribute("aria-selected", String(tab === "transcript"));
+    el("shots-tab").setAttribute("variant", tab === "shots" ? "primary" : "secondary");
+    el("transcript-tab").setAttribute("variant", tab === "transcript" ? "primary" : "secondary");
     el("results").setAttribute("aria-labelledby", tab + "-tab");
-    el("search").setAttribute("aria-label", tab === "shots" ? "Search shots" : "Search dialogue");
-    el("search").setAttribute("placeholder", tab === "shots" ? "Search shots, tags, composition…" : "Search dialogue…");
+    el("search-label").textContent = tab === "shots" ? "Search clips" : "Search dialogue";
+    el("search").setAttribute("aria-label", tab === "shots" ? "Search clips" : "Search dialogue");
+    el("search").setAttribute("placeholder", tab === "shots" ? "Descriptions, tags…" : "Dialogue…");
     const bound = binding();
     results.forEach(result => {
       const button = document.createElement("div");
@@ -448,29 +455,39 @@ function createPanel(dependencies) {
       if (tab === "shots") {
         const actions = document.createElement("div"); actions.className = "row clip-actions";
         for (const operation of ["insertClip", "makeSubclip"]) {
-          const action = document.createElement("button");
+          const action = document.createElement("sp-button");
           action.type = "button"; action.className = "clip-action";
-          action.textContent = operation === "insertClip" ? "Insert at playhead" : "Make draggable subclip";
+          action.textContent = operation === "insertClip" ? "Add to timeline" : "Prepare to drag";
+          action.setAttribute("variant", operation === "insertClip" ? "primary" : "secondary");
           action.disabled = button.disabled || typeof host[operation] !== "function" || !!state.busy.timeline || state.resultsPending;
           if (typeof host[operation] === "function") state.resultActions.push(action);
           action.addEventListener("click", event => {
             if (event.stopPropagation) event.stopPropagation();
             run(async () => {
               if (state.busy.timeline || state.busy.selection || state.busy.markers || state.busy.metadata || state.busy.analyze || !source || state.resultsPending || state.nativeBlocked) return;
-              state.busy.timeline = true; controls();
+              state.busy.timeline = true; stopPoll(); controls();
+              const feedbackKey = state.asset.job_id + ":" + result.start + ":" + result.end;
+              const feedback = text => { state.actionFeedback[feedbackKey] = text; status.textContent = text; };
+              feedback(operation === "insertClip" ? "Adding clip to timeline…" : "Preparing clip for dragging…");
               try {
                 const verified = await verifyNativeContext(context);
                 const output = await host[operation](verified, { start: result.start, end: result.end,
                   name: result.name, duration: state.asset.technical.duration_seconds, session: context.session });
-                if (contextIsCurrent(context)) message(operation === "insertClip" ?
+                if (contextIsCurrent(context)) { const text = operation === "insertClip" ?
                   "Inserted " + result.name + " at " + cueTime(output.position) + " on V1/A1. Undo in Premiere to remove the edit." :
-                  "Opened “" + output.name + "”. Drag this subclip from Premiere’s Project panel or Source Monitor to the timeline.");
-              } finally { state.busy.timeline = false; controls(); }
+                  "Ready. Drag the clip from Premiere’s Source Monitor or Project panel into the timeline.";
+                  feedback(text); message(text); }
+              } catch (error) { feedback(error.message); status.className = "action-status error"; throw error; }
+              finally { state.busy.timeline = false; controls(); startPoll(); }
             });
           });
           actions.appendChild(action);
         }
         button.appendChild(actions);
+        const status = document.createElement("span");
+        status.className = "action-status";
+        status.textContent = state.actionFeedback[state.asset.job_id + ":" + result.start + ":" + result.end] || "";
+        button.appendChild(status);
       }
       list.appendChild(button);
     });
@@ -487,17 +504,18 @@ function createPanel(dependencies) {
     controls();
   }
 
-  async function refreshShots() {
+  async function refreshShots(background = false) {
     if (!state.asset || !state.connected) return;
     const scope = state.scope;
     const id = state.asset.job_id;
-    const revision = ++state.resultRevision;
+    const revision = background ? state.resultRevision : ++state.resultRevision;
     const q = state.queries.shots;
     state.resultsPending = true;
     controls();
     try {
-      const data = await request("/assets/" + encodeURIComponent(id) + "/shots?q=" + encodeURIComponent(q) + "&limit=" + MAX_RESULTS);
+      const data = await request("/assets/" + encodeURIComponent(id) + "/shots?saved=true&q=" + encodeURIComponent(q) + "&limit=" + MAX_RESULTS);
       if (scope !== state.scope || revision !== state.resultRevision || !state.asset || state.asset.job_id !== id || q !== state.queries.shots) return;
+      if (background && state.busy.timeline) return;
       state.shots = Array.isArray(data.shots) ? data.shots : [];
       state.shotTotal = Number.isFinite(data.total) ? data.total : state.shots.length;
       if (state.tab === "shots") renderResults();
@@ -534,11 +552,14 @@ function createPanel(dependencies) {
     }
     state.project = project;
     const currentScope = state.scope;
-    const data = await request("/assets?project_id=" + encodeURIComponent(project.id));
+    const data = await request("/assets?include_saved=true&project_id=" + encodeURIComponent(project.id));
     if (currentScope !== state.scope) return;
     state.assets = Array.isArray(data.assets) ? data.assets : [];
     const saved = state.preferences.projects[project.id] || {};
-    const chosen = state.assets.find(asset => asset.job_id === (state.asset && state.asset.job_id || saved.assetId)) || state.assets[0];
+    let chosen = state.assets.find(asset => asset.job_id === (state.asset && state.asset.job_id || saved.assetId)) || state.assets[0];
+    if (chosen && !chosen.shot_count && !(chosen.transcript || []).length && !ACTIVE_STATUSES.includes(chosen.status)) {
+      chosen = state.assets.find(asset => asset.source_media_path && asset.source_media_path === chosen.source_media_path && (asset.shot_count || (asset.transcript || []).length)) || chosen;
+    }
     renderPicker();
     if (chosen) await selectAsset(chosen.job_id);
     else { renderResults(); show("asset-picker", true); el("asset-toggle").setAttribute("aria-expanded", "true"); }
@@ -559,10 +580,10 @@ function createPanel(dependencies) {
     state.asset = state.assets.find(item => item.job_id === id) || null;
     renderPicker();
     renderResults();
-    const asset = await request("/assets/" + encodeURIComponent(id));
+    const asset = await request("/assets/" + encodeURIComponent(id) + "?saved=true");
     if (scope !== state.scope || revision !== assetRevision) return;
     state.asset = asset;
-    state.nativeBlocked = false;
+    state.nativeBlocked = asset.source_available === false;
     show("asset-picker", false);
     el("asset-toggle").setAttribute("aria-expanded", "false");
     await remember();
@@ -663,7 +684,7 @@ function createPanel(dependencies) {
       }
       if (scope !== state.scope) return;
       await refreshProject(selection);
-      if (firstId) await selectAsset(firstId);
+      if (firstId && (!state.asset || state.asset.source_available !== false)) await selectAsset(firstId);
       const warnings = Array.isArray(selection.warnings) ? selection.warnings : [];
       message((selection.clips.length - failed) + " clips loaded. " + (state.asset && state.asset.shot_count ? "Saved analysis restored. Click a result to preview or insert it." : "Choose an analysis type and click Analyze.") +
         (failed ? " " + failed + " could not be loaded: " + errors[0] : "") + (warnings.length ? " " + warnings.join(" ") : ""), failed > 0);
@@ -782,9 +803,25 @@ function createPanel(dependencies) {
       });
       on("load-selection", "click", loadSelection);
       on("refresh-analysis", "click", async () => {
-        if (!state.asset || state.busy.timeline) return;
-        await selectAsset(state.asset.job_id);
-        message("Saved analysis refreshed. No new analysis was started.");
+        if (state.busy.timeline || state.busy.selection) return;
+        state.busy.selection = true; stopPoll(); controls();
+        try {
+          const selected = await host.getSelection();
+          const source = sourceBinding(state.asset, selected.project_id);
+          // Re-register the bound original to discover analysis saved by the
+          // full app or another editor session, rather than rereading an empty job.
+          if (source) await request("/register", { method: "POST", body: JSON.stringify({
+            project_id: source.project_id, item_id: source.item_id, media_path: source.media_path,
+            name: assetName(state.asset), source_fps: source.source_fps,
+          }) });
+          await refreshProject(selected);
+          const count = state.asset && state.asset.shot_count || 0;
+          message(state.asset && state.asset.source_available === false ?
+            "Restored saved results for this source. Its file changed or is offline, so timeline actions are disabled until the current source is analyzed." :
+            count ? "Restored " + count + " saved " + (count === 1 ? "clip" : "clips") + ". No new analysis was started." :
+            isAnalyzing() ? "Analysis is still running. Completed clips will appear here." :
+            "No saved clips for this source version. Choose a source and Analyze, or select its saved results in the source picker.");
+        } finally { state.busy.selection = false; controls(); startPoll(); }
       });
       on("analyze", "click", analyze);
       on("asset-toggle", "click", () => {

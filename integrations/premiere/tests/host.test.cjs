@@ -137,6 +137,39 @@ test('missing timeline and invalid ranges reject before creating subclips', asyn
   assert.deepEqual(f.edits, []);
 });
 
+test('unset subclip user marks verify hard media bounds with embedded timecode', async () => {
+  const f = editFixture();
+  f.clip.getMedia = async () => ({ getStart: async () => ({ seconds: 49600 }) });
+  const commit = f.project.executeTransaction;
+  f.project.executeTransaction = (...args) => {
+    const result = commit(...args);
+    const sub = f.items.at(-1);
+    sub.getInPoint = sub.getOutPoint = async () => ({ seconds: -400000 });
+    sub.getMedia = async () => ({ getStart: async () => ({ seconds: 49601 }),
+      getDuration: async () => ({ seconds: 2 }) });
+    return result;
+  };
+  assert.equal((await f.host.insertClip(f.binding, f.range)).inserted, true);
+  await f.host.makeSubclip(f.binding, f.range);
+  assert.equal(f.items.length, 2);
+});
+
+test('unset marks with wrong media duration never authorize timeline insertion', async () => {
+  const f = editFixture();
+  f.clip.getMedia = async () => ({ getStart: async () => ({ seconds: 49600 }) });
+  const commit = f.project.executeTransaction;
+  f.project.executeTransaction = (...args) => {
+    const result = commit(...args);
+    const sub = f.items.at(-1);
+    sub.getInPoint = sub.getOutPoint = async () => ({ seconds: -400000 });
+    sub.getMedia = async () => ({ getStart: async () => ({ seconds: 49601 }),
+      getDuration: async () => ({ seconds: 10 }) });
+    return result;
+  };
+  await assert.rejects(f.host.insertClip(f.binding, f.range), errorCode('SUBCLIP_VERIFY_FAILED'));
+  assert.equal(f.edits.some(edit => edit.kind === 'insert'), false);
+});
+
 test('native subclip names survive Premiere lossy Unicode conversion without renaming the source', async () => {
   const f = editFixture();
   f.clip.name = 'Caméra 日本';

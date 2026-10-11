@@ -149,6 +149,29 @@ def test_changed_source_is_blocked_before_paid_analysis(editor, source, monkeypa
     assert new['job_id'] != asset['job_id']
 
 
+def test_saved_logging_survives_changed_file_but_native_preflight_stays_strict(editor, source):
+    old = register(editor, source)
+    update_job(old['job_id'], status='complete', flash_result={'scenes': []},
+               transcript=[{'start_seconds': 0, 'end_seconds': 2, 'text': 'Saved dialogue'}])
+    Path(source['media_path']).write_bytes(b'changed-file-version')
+    new = register(editor, source)
+    assert new['job_id'] != old['job_id']
+    route = f"/api/editor/premiere/assets/{old['job_id']}"
+    saved = editor.get(route, params={'saved': True}).json()
+    assert saved['transcript'][0]['text'] == 'Saved dialogue'
+    assert saved['source_available'] is False
+    assert saved['editor_sources'] == []
+    assert editor.get(route).status_code == 409
+    assert editor.get(route + '/shots').status_code == 409
+    assert editor.get(route + '/shots', params={'saved': True}).status_code == 200
+    listing = '/api/editor/premiere/assets'
+    current = editor.get(listing, params={'project_id': source['project_id']}).json()['assets']
+    assert [item['job_id'] for item in current] == [new['job_id']]
+    history = editor.get(listing, params={'project_id': source['project_id'], 'include_saved': True}).json()['assets']
+    assert {item['job_id'] for item in history} == {new['job_id'], old['job_id']}
+    assert editor.get(listing, params={'project_id': 'unrelated', 'include_saved': True}).json()['assets'] == []
+
+
 def test_deleted_external_asset_preserves_original_even_inside_cache(editor, source):
     asset = register(editor, source)
     response = editor.delete(f"/api/files/{asset['job_id']}")

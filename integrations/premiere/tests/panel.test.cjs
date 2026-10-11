@@ -224,7 +224,7 @@ test('timeline insertion preflights saved source and analysis; stale analysis bl
   h.host.insertClip = async (source, range) => { edits.push({ source, range }); return { position: 7 }; };
   h.host.makeSubclip = async () => ({ name: 'Native clip' });
   await h.start();
-  const insert = () => descendants(h.el('results'), item => item.textContent === 'Insert at playhead')[0];
+  const insert = () => descendants(h.el('results'), item => item.textContent === 'Add to timeline')[0];
   assert.equal(insert().disabled, false);
   await insert().fire('click');
   assert.equal(edits.length, 1);
@@ -235,6 +235,41 @@ test('timeline insertion preflights saved source and analysis; stale analysis bl
   await insert().fire('click');
   assert.equal(edits.length, 1);
   assert.match(h.el('message').textContent, /analysis changed/);
+});
+
+test('changed source restores readable saved results without enabling native edits', async () => {
+  const old = asset('old');
+  old.source_available = false;
+  old.source_media_path = 'C:\\footage\\clip-a.mp4';
+  old.editor_sources = [];
+  const fresh = asset();
+  fresh.source_media_path = old.source_media_path;
+  fresh.status = 'ready'; fresh.shot_count = 0; fresh.transcript = [];
+  const h = harness({ service: { assets: [fresh, old], shots: [shot(1, 'Saved description')] } });
+  h.intercept(request => request.pathname.endsWith('/assets') && request.query.get('include_saved') === 'true'
+    ? h.json({ assets: [fresh, old] }) : undefined);
+  await h.start();
+  assert.equal(h.panel.getState().asset.job_id, 'old');
+  assert.match(h.el('results').textContent, /Saved description/);
+  assert.equal(h.el('analyze').disabled, true);
+  const actions = descendants(h.el('results'), item => item.className === 'clip-action');
+  assert.equal(actions.every(item => item.disabled), true);
+  await h.el('refresh-analysis').fire('click');
+  assert.match(h.el('message').textContent, /timeline actions are disabled/);
+  assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false);
+});
+
+test('empty results hide marker actions and reload explains that no results exist', async () => {
+  const empty = asset();
+  empty.shot_count = 0; empty.transcript = []; empty.status = 'ready'; empty.flash = null;
+  const h = harness({ service: { assets: [empty], shots: [] } });
+  await h.start();
+  assert.match(h.el('add-markers').className, /hidden/);
+  assert.equal(h.el('search').tagName, 'sp-textfield');
+  assert.equal(h.el('search-label').textContent, 'Search clips');
+  await h.el('refresh-analysis').fire('click');
+  assert.match(h.el('message').textContent, /No saved clips/);
+  assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false);
 });
 
 test('HTML script without a CommonJS module global keeps lifecycle callbacks synchronous', async t => {

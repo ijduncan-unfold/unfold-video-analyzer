@@ -8,25 +8,25 @@
     <div id="panel" class="panel">
       <div class="heading">
         <h1>Video Analyzer</h1>
-        <button id="connection-toggle" class="quiet" type="button" aria-expanded="true">Connection</button>
+        <sp-button id="connection-toggle" class="quiet" type="button" aria-expanded="true" variant="secondary">Connection</sp-button>
       </div>
       <div id="connection" class="connection">
         <span class="field-label" id="server-label">Local service</span>
-        <input id="server" type="text" value="http://127.0.0.1:8000" aria-labelledby="server-label" readonly />
+        <sp-textfield id="server" type="text" value="http://127.0.0.1:8000" aria-labelledby="server-label" readonly></sp-textfield>
         <div class="row">
-          <button id="connect" type="button" class="primary">Connect</button>
-          <button id="disconnect" type="button" disabled>Disconnect</button>
+          <sp-button id="connect" type="button" class="primary" variant="primary">Connect</sp-button>
+          <sp-button id="disconnect" type="button" disabled variant="secondary">Disconnect</sp-button>
         </div>
         <p id="connection-hint" class="hint">Start Video Analyzer. This panel connects automatically; no pairing code is needed.</p>
       </div>
-      <p id="message" class="message" role="status" aria-live="polite">Connecting to Video Analyzer…</p>
+      <p id="message" class="message" role="status" aria-live="polite">Connecting to Video Analyzer...</p>
       <div id="workspace" class="workspace hidden">
         <p id="project-name" class="project-name"></p>
-        <button id="load-selection" type="button" class="full-width">Load selected Premiere clips</button>
-        <button id="refresh-analysis" type="button" class="full-width" disabled>Refresh saved analysis</button>
-        <button id="asset-toggle" type="button" class="asset-toggle" aria-expanded="false">Choose a clip</button>
+        <sp-button id="load-selection" type="button" class="full-width" variant="secondary">Load Premiere selection</sp-button>
+        <sp-button id="refresh-analysis" type="button" class="full-width" disabled variant="secondary">Reload saved results</sp-button>
+        <sp-button id="asset-toggle" type="button" class="asset-toggle" aria-expanded="false" variant="secondary">Choose a clip</sp-button>
         <div id="asset-picker" class="asset-picker hidden">
-          <input id="asset-search" type="text" aria-label="Search clips in this Premiere project" placeholder="Search clips" />
+          <sp-textfield id="asset-search" type="text" aria-label="Search sources in this Premiere project" placeholder="Search sources"></sp-textfield>
           <div id="asset-list" class="asset-list" role="list" aria-label="Clips in this Premiere project"></div>
         </div>
         <div id="analysis-actions" class="row">
@@ -34,25 +34,27 @@
             <option value="flash_only">Shots and tags</option>
             <option value="flash_pro">Full analysis</option>
           </select>
-          <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+          <sp-button id="analyze" type="button" class="primary" disabled variant="primary">Analyze</sp-button>
         </div>
         <p id="progress" class="progress" role="status" aria-live="polite"></p>
-        <button id="sync-metadata" type="button" class="full-width" disabled>Sync metadata to Premiere</button>
+        <sp-button id="sync-metadata" type="button" class="full-width" disabled variant="secondary">Sync metadata to Premiere</sp-button>
         <div class="tabs" role="tablist" aria-label="Analysis results">
-          <button id="shots-tab" type="button" role="tab" aria-selected="true" aria-controls="results">Shots</button>
-          <button id="transcript-tab" type="button" role="tab" aria-selected="false" aria-controls="results">Transcript</button>
+          <sp-button id="shots-tab" type="button" role="tab" aria-selected="true" aria-controls="results" variant="secondary">Clips</sp-button>
+          <sp-button id="transcript-tab" type="button" role="tab" aria-selected="false" aria-controls="results" variant="secondary">Transcript</sp-button>
         </div>
-        <input id="search" type="text" aria-label="Search shots" placeholder="Search shots, tags, composition…" />
-        <div class="row result-tools">
+        <span id="search-label" class="field-label">Search clips</span>
+        <sp-textfield id="search" type="text" aria-labelledby="search-label" placeholder="Descriptions, tags"></sp-textfield>
+        <div class="result-tools">
           <p id="result-count" class="hint"></p>
-          <button id="add-markers" type="button" disabled>Add markers</button>
+          <sp-button id="add-markers" type="button" disabled variant="secondary">Add source markers</sp-button>
         </div>
-        <p id="timing-note" class="hint">Insert places a trimmed clip at the playhead on V1/A1 and shifts later footage. Make subclip opens a native clip you can drag from Premiere’s Project panel or Source Monitor. AI timing is approximate; review cuts.</p>
+        <p id="marker-help" class="hint">Source markers label moments on the original clip with descriptions. They do not add footage to a timeline.</p>
+        <p id="timing-note" class="hint">Add to timeline inserts the clip at the playhead on V1/A1. Prepare to drag opens it in the Source Monitor; drag from there into your timeline. AI timing is approximate; review cuts.</p>
         <div id="results" class="results" role="tabpanel" aria-labelledby="shots-tab"></div>
-        <button id="show-more" type="button" class="full-width hidden">Show more</button>
+        <sp-button id="show-more" type="button" class="full-width hidden" variant="secondary">Show more</sp-button>
         <div class="footer row">
-          <button id="export-subtitles" type="button" disabled>Export SRT</button>
-          <button id="open-library" type="button" class="quiet">Open full analyzer</button>
+          <sp-button id="export-subtitles" type="button" disabled variant="secondary">Export SRT</sp-button>
+          <sp-button id="open-library" type="button" class="quiet" variant="secondary">Open full analyzer</sp-button>
         </div>
       </div>
     </div>

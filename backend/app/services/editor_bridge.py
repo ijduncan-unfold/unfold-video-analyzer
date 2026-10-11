@@ -157,14 +157,35 @@ def editor_view(job, host=None):
     return {**asset_view(job, detail=True), 'editor_sources': sources}
 
 
-def project_assets(project_id, host='premiere'):
+def saved_editor_view(job, host='premiere'):
+    """Saved logging remains readable after relinking; native edits stay guarded."""
+    result = editor_view(job, host=host)
+    result['source_available'] = True
+    result['source_media_path'] = job.local_path
+    try:
+        ensure_source_unchanged(job)
+    except HTTPException as exc:
+        result['source_available'] = False
+        result['source_warning'] = exc.detail
+    return result
+
+
+def project_assets(project_id, host='premiere', include_saved=False):
     host = _editor_host(host)
     with connection() as db:
         _schema(db)
         rows = db.execute('''SELECT DISTINCT s.job_id FROM editor_sources s
             JOIN jobs j ON j.job_id=s.job_id WHERE s.host=? AND s.project_id=?
             ORDER BY j.rowid DESC''', (host, project_id)).fetchall()
-    return [editor_view(job, host=host) for row in rows if (job := get_job(row[0])) is not None]
+    jobs = [job for row in rows if (job := get_job(row[0])) is not None]
+    if include_saved:
+        paths = {os.path.normcase(job.local_path) for job in jobs if job.media_origin == 'external'}
+        ids = {job.job_id for job in jobs}
+        jobs.extend(job for job in list_jobs() if job.job_id not in ids and job.status != 'deleting'
+                    and job.media_origin == 'external' and os.path.normcase(job.local_path) in paths
+                    and (job.flash_result or job.transcript))
+        return [saved_editor_view(job, host=host) for job in jobs]
+    return [editor_view(job, host=host) for job in jobs]
 
 
 def _bind(job, body, path, fingerprint, new=False, host='premiere'):

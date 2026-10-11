@@ -1,12 +1,14 @@
 * { box-sizing: border-box; }
 html, body { width: 100%; height: 100%; }
 body { margin: 0; color: #dbe5f0; background: #161c23; font-family: sans-serif; font-size: 12px; }
-.panel { padding: 16px; width: 100%; height: 100%; overflow-y: auto; }
+.panel { padding: 12px; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.workspace { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.heading, .connection, .message { flex-shrink: 0; }
 .heading, .row { display: flex; align-items: center; }
 .heading { justify-content: space-between; margin-bottom: 16px; }
 h1 { font-size: 17px; font-weight: 600; margin: 0; }
 p { margin: 0; line-height: 1.5; }
-button, input, select { font-family: sans-serif; font-size: 12px; }
+sp-button, sp-textfield, button, input, select { font-family: sans-serif; font-size: 12px; }
 button { min-height: 32px; padding: 7px 12px; background: #27323e; color: #dbe5f0; border: 1px solid #3b4a5a; border-radius: 5px; cursor: pointer; }
 button:hover { background: #354659; }
 button:focus, input:focus, select:focus { border: 1px solid #86bfff; outline: 2px solid #86bfff; }
@@ -14,7 +16,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 button.primary { color: #101e30; background: #90c3ff; border-color: #90c3ff; font-weight: 600; }
 button.primary:hover { background: #b0d5ff; }
 button.quiet { border-color: transparent; background: transparent; color: #9ec8fa; }
-input, select { display: block; width: 100%; min-height: 34px; color: #e2ebf5; background: #1b242e; border: 1px solid #3b4a5a; border-radius: 4px; padding: 7px 9px; }
+input, select { display: block; width: 100%; height: 32px; color: #e2ebf5; background: #1b242e; border: 1px solid #3b4a5a; border-radius: 4px; padding: 0 8px; }
 .row > * { margin-right: 8px; }
 .row > :last-child { margin-right: 0; }
 .field-label { display: block; margin: 10px 0 5px; color: #b8c8da; }
@@ -57,3 +59,19 @@ input, select { display: block; width: 100%; min-height: 34px; color: #e2ebf5; b
 .empty { padding: 20px 6px; color: #9baec3; line-height: 1.5; }
 .footer { justify-content: space-between; padding-top: 16px; margin-top: 10px; border-top: 1px solid #33414e; }
 .hidden { display: none; }
+
+/* Spectrum controls size their native editor correctly at narrow dock widths. */
+sp-textfield { display: block; width: 100%; height: 32px; padding: 0; margin: 0; font-size: 13px; }
+sp-button { height: 32px; padding: 0; margin: 0; }
+sp-button.primary { margin-top: 0; }
+.full-width { display: block; width: 100%; margin-bottom: 8px; }
+.asset-toggle { display: block; margin: 8px 0; }
+.asset-option { margin: 5px 0; height: auto; min-height: 42px; }
+.tabs sp-button { margin-right: 8px; }
+.result-tools { margin: 10px 0 6px; }
+.result-tools sp-button { margin-top: 6px; }
+#marker-help, #timing-note { margin: 6px 0 10px; }
+.clip-actions { display: flex; flex-direction: column; align-items: stretch; }
+.clip-actions > * { margin-right: 0; margin-top: 6px; width: 100%; }
+.action-status { font-size: 11px; color: #a9cfff; margin-top: 8px; line-height: 1.5; }
+.action-status.error { color: #ffbaad; }

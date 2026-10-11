@@ -429,7 +429,18 @@ function createHost(injectedApi, injectedXmp) {
         if (normalizedPath(await candidate.getMediaFilePath(), windowsSource) !== normalizedPath(binding.media_path, windowsSource)) return false;
         requiredMethod(candidate, "getInPoint"); requiredMethod(candidate, "getOutPoint");
         const mediaType = ppro.Constants.MediaType.VIDEO;
-        const a = await candidate.getInPoint(mediaType), b = await candidate.getOutPoint(mediaType);
+        let a = await candidate.getInPoint(mediaType), b = await candidate.getOutPoint(mediaType);
+        // New native subclips have hard media boundaries but no user marks.
+        // Premiere returns -400000 seconds for each unset mark. Verify the
+        // actual media bounds relative to the original's embedded start.
+        if (a && b && a.seconds === -400000 && b.seconds === -400000) {
+          requiredMethod(candidate, "getMedia"); requiredMethod(clip, "getMedia");
+          const media = await candidate.getMedia(), original = await clip.getMedia();
+          requiredMethod(media, "getStart"); requiredMethod(media, "getDuration"); requiredMethod(original, "getStart");
+          const mediaStart = await media.getStart(), originalStart = await original.getStart(), mediaDuration = await media.getDuration();
+          a = { seconds: mediaStart && originalStart ? mediaStart.seconds - originalStart.seconds : NaN };
+          b = { seconds: mediaDuration ? a.seconds + mediaDuration.seconds : NaN };
+        }
         rangeReadback = `Expected ${frameStart.toFixed(6)}–${frameEnd.toFixed(6)}s; Premiere returned ${a && a.seconds}–${b && b.seconds}s.`;
         if (!a || !b || !Number.isFinite(a.seconds) || !Number.isFinite(b.seconds)) return false;
         const tolerance = 0.5 / (fps || 24) + 0.000001;

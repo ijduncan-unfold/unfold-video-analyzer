@@ -421,7 +421,7 @@ def test_mac_setup_and_panel_actions_report_missing_resources_without_launch(mon
 
 @pytest.mark.parametrize('platform', ['win32', 'darwin'])
 def test_frozen_premiere_install_opens_bundled_ccx(monkeypatch, tmp_path, platform):
-    package = tmp_path / 'plugins' / 'VideoAnalyzer-Premiere-0.1.12.ccx'
+    package = tmp_path / 'plugins' / 'VideoAnalyzer-Premiere-0.1.13.ccx'
     package.parent.mkdir()
     package.write_bytes(b'test package')
     monkeypatch.setattr(desktop.sys, 'platform', platform)
@@ -433,7 +433,7 @@ def test_frozen_premiere_install_opens_bundled_ccx(monkeypatch, tmp_path, platfo
     launch = Mock()
     monkeypatch.setattr(desktop.subprocess, 'Popen', launch)
     desktop._install_premiere_panel()
-    resource.assert_called_once_with('plugins/VideoAnalyzer-Premiere-0.1.12.ccx')
+    resource.assert_called_once_with('plugins/VideoAnalyzer-Premiere-0.1.13.ccx')
     if platform == 'win32':
         startfile.assert_called_once_with(str(package))
         launch.assert_not_called()
