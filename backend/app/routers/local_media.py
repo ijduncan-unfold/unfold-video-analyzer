@@ -1,11 +1,13 @@
 """Same-origin, loopback-only registration; no originals are uploaded or copied."""
 from urllib.parse import urlsplit
+import asyncio
 import os
 import time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.utils.video_formats import get_mime_type
 
 from app.services.camera_media import register_camera_source
 from app.services.library_service import asset_view
@@ -33,6 +35,41 @@ def require_local_import(request: Request):
 
 router = APIRouter(prefix='/api/local-media', dependencies=[Depends(require_local_import)])
 _import_progress = {}
+
+
+class BrowserDropRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(min_length=1, max_length=255)
+    size: int = Field(gt=0)
+    last_modified: int = Field(ge=0)
+    edge_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @field_validator('name')
+    @classmethod
+    def filename_only(cls, value):
+        if any(char in value for char in '/\\:\x00') or not get_mime_type(value):
+            raise ValueError('Drop a recognized video file.')
+        return value
+
+
+@router.post('/resolve-drop')
+async def resolve_browser_drop(body: BrowserDropRequest):
+    from app.services.browser_drop import resolve_drop
+    try:
+        path = await asyncio.wait_for(asyncio.to_thread(resolve_drop, body.name, body.size,
+            body.last_modified, body.edge_sha256), timeout=8)
+    except asyncio.TimeoutError:
+        path = None
+    return {'media_path': path}
+
+
+@router.post('/choose-files')
+async def choose_originals():
+    from app.native_picker import choose_files
+    try:
+        return {'paths': await asyncio.to_thread(choose_files)}
+    except (OSError, ValueError) as exc:
+        raise HTTPException(503, str(exc))
 
 
 class LocalMediaRequest(BaseModel):
@@ -68,8 +105,8 @@ async def import_original(body: LocalMediaRequest):
         raise HTTPException(429, 'Too many imports; wait before importing more media.')
     def progress(state):
         if ident:
-            _import_progress[ident] = {**state, 'updated_at': time.monotonic()}
-    progress({'stage': 'inspecting', 'message': 'Reading original media'})
+            _import_progress[ident] = {**state, 'started_at': now, 'updated_at': time.monotonic()}
+    progress({'stage': 'queued', 'message': 'Waiting to inspect original media'})
     try:
         kwargs = {'on_progress': progress} if ident else {}
         job = await register_camera_source(body.media_path, body.viewing_path, body.proxy_alignment_confirmed, **kwargs)
@@ -85,7 +122,8 @@ def import_progress(import_id: UUID):
     state = _import_progress.get(str(import_id))
     if not state:
         return {'stage': 'pending', 'message': 'Reading original media'}
-    return {key: value for key, value in state.items() if key != 'updated_at'}
+    return {**{key: value for key, value in state.items() if key not in {'updated_at', 'started_at'}},
+            'elapsed_seconds': round(time.monotonic() - state.get('started_at', time.monotonic()))}
 
 
 class OpenDesktopRequest(BaseModel):

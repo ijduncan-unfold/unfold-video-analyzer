@@ -140,19 +140,23 @@ def decoder_guidance(filename, codec=''):
 
 
 async def register_camera_source(media_path, proxy_path='', aligned=False, source_fps=None, on_progress=None):
+    if _link_lock.locked() and on_progress:
+        on_progress({'stage': 'queued', 'message': 'Waiting for the current import to finish'})
     async with _link_lock:
         return await _register_camera_source(media_path, proxy_path, aligned, source_fps, on_progress)
 
 
 async def _register_camera_source(media_path, proxy_path, aligned, source_fps, on_progress=None):
+    if on_progress:
+        on_progress({'stage': 'locating', 'message': 'Checking original file and camera sidecars'})
     original = Path(media_path)
     if not original.is_absolute() or not get_mime_type(original.name):
         raise HTTPException(422, 'Choose an absolute path to recognized video or camera media.')
     try:
         from app.services.camera_identity import recording_files
         original, companion_paths = await asyncio.to_thread(recording_files, original)
-        companions = [{'path': str(path.resolve()), 'fingerprint': source_fingerprint(path)[0]} for path in companion_paths]
-        fingerprint, original, size = source_fingerprint(original)
+        companions = await asyncio.to_thread(lambda: [{'path': str(path.resolve()), 'fingerprint': source_fingerprint(path)[0]} for path in companion_paths])
+        fingerprint, original, size = await asyncio.to_thread(source_fingerprint, original)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     except OSError:
@@ -175,14 +179,18 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps, o
                 _check_interpreted_rate(source_fps, existing.technical)
                 return existing
     if on_progress:
-        on_progress({'stage': 'inspecting', 'message': 'Reading original media'})
+        on_progress({'stage': 'inspecting', 'message': 'Inspecting video format and source timing'})
     try:
         technical = await probe_media(str(original))
     except ValueError:
         technical = {}
     except FileNotFoundError:
         raise HTTPException(503, 'FFmpeg and ffprobe are required to import camera media.')
-    technical = sony_sidecar(original, technical)
+    technical = await asyncio.to_thread(sony_sidecar, original, technical)
+    from app.services.native_camera import supports_sony_f55
+    if on_progress:
+        on_progress({'stage': 'checking_decoder', 'message': 'Opening camera decoder' if supports_sony_f55(original, technical)
+            or original.suffix.lower() in {'.braw', '.r3d', '.ari', '.arx'} else 'Checking video decoding'})
     if technical.get('duration_seconds') and technical.get('frame_rate'):
         _check_interpreted_rate(source_fps, technical)
     viewing_fingerprint = ''
@@ -227,7 +235,7 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps, o
             except (ValueError, OSError) as exc:
                 raise HTTPException(422, str(exc))
             generated = True
-        elif not technical or not await decode_check(original):
+        elif supports_sony_f55(original, technical) or not technical or not await decode_check(original):
             from app.services.native_camera import supports_sony_f55, prepare_sony_viewing
             if (original.suffix.lower() in {'.ari', '.arx'} or 'arri' in str(technical.get('codec', '')).lower()
                     or 'arri' in str(technical.get('camera_manufacturer', '')).lower()):
@@ -281,6 +289,8 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps, o
               viewing_path=str(proxy) if proxy else '', viewing_fingerprint=viewing_fingerprint,
               camera_companions=companions)
     try:
+        if on_progress:
+            on_progress({'stage': 'finishing', 'message': 'Preparing preview and saving project'})
         await create_poster(str(source), str(Path(settings.upload_dir) / ident / 'poster.jpg'), technical['duration_seconds'])
         ensure_source_unchanged(job)
     except BaseException:

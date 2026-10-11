@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { getAsset, getCapabilities, getLibrary, getProjects, getShots, importLocalMedia } from '../api/library'
 import type { AssetDetail, Capabilities, ImportProgress, LibraryAsset, LibraryResponse, LibraryShot } from '../api/library'
-import { chooseNativeMedia, nativeMediaAvailable, openDesktopWindow } from '../api/nativeMedia'
+import { chooseNativeMedia, nativeMediaAvailable, resolveBrowserDrop } from '../api/nativeMedia'
 import { copyEditorPairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
 import { useSettingsStore } from '../stores/settingsStore'
 import { AssetInspector } from './library/AssetInspector'
@@ -185,15 +185,33 @@ export function LibraryWorkspace() {
     if (uploadLock.current) return
     setUploadError('')
     try {
-      if (nativeMediaAvailable()) await importPaths(await chooseNativeMedia())
-      else { await openDesktopWindow(true); setUploadNotice('Select or drop the video in the desktop window. Original media stays in place.') }
+      await importPaths(await chooseNativeMedia())
     } catch (err) { setUploadError(errorMessage(err)) }
   }
 
-  async function browserDrop() {
+  async function browserDrop(files: File[]) {
     if (nativeMediaAvailable()) return // The native drop handler supplies the original paths.
-    try { await openDesktopWindow(); setUploadNotice('Drop the video in the desktop window. This browser cannot read its original path.') }
-    catch (err) { setUploadError(errorMessage(err)) }
+    if (uploadLock.current) return
+    uploadLock.current = true; setUploadError(''); setUploadNotice('')
+    const paths: string[] = []
+    try {
+      for (const [index, file] of files.entries()) {
+        setUpload({ filename: file.name, current: index + 1, total: files.length,
+          progress: { stage: 'locating', message: 'Locating original in known camera folders…' } })
+        const path = await resolveBrowserDrop(file)
+        if (path) paths.push(path)
+        else {
+          // A normal browser hides absolute paths. Ask the OS once rather than
+          // opening another app window and requiring a second drop.
+          setUploadNotice('This browser hides the original path. Choose the dropped clips in the file picker; originals stay in place.')
+          setUpload(previous => previous ? { ...previous, progress: { stage: 'choosing', message: 'Choose original media in the file picker' } } : previous)
+          paths.push(...await chooseNativeMedia())
+          break
+        }
+      }
+    } catch (err) { setUploadError(errorMessage(err)) }
+    finally { setUpload(null); uploadLock.current = false }
+    if (paths.length) await importPaths(paths)
   }
 
   function toggleProject(asset: LibraryAsset) {
@@ -222,7 +240,7 @@ export function LibraryWorkspace() {
   const displayError = error || (!projects ? projectError : '')
   const hasActiveFilters = !!(project || review || tag || rights || collection)
   return <div ref={workspace} className={`lw-workspace ${selection ? 'has-video-workspace' : ''}`}>
-    <main ref={libraryMain} hidden={!!selection} className="lw-main" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true) } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDragLeave={event => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false) } }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (event.dataTransfer.files.length) void browserDrop() }}>
+    <main ref={libraryMain} hidden={!!selection} className="lw-main" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true) } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDragLeave={event => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false) } }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (event.dataTransfer.files.length) void browserDrop(Array.from(event.dataTransfer.files)) }}>
       <h1 className="lw-sr-only">Footage library</h1>
       <div className="lw-library-content">
         <header className="lw-toolbar">
@@ -257,7 +275,7 @@ export function LibraryWorkspace() {
           </div>
           <div className="lw-filter-panel-actions">{hasFilters && <button className="lw-text-button" onClick={clearFilters}>Clear filters</button>}<div className="lw-view-toggle"><button className={layout === 'grid' ? 'is-active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Icon name="grid" size={16} /></button><button className={layout === 'list' ? 'is-active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><Icon name="list" size={17} /></button></div></div>
         </div>}
-        {upload && <div className="lw-upload-progress" role="status"><Icon name="film" size={17} /><div><strong>{upload.filename} · {upload.current}/{upload.total}</strong><span>{upload.progress?.message || 'Reading original media…'}{upload.progress?.percent !== undefined ? ` · ${upload.progress.percent}%` : ''}</span><progress aria-label="Import progress" max={100} value={upload.progress?.percent} /></div></div>}
+        {upload && <div className="lw-upload-progress" role="status"><Icon name="film" size={17} /><div><strong>{upload.filename} · {upload.current}/{upload.total}</strong><span>{upload.progress?.message || 'Checking original file…'}{upload.progress?.percent !== undefined ? ` · ${upload.progress.percent}%` : ''}{(upload.progress?.elapsed_seconds || 0) >= 5 ? ` · ${upload.progress?.elapsed_seconds}s elapsed` : ''}</span><progress className={upload.progress?.percent === undefined ? 'is-indeterminate' : ''} aria-label="Import progress" max={100} value={upload.progress?.percent} /></div></div>}
         {uploadNotice && <div className="lw-notice" role="status"><Icon name="check" size={17} /><span>{uploadNotice}</span><button className="lw-icon-button" aria-label="Dismiss notification" onClick={() => setUploadNotice('')}><Icon name="close" size={15} /></button></div>}
         {uploadError && <div className="lw-inline-error" role="alert">{uploadError}<button className="lw-text-button" onClick={() => setUploadError('')}>Dismiss</button></div>}
         {(loading || projectLoading || shotScopeLoading) && library && <span className="lw-loading-status" role="status">Loading…</span>}

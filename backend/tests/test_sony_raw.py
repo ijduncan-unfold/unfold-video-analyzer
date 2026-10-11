@@ -108,7 +108,8 @@ def test_f55_import_automatically_generates_viewing_copy_and_reuses_it(client, t
     assert poster.call_args.args[0] == job.viewing_path
     assert job.local_path == str(original.resolve()) and job.size_bytes == len(b'camera original')
     assert job.technical['codec'] == FACTS['codec'] and job.technical['viewing_proxy']['generated']
-    assert progress[-1]['percent'] == 50 and 'approximate' in job.warnings[0]
+    assert any(state.get('percent') == 50 for state in progress) and 'approximate' in job.warnings[0]
+    assert progress[-1]['stage'] == 'finishing'
     assert cleanup(job) and not Path(job.viewing_path).exists()
     assert original.read_bytes() == b'camera original'
 

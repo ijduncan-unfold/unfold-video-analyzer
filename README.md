@@ -130,7 +130,7 @@ npm --prefix frontend run build
 
 Open [the local workspace](http://127.0.0.1:8000). The backend serves the built frontend, so one server is enough.
 
-For native drag-and-drop, install `requirements-desktop.txt` in this environment. Import in the browser opens the desktop window and its file picker. A browser cannot expose an original absolute/network path from a dropped file; dropping there opens the desktop window, where you can drop the original. The desktop companion opens this window directly.
+For native drag-and-drop, install `requirements-desktop.txt` in this environment. Browser drops first check previously imported source folders, including adjacent Sony recording folders, using the filename, size, modification time and a bounded edge fingerprint. Matching originals are referenced in place. Unknown or ambiguous paths open an OS file picker on Windows/macOS, without opening a second app window or asking for another drop. Browsers hide absolute paths, so the first clip in an unfamiliar folder still needs that file selection. Import uses the same picker. The desktop companion supports direct drops with native paths.
 
 ### macOS / Linux
 
@@ -171,6 +171,8 @@ Open [the Docker workspace](http://localhost:5173). Compose binds to loopback an
 ## Storage and processing
 
 **Drop videos into the desktop window or use Import**. The original local or network-share path is referenced automatically, without a path form or a full-size copy. MXF and common camera containers are recognized and checked against the installed decoder. Sony, Panasonic, Canon and ARRI workflows use direct FFmpeg proxies when decodable. Native Sony F55, BRAW, RED and ARRI routes prepare viewing proxies automatically. Unsupported RAW requires an aligned viewing proxy supplied through the editor integration/API. Unknown original facts remain unknown. [Camera media support and RAW limits](docs/CAMERA_MEDIA.md).
+
+Import displays queue, source inspection, decoder, proxy preparation, and preview stages, with elapsed time and an animated indicator before percentages are available. Recognized Sony F55 RAW goes directly to its native decoder, avoiding a redundant failed FFmpeg attempt. Browser folder lookup reads at most 128 KiB per candidate locally and sends only its fingerprint and file facts to the local app; it does not upload the original to Google or copy the original into the library. Offline or ambiguous matches use the file picker.
 
 **Proxy: Auto / Always / Off** sits beside the analysis controls and is remembered in this browser. Auto uses temporary **10-minute, up-to-720p analysis parts** for measured local sources at least **30 minutes** long, larger than **1 GiB**, encoded in heavy camera formats (including ProRes, DNxHD/HR, CineForm, and RAW), or with an estimated data rate of **50 Mb/s or more**. Always proxies any local video with a measured duration; Off uploads the original without encoding. YouTube URLs bypass local proxying. During encoding, the app displays **Preparing analysis proxy** and the current part number; Run details records the selected mode and decision reason. When proxying, only the first part must be prepared before indexing starts; shots still arrive after each 30-second section. Original film timestamps are restored in code for shot search, dialogue, exports, and editor handoffs. Originals are never modified, and this path creates no additional full-film copy.
 

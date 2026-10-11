@@ -190,7 +190,7 @@ export interface Capabilities {
   max_file_size_mb?: number
   linked_media_import?: boolean
 }
-export interface ImportProgress { stage: string; message: string; percent?: number }
+export interface ImportProgress { stage: string; message: string; percent?: number; elapsed_seconds?: number }
 export async function importLocalMedia(mediaPath: string, viewingPath: string, confirmed: boolean, onProgress?: (progress: ImportProgress) => void) {
   const importId = crypto.randomUUID()
   const controller = new AbortController()
@@ -199,10 +199,12 @@ export async function importLocalMedia(mediaPath: string, viewingPath: string, c
     while (!finished) {
       try {
         const progress = await request<ImportProgress>(`/api/local-media/import-progress/${importId}`, {
-          headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
         })
         if (!finished) onProgress?.(progress)
-      } catch { /* The import response supplies errors; transient polls do not stop decoding. */ }
+      } catch {
+        if (!finished) onProgress?.({ stage: 'reconnecting', message: 'Reconnecting to import progress…' })
+      }
       if (!finished) await new Promise(resolve => setTimeout(resolve, 800))
     }
   }
