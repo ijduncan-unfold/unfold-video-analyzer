@@ -178,6 +178,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       </div>
       </div>
     </header>
+    <div className="lw-inspector-tabs" role="tablist" aria-label="Asset information">{ASSET_TABS.map(value => <button id={`asset-tab-${value.replaceAll(' ', '-')}`} aria-controls={`asset-panel-${value.replaceAll(' ', '-')}`} role="tab" tabIndex={tab === value ? 0 : -1} onKeyDown={event => { const current = ASSET_TABS.indexOf(tab); const next = event.key === 'ArrowRight' ? (current + 1) % ASSET_TABS.length : event.key === 'ArrowLeft' ? (current + ASSET_TABS.length - 1) % ASSET_TABS.length : event.key === 'Home' ? 0 : event.key === 'End' ? ASSET_TABS.length - 1 : -1; if (next >= 0) { event.preventDefault(); chooseTab(ASSET_TABS[next]); document.getElementById(`asset-tab-${ASSET_TABS[next].replaceAll(' ', '-')}`)?.focus() } }} aria-selected={tab === value} onClick={() => chooseTab(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
     <div className={`vw-layout ${(tab === 'export' || tab === 'match cuts' || tab === 'rough cut') ? 'is-export' : ''}`}>
       <div className="vw-viewer" hidden={tab === 'export' || tab === 'match cuts' || tab === 'rough cut'}>
         <div className="lw-preview">{preparingPlayback && <p className="lw-model-note" role="status">Preparing playback proxy… Original media stays in place.</p>}
@@ -191,7 +192,6 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
         {asset.error && <div className="lw-inline-error" role="alert">{asset.error}</div>}
       </div>
       <div className="vw-data">
-    <div className="lw-inspector-tabs" role="tablist" aria-label="Asset information">{ASSET_TABS.map(value => <button id={`asset-tab-${value.replaceAll(' ', '-')}`} aria-controls={`asset-panel-${value.replaceAll(' ', '-')}`} role="tab" tabIndex={tab === value ? 0 : -1} onKeyDown={event => { const current = ASSET_TABS.indexOf(tab); const next = event.key === 'ArrowRight' ? (current + 1) % ASSET_TABS.length : event.key === 'ArrowLeft' ? (current + ASSET_TABS.length - 1) % ASSET_TABS.length : event.key === 'Home' ? 0 : event.key === 'End' ? ASSET_TABS.length - 1 : -1; if (next >= 0) { event.preventDefault(); chooseTab(ASSET_TABS[next]); document.getElementById(`asset-tab-${ASSET_TABS[next].replaceAll(' ', '-')}`)?.focus() } }} aria-selected={tab === value} onClick={() => chooseTab(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
     <div ref={body} className="lw-inspector-body" role="tabpanel" id={`asset-panel-${tab.replaceAll(' ', '-')}`}  aria-labelledby={`asset-tab-${tab.replaceAll(' ', '-')}`} >
       {error && <div className="lw-inline-error" role="alert">{error}</div>}{notice && <div className="lw-inline-success" role="status">{notice}</div>}
       {tab === 'analysis' && warnings.length > 0 && <details className="lw-details"><summary>Analysis notes<Icon name="down" size={14} /></summary><div className="lw-analysis-warning">{warnings.map(warning => <p key={warning}>{warning}</p>)}</div></details>}

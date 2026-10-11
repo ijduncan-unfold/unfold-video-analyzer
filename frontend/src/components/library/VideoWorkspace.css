@@ -9,7 +9,7 @@
   height: 100dvh;
   border: 0;
   box-shadow: none;
-  overflow: hidden;
+  overflow: clip;
   background: #191b1d;
 }
 .vw-header {
@@ -55,7 +55,7 @@
 .lw-video-workspace .vw-shot-transport .lw-icon-button { width: 32px; height: 32px; border: 1px solid #383e45; border-radius: 5px; }
 .vw-shot-context > p { margin: 12px 0 0; color: #adb6c2; font-size: 14px; line-height: 1.8; }
 .vw-data { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid #34383d; background: #1d2023; }
-.lw-video-workspace .lw-inspector-tabs { padding: 0 26px; gap: 26px; border-top: 0; overflow-x: auto; }
+.lw-video-workspace .lw-inspector-tabs { width: 100%; min-width: 0; flex-shrink: 0; justify-content: flex-start; padding: 0 28px; gap: 26px; border-top: 0; overflow-x: auto; overflow-y: hidden; background: #1d2023; }
 .lw-video-workspace .lw-inspector-tabs > button { padding: 18px 2px; font-size: 13px; flex-shrink: 0; white-space: nowrap; }
 .lw-video-workspace .lw-inspector-body { padding: 24px 26px 32px; }
 .vw-shot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 18px; align-items: start; }
