@@ -210,7 +210,10 @@ test('HTML script without a CommonJS module global keeps lifecycle callbacks syn
   let hooks;
   const timers = new Set();
   const modules = {
-    uxp: { storage: h.stored.storage, entrypoints: { setup(value) { hooks = value; } } },
+    uxp: { storage: h.stored.storage, entrypoints: { setup(value) {
+      assert.equal(typeof value.plugin.create, 'function', 'Premiere requires plugin.create');
+      hooks = value;
+    } } },
     './host.js': h.host,
     './connection.js': { readConnection: async () => ({ ...h.connection }) },
     os: { platform: () => 'win32' },
@@ -649,6 +652,7 @@ test("endpoint validation and manifest allow exactly the local HTTP and HTTPS tr
     assert.throws(() => normalizeServer(endpoint), /only to the local analyzer/);
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../manifest.json"), "utf8"));
-  assert.deepEqual(manifest.requiredPermissions.network.domains.sort(), endpoints.sort());
+  // Discovery canonicalizes IP loopback to localhost for UXP's permission matcher.
+  assert.deepEqual(manifest.requiredPermissions.network.domains.sort(), ["http://localhost:8000", "https://localhost:8443"].sort());
   assert.deepEqual(manifest.requiredPermissions.launchProcess.schemes.sort(), ["http", "https"]);
 });

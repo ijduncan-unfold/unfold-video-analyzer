@@ -33,7 +33,7 @@ test('discovery reads bounded chunks and closes the handle without persisting a 
   const mock = filesystem(JSON.stringify(descriptor));
   const result = await readConnection({ fs: mock.fs, os: { platform: () => 'win32', homedir: () => 'C:/Users/User' } });
   assert.equal(result.token, descriptor.token);
-  assert.equal(result.server, descriptor.server);
+  assert.equal(result.server, 'http://localhost:8000');
   assert.equal(mock.closes, 1);
 });
 
@@ -56,6 +56,17 @@ test('oversized and symlink-backed discovery is rejected before opening', async 
 test('Mac refuses public-readable discovery files', async () => {
   const mock = filesystem(JSON.stringify({ ...descriptor, server: 'https://localhost:8443' }), { mode: 0o100644 });
   await assert.rejects(readConnection({ fs: mock.fs, os: { platform: () => 'darwin', homedir: () => '/Users/User' } }), /Start Video Analyzer/);
+});
+
+test('UXP stats without isSymbolicLink use native mode and still reject links', async () => {
+  for (const mode of [0o100600, 0o120600, undefined]) {
+    const mock = filesystem(JSON.stringify(descriptor));
+    const stat = mock.fs.lstat;
+    mock.fs.lstat = async file => { const info = await stat(file); delete info.isSymbolicLink; info.mode = mode; return info; };
+    const operation = readConnection({ fs: mock.fs, os: { platform: () => 'win32', homedir: () => 'C:/Users/User' } });
+    if (mode === 0o100600) assert.equal((await operation).server, 'http://localhost:8000');
+    else await assert.rejects(operation, /Start Video Analyzer/);
+  }
 });
 
 test('a descriptor replaced during reading is discarded and the handle is closed', async () => {

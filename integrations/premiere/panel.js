@@ -820,14 +820,17 @@ if (typeof document !== "undefined") {
   const panel = createPanel({ document, uxp, host, fetch, platform });
   function startupError(error) { document.getElementById("message").textContent = "Panel startup failed: " + error.message; }
   uxp.entrypoints.setup({
-    plugin: { destroy() { panel.destroy(); } },
+    plugin: { create() {}, destroy() { panel.destroy(); } },
     panels: {
       videoAnalyzerPanel: {
         create() { setTimeout(() => { panel.init().catch(startupError); }, 0); },
         show() {
           setTimeout(() => {
             panel.init().then(() => {
-              if (panel.getState().connected) return panel.refreshProject();
+              if (panel.getState().connected) return panel.refreshProject().catch(error => {
+                // An absent project is normal on Premiere's home screen.
+                document.getElementById("message").textContent = "Connected. " + error.message;
+              });
             }).catch(startupError);
           }, 0);
         },

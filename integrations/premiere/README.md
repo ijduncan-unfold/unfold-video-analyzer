@@ -10,7 +10,7 @@ Use **Sync metadata to Premiere** to populate project Description, Scene, Shot, 
 
 1. Install `VideoAnalyzer-0.1.0-preview-windows-x64.exe`. Keep its FFmpeg setup option enabled if media tools are not installed. This retrieves the separate FFmpeg package using Windows Package Manager.
 2. Open **Video Analyzer** from the Start menu. It runs in the tray and opens its browser interface. Configure your Gemini key in **Settings**; it is stored in your local user data and used by the panel.
-3. Right-click Video Analyzer's tray icon and choose **Install Premiere integration** (also available in the Windows portable app). Alternatively, use the Start menu's **Install Premiere panel** shortcut, or double-click `VideoAnalyzer-Premiere-0.1.2.ccx`. Creative Cloud Desktop handles the plugin install. Open **Window → UXP Plugins → Video Analyzer** in Premiere.
+3. Right-click Video Analyzer's tray icon and choose **Install Premiere integration** (also available in the Windows portable app). Alternatively, use the Start menu's **Install Premiere panel** shortcut, or double-click `VideoAnalyzer-Premiere-0.1.8.ccx`. Creative Cloud Desktop handles the plugin install. Open **Window → UXP Plugins → Video Analyzer** in Premiere.
 4. Start the companion and open the Premiere panel. It finds the private local connection automatically, with no token to copy. If Premiere opens first, the panel retries until the companion starts. **Connect** retries immediately; **Disconnect** pauses automatic reconnection.
 5. Select original media clips or a bin in Premiere's **Project** panel. Click **Load selected Premiere clips**. Import does not start billable analysis.
 6. Choose **Shots and tags** or **Full analysis**, then click **Analyze**. Shots and transcript lines appear as saved analysis sections finish. Closing the panel leaves the companion's analysis running.
@@ -42,6 +42,7 @@ The package contains only six allowlisted public panel resources. It contains no
 ## Scope and limits
 
 - Windows uses HTTP loopback port 8000; Apple Silicon Mac uses trusted HTTPS loopback port 8443. The companion must run separately; the UXP panel does not bundle Python or run the engine inside Premiere. A hosted browser service would require a separate deployment and access model.
+- Discovery uses `localhost` for Premiere's network permission matcher, including when the companion advertises `127.0.0.1`. The manifest allows only the local HTTP/HTTPS services; endpoint validation also enforces the two configured ports.
 - Mac HTTPS setup is included using mkcert and an explicit local trust action. Mac panel networking, Creative Cloud installation, and native editing behavior still require acceptance on the user's Mac. Developer ID signing and notarization remain release work.
 - Premiere 26.3 is required because Source Monitor seeking was added in that release. The adapter feature-detects required APIs and reports failures instead of claiming a successful edit.
 - Original Project media only: timeline clips, nested sequences, merged clips, multicam items, and changed frame-rate interpretation are not supported in this first pass. Source-media seconds are used, not timeline offsets. Proxy/original alignment and nonzero source timecode must be checked in Premiere acceptance testing.
@@ -53,6 +54,8 @@ The package contains only six allowlisted public panel resources. It contains no
 ## Acceptance before release
 
 On an installed Premiere 26.3+ build, install the CCX, verify automatic connection, load a small local Project clip, choose an analysis type, and verify progressive results. Check source jumps at zero and known times with embedded source timecode and fractional frame rates; confirm marker start/duration, undo, duplicate skipping, offline/relinked media, and project switching. Export SRT and inspect/import it in Premiere. Verify reopening both apps restores saved results and uninstall preserves original footage.
+
+Windows connection acceptance: installed in Premiere 26.5.2 and verified automatic discovery, authenticated connection, disconnect, and reconnect against the running portable companion. This check used Premiere's home screen without an open project; native clip editing and Mac acceptance remain separate checks.
 
 ## Official API references
 
