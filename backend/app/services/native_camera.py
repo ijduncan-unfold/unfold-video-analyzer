@@ -3,6 +3,7 @@ import asyncio
 from fractions import Fraction
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -324,13 +325,31 @@ async def stop_worker(proc):
 _gate = None
 
 
+class SonyWorkerError(ValueError):
+    def __init__(self, message, retryable=False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
 async def prepare_sony_viewing(original, folder, technical, on_progress=None):
     """Decode complete source once; retain original facts and check proxy alignment."""
     global _gate
     if _gate is None:
         _gate = asyncio.Semaphore(1)
     async with _gate:
-        return await _prepare_sony_viewing(original, folder, technical, on_progress)
+        from app.services.editor_bridge import source_fingerprint
+        fingerprint = (await asyncio.to_thread(source_fingerprint, original))[0]
+        try:
+            return await _prepare_sony_viewing(original, folder, technical, on_progress)
+        except SonyWorkerError as error:
+            if not error.retryable or not str(original).startswith('\\\\'):
+                raise
+            if on_progress:
+                on_progress({'stage': 'retrying', 'message': 'Network interruption; retrying Sony RAW proxy once'})
+            await asyncio.sleep(1)
+            if (await asyncio.to_thread(source_fingerprint, original))[0] != fingerprint:
+                raise ValueError('The camera original changed during import. No proxy was published.') from error
+            return await _prepare_sony_viewing(original, folder, technical, on_progress)
 
 
 async def _prepare_sony_viewing(original, folder, technical, on_progress):
@@ -385,7 +404,10 @@ async def _prepare_sony_viewing(original, folder, technical, on_progress):
         except (OSError, ValueError):
             pass
         if proc.returncode or state.get('stage') != 'complete' or state.get('frames') != frames:
-            raise ValueError(state.get('message') or 'Sony RAW decoder failed; the original has been kept')
+            message = state.get('message') if state.get('stage') == 'error' else None
+            raise SonyWorkerError(message or f'Sony RAW worker stopped during {state.get("stage", "opening")} '
+                f'at frame {state.get("frames", 0)} (exit {proc.returncode}). Retry this clip; the original is unchanged.',
+                retryable=state.get('stage') == 'error' and state.get('retryable') is True)
         proxy_facts = await probe_media(str(target))
         if (not target.stat().st_size or proxy_facts.get('codec') != 'h264' or
                 abs(proxy_facts.get('duration_seconds', 0) - frames / float(fps)) > 1 / float(fps) + .005 or
@@ -409,6 +431,15 @@ async def _prepare_sony_viewing(original, folder, technical, on_progress):
         if proc.returncode is None:
             await stop_worker(proc)
         await wait
+        if not published:
+            # Progress is temporary, but retain the last state for support.
+            diagnosis = {**state, 'worker_exit': proc.returncode}
+            try:
+                (folder / 'sony-import-error.json').write_text(json.dumps(diagnosis), encoding='utf-8')
+            except OSError:
+                pass
+            logging.getLogger(__name__).warning('sony_proxy_failed exit=%s phase=%s frames=%s error=%s',
+                proc.returncode, state.get('phase') or state.get('stage'), state.get('frames'), state.get('error_type'))
         progress.unlink(missing_ok=True)
         progress.with_suffix('.tmp').unlink(missing_ok=True)
         for name in ('sony-viewing.video.mp4', 'sony-viewing.partial.mp4', 'sony-viewing.ffmpeg.log'):

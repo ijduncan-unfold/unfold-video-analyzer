@@ -262,3 +262,87 @@ def test_gemini_upload_uses_generated_viewing_proxy_and_mp4_mime(asset,tmp_path)
         upload.assert_awaited_once_with(str(proxy),'video/mp4',api_key=None)
         assert result.file_uri=='proxy-uri'
     assert source.read_bytes()==b'original'
+
+def test_worker_failure_keeps_bounded_diagnostics_and_public_phase(tmp_path):
+    progress = tmp_path / 'sony-progress.json'
+    target = tmp_path / 'sony-viewing.mp4'
+    log = tmp_path / 'sony-viewing.ffmpeg.log'
+    log.write_text('x' * 10000 + 'encoder ended unexpectedly')
+    def fail(args):
+        worker.emit(progress, stage='decoding', frames=73)
+        raise BrokenPipeError('private source path should stay in diagnostics')
+    arguments = ['--source', 'camera.mxf', '--target', str(target), '--progress', str(progress),
+                 '--dll', 'decoder.dll', '--shared', 'shared', '--ffmpeg', 'ffmpeg',
+                 '--fps', '24/1', '--width', '4096', '--height', '2160', '--frames', '240']
+    with patch.object(worker, 'run', side_effect=fail):
+        assert worker.main(arguments) == 1
+    public = json.loads(progress.read_text())
+    assert public['phase'] == 'decoding' and public['frames'] == 73
+    assert public['error_type'] == 'BrokenPipeError' and not public['retryable']
+    assert 'private source path' not in public['message']
+    diagnostic = json.loads((tmp_path / 'sony-worker-error.json').read_text())
+    assert 'private source path' in diagnostic['exception']
+    assert len(diagnostic['encoder_log']) <= 8000
+    assert diagnostic['encoder_log'].endswith('encoder ended unexpectedly')
+
+
+def test_worker_only_marks_known_network_failures_retryable(tmp_path):
+    import errno
+    progress = tmp_path / 'progress.json'
+    assert worker.failure_report(ConnectionResetError(errno.ECONNRESET, 'network disconnected'), progress)['retryable']
+    assert not worker.failure_report(PermissionError(errno.EACCES, 'access denied'), progress)['retryable']
+    assert not worker.failure_report(BrokenPipeError(errno.EPIPE, 'encoder pipe closed'), progress)['retryable']
+    assert not worker.failure_report(ValueError('Invalid MXF payload'), progress)['retryable']
+
+
+@pytest.mark.parametrize('original,retryable,expected_attempts', [
+    ('\\\\server\\share\\clip.mxf', True, 2),
+    ('\\\\server\\share\\clip.mxf', False, 1),
+    ('C:/Camera/clip.mxf', True, 1),
+])
+def test_sony_retry_is_single_and_only_for_network_media(original, retryable, expected_attempts):
+    error = native_camera.SonyWorkerError('interrupted', retryable=retryable)
+    adapter = AsyncMock(side_effect=error)
+    with patch.object(native_camera, '_gate', None), \
+         patch.object(camera_media, 'source_fingerprint', return_value=('unchanged', original, 100)), \
+         patch('app.services.editor_bridge.source_fingerprint', return_value=('unchanged', original, 100)), \
+         patch.object(native_camera, '_prepare_sony_viewing', adapter), \
+         patch.object(native_camera.asyncio, 'sleep', AsyncMock()):
+        with pytest.raises(native_camera.SonyWorkerError):
+            asyncio.run(native_camera.prepare_sony_viewing(original, Path('cache'), FACTS))
+    assert adapter.await_count == expected_attempts
+
+
+def test_sony_network_retry_reuses_only_an_unchanged_original():
+    original = '\\\\server\\share\\clip.mxf'
+    error = native_camera.SonyWorkerError('interrupted', retryable=True)
+    progress = Mock()
+    with patch.object(native_camera, '_gate', None), \
+         patch('app.services.editor_bridge.source_fingerprint', side_effect=[('same', original, 100), ('same', original, 100)]), \
+         patch.object(native_camera, '_prepare_sony_viewing', AsyncMock(side_effect=[error, ('proxy.mp4', FACTS)])) as adapter, \
+         patch.object(native_camera.asyncio, 'sleep', AsyncMock()):
+        assert asyncio.run(native_camera.prepare_sony_viewing(original, Path('cache'), FACTS, progress)) == ('proxy.mp4', FACTS)
+        assert adapter.await_count == 2
+        assert progress.call_args.args[0]['stage'] == 'retrying'
+    with patch.object(native_camera, '_gate', None), \
+         patch('app.services.editor_bridge.source_fingerprint', side_effect=[('before', original, 100), ('after', original, 100)]), \
+         patch.object(native_camera, '_prepare_sony_viewing', AsyncMock(side_effect=error)) as adapter:
+        with pytest.raises(ValueError, match='changed'):
+            asyncio.run(native_camera.prepare_sony_viewing(original, Path('cache'), FACTS))
+        assert adapter.await_count == 1
+
+
+def test_native_worker_crash_retains_exit_and_last_frame(client, tmp_path):
+    source = tmp_path / 'source.mxf'; source.write_bytes(b'original')
+    folder = Path(camera_media.settings.upload_dir) / str(uuid.uuid4()); folder.mkdir(parents=True)
+    (folder / 'sony-progress.json').write_text(json.dumps({'stage': 'decoding', 'frames': 74, 'message': 'Preparing Sony RAW proxy'}))
+    proc = SimpleNamespace(returncode=0xc0000005, wait=AsyncMock(return_value=0xc0000005))
+    with patch.object(native_camera, 'sony_runtime', return_value=(tmp_path/'SonyRawDev.dll', tmp_path)), \
+         patch.object(native_camera.shutil, 'which', return_value='ffmpeg'), \
+         patch.object(native_camera.asyncio, 'create_subprocess_exec', AsyncMock(return_value=proc)):
+        with pytest.raises(native_camera.SonyWorkerError, match='stopped during decoding at frame 74'):
+            asyncio.run(native_camera._prepare_sony_viewing(source, folder, FACTS, None))
+    diagnostic = json.loads((folder / 'sony-import-error.json').read_text())
+    assert diagnostic['worker_exit'] == 0xc0000005 and diagnostic['frames'] == 74
+    assert not (folder / 'sony-progress.json').exists()
+    assert source.read_bytes() == b'original'

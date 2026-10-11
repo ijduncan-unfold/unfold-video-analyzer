@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes as c
+import errno
 from fractions import Fraction
 import hashlib
 import json
@@ -18,6 +19,7 @@ import struct
 import subprocess
 import sys
 import time
+import traceback
 
 SONY_DLL_SHA256 = 'cb8bf7e13fa2a10005967e6d6eb1fa85079643e833251879252b268a08a91981'
 MAX_PICTURE_BYTES = 64 * 1024 * 1024
@@ -185,6 +187,33 @@ def emit(path, **state):
     temporary.replace(path)
 
 
+def failure_report(error, progress):
+    """Keep local diagnostics without publishing native exception text or paths."""
+    try:
+        previous = json.loads(progress.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        previous = {}
+    phase, frame = previous.get('stage', 'opening'), previous.get('frames', 0)
+    retryable = (isinstance(error, OSError) and not isinstance(error, BrokenPipeError) and (
+        getattr(error, 'winerror', None) in {53, 59, 64, 67, 121, 1231, 1232, 10053, 10054, 10060}
+        or error.errno in {errno.ETIMEDOUT, errno.ECONNRESET, errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN}))
+    if retryable:
+        message = 'The connection to the camera media was interrupted. The original is unchanged.'
+    elif isinstance(error, ValueError):
+        message = str(error)[:500]
+    elif isinstance(error, BrokenPipeError):
+        message = f'The Sony proxy encoder stopped during {phase} at frame {frame}. Retry this clip.'
+    elif isinstance(error, MemoryError):
+        message = 'Not enough memory to prepare the Sony RAW proxy. Close other heavy applications, then retry.'
+    elif isinstance(error, subprocess.TimeoutExpired):
+        message = f'Sony RAW proxy preparation timed out during {phase}. Check the source connection, then retry.'
+    else:
+        message = f'Sony RAW preparation failed during {phase} at frame {frame} ({type(error).__name__}). Retry this clip.'
+    return {'stage': 'error', 'message': message, 'error_type': type(error).__name__,
+            'phase': phase, 'frames': frame, 'retryable': retryable,
+            'errno': getattr(error, 'errno', None), 'winerror': getattr(error, 'winerror', None)}
+
+
 def run(args):
     import cv2
     cv2.setNumThreads(2)
@@ -271,8 +300,23 @@ def main(argv=None):
         run(args)
         return 0
     except Exception as error:
-        emit(Path(args.progress), stage='error', message=str(error) if isinstance(error, ValueError) else
-             'Sony RAW decoder worker failed', error_type=type(error).__name__)
+        progress = Path(args.progress)
+        report = failure_report(error, progress)
+        # These files belong to the local proxy cache, never to the original.
+        # Bound both diagnostics so a failed worker cannot fill the disk.
+        diagnostics = {**report, 'exception': str(error)[:2000], 'traceback': traceback.format_exc()[-8000:]}
+        log = Path(args.target).with_name(Path(args.target).stem + '.ffmpeg.log')
+        try:
+            with log.open('rb') as stream:
+                stream.seek(max(0, log.stat().st_size - 8000))
+                diagnostics['encoder_log'] = stream.read(8000).decode('utf-8', errors='replace')
+        except OSError:
+            pass
+        try:
+            progress.with_name('sony-worker-error.json').write_text(json.dumps(diagnostics), encoding='utf-8')
+        except OSError:
+            pass
+        emit(progress, **report)
         return 1
 
 
