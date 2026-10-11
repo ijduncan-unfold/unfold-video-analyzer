@@ -13,6 +13,7 @@ import { MatchCutPanel } from './MatchCutPanel'
 import { forgetMatchCutSession } from './matchCutSession'
 import { TranscriptPanel } from './TranscriptPanel'
 import { RoughCutPanel } from './RoughCutPanel'
+import { DisplayColorControl } from './DisplayColorControl'
 
 const ASSET_TABS = ['shots', 'match cuts', 'transcript', 'rough cut', 'analysis', 'metadata', 'export'] as const
 type AssetTab = typeof ASSET_TABS[number]
@@ -43,6 +44,8 @@ interface Props {
 export function AssetInspector({ asset, initialSeconds, initialShot, capabilities, onClose, onRefresh, onConfigure, onRemoved }: Props) {
   const [tab, setTab] = useState<AssetTab>('shots')
   const [playbackSeconds, setPlaybackSeconds] = useState(initialSeconds ?? 0)
+  const [loopPreview, setLoopPreview] = useState(false)
+  const [preparingDisplay, setPreparingDisplay] = useState(false)
   const [preparingPlayback, setPreparingPlayback] = useState(!!asset.technical.playback_proxy_required)
   const [matchCutFromShot, setMatchCutFromShot] = useState(false)
   const [draft, setDraft] = useState<AssetMetadata>(() => ({ ...asset.metadata }))
@@ -79,7 +82,8 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const setProxyMode = useSettingsStore(state => state.setProxyMode)
   const video = useRef<HTMLVideoElement>(null)
   const body = useRef<HTMLDivElement>(null)
-  const busy = isActiveAnalysis(asset.status) || starting
+  const displayPreparing = preparingDisplay || asset.status === 'processing' && asset.analysis_progress?.stage === 'preparing_display'
+  const busy = isActiveAnalysis(asset.status) || starting || displayPreparing
   const cutBusy = !!asset.rough_cut && ['queued', 'analyzing', 'assembling'].includes(asset.rough_cut.status)
   const removalDisabled = busy || cutBusy || removing || saving || asset.status === 'deleting'
   const warnings = [...new Set([...(asset.warnings || []), ...(asset.flash?.analysis_warnings || [])])]
@@ -173,7 +177,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
         <label className="vw-analysis-type"><span className="lw-sr-only">Analysis type</span><select value={mode} disabled={busy || removing || asset.status === 'deleting'} onChange={event => setMode(event.target.value as 'flash_only' | 'flash_pro')}><option value="flash_only">Clips and tags</option><option value="flash_pro">Full analysis</option></select><Icon name="down" size={14} /></label>
       <button className="lw-button lw-button-primary lw-analyze-primary" disabled={busy || cutBusy || removing || asset.status === 'deleting'} onClick={analyze}>
         <Icon name="spark" size={20} />
-        {busy ? starting && !isActiveAnalysis(asset.status) ? 'Starting…' : asset.status === 'queued' ? 'Queued…' : 'Analyzing…' : !capabilities?.google_configured && !apiKey ? 'Connect Gemini' : asset.status === 'error' ? 'Retry analysis' : asset.flash ? 'Analyze again' : 'Analyze video'}
+        {displayPreparing ? 'Preparing display...' : busy ? starting && !isActiveAnalysis(asset.status) ? 'Starting…' : asset.status === 'queued' ? 'Queued…' : 'Analyzing…' : !capabilities?.google_configured && !apiKey ? 'Connect Gemini' : asset.status === 'error' ? 'Retry analysis' : asset.flash ? 'Analyze again' : 'Analyze video'}
       </button>
       </div>
       </div>
@@ -182,13 +186,16 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     <div className={`vw-layout ${(tab === 'export' || tab === 'match cuts' || tab === 'rough cut') ? 'is-export' : ''}`}>
       <div className="vw-viewer" hidden={tab === 'export' || tab === 'match cuts' || tab === 'rough cut'}>
         <div className="lw-preview">{preparingPlayback && <p className="lw-model-note" role="status">Preparing playback proxy… Original media stays in place.</p>}
-          {asset.preview_url ? <video ref={video} src={asset.preview_url} poster={asset.thumbnail_url || undefined} controls preload="metadata" onError={() => { setPreparingPlayback(false); setError('Playback proxy could not be loaded. Try a full-length H.264 MP4 viewing proxy.') }} onLoadedMetadata={() => { setPreparingPlayback(false); if (video.current && initialSeconds != null) video.current.currentTime = initialSeconds }} onTimeUpdate={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} onSeeked={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} /> : <div className="lw-no-preview"><Icon name="film" size={32} /><span>{asset.youtube_url ? 'Source video on YouTube' : 'Preview unavailable for this format'}</span>{asset.youtube_url && <a href={asset.youtube_url} target="_blank" rel="noreferrer">Open source ↗</a>}</div>}
+          {asset.preview_url ? <video ref={video} src={asset.preview_url} poster={asset.thumbnail_url || undefined} controls loop={loopPreview} preload="metadata" onError={() => { setPreparingPlayback(false); setError('Playback proxy could not be loaded. Try a full-length H.264 MP4 viewing proxy.') }} onLoadedMetadata={() => { setPreparingPlayback(false); if (video.current && initialSeconds != null) video.current.currentTime = initialSeconds }} onTimeUpdate={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} onSeeked={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} /> : <div className="lw-no-preview"><Icon name="film" size={32} /><span>{asset.youtube_url ? 'Source video on YouTube' : 'Preview unavailable for this format'}</span>{asset.youtube_url && <a href={asset.youtube_url} target="_blank" rel="noreferrer">Open source ↗</a>}</div>}
         </div>
+        {asset.preview_url && <div className="vw-preview-facts"><span>{duration(asset.technical.duration_seconds)}{asset.technical.camera_frame_count != null ? ` · ${asset.technical.camera_frame_count} frames` : ''}</span><label><input type="checkbox" checked={loopPreview} onChange={event => setLoopPreview(event.target.checked)} /> Loop preview</label></div>}
+        {asset.preview_url && <DisplayColorControl key={asset.job_id} asset={asset} disabled={busy || cutBusy || removing || asset.status === 'deleting'} onRefresh={onRefresh} onPause={() => video.current?.pause()} onPreparing={setPreparingDisplay} />}
         {selectedShot && tab !== 'transcript' && <div className="vw-shot-context">
           <div className="vw-shot-transport"><strong>Clip {String(selectedShot.shot_number).padStart(2, '0')}</strong><time>{selectedShot.start_time} – {selectedShot.end_time}</time><div><button className="lw-icon-button" aria-label="Previous clip" disabled={selectedIndex === 0 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex - 1])}><Icon name="chevron" style={{ transform: 'rotate(180deg)' }} /></button><button className="lw-icon-button" aria-label="Next clip" disabled={selectedIndex >= shots.length - 1 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex + 1])}><Icon name="chevron" /></button></div></div>
           <p>{selectedShot.visual_description}</p><button className="lw-text-button" onClick={() => { video.current?.pause(); setMatchCutFromShot(true); setTab('match cuts') }}>Explore match cuts</button>
         </div>}
-        {busy && <div className="vw-progress"><div className="lw-analysis-progress" role="status" aria-live="polite" aria-atomic="true"><div className="lw-progress-orbit" /><div><strong>{stageLabel}</strong><p>{progressFacts.summary}</p>{stage === "preparing_proxy" && asset.analysis_config?.proxy_reason && <small>{asset.analysis_config.proxy_reason}</small>}{progressFacts.coverage && <small>{progressFacts.coverage}</small>}</div></div><button className="lw-text-button" onClick={cancel} disabled={starting}>Cancel analysis</button></div>}
+        {displayPreparing && <p className="lw-model-note" role="status">Preparing display color... Original media stays unchanged.</p>}
+        {busy && !displayPreparing && <div className="vw-progress"><div className="lw-analysis-progress" role="status" aria-live="polite" aria-atomic="true"><div className="lw-progress-orbit" /><div><strong>{stageLabel}</strong><p>{progressFacts.summary}</p>{stage === "preparing_proxy" && asset.analysis_config?.proxy_reason && <small>{asset.analysis_config.proxy_reason}</small>}{progressFacts.coverage && <small>{progressFacts.coverage}</small>}</div></div><button className="lw-text-button" onClick={cancel} disabled={starting}>Cancel analysis</button></div>}
         {asset.error && <div className="lw-inline-error" role="alert">{asset.error}</div>}
       </div>
       <div className="vw-data">

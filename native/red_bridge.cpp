@@ -56,7 +56,19 @@ EXPORT int va_red_frame(void* handle, uint64_t frame, void* buffer, size_t size,
     try {
         auto clip = static_cast<Clip*>(handle);
         if (frame >= clip->VideoFrameCount()) return 0;
+        ImageProcessingSettings display;
+        clip->GetClipImageProcessingSettings(display);
+        // Keep recorded white balance, ISO and exposure, but develop a normal
+        // SDR viewing image instead of leaving an RMD's Log output on screen.
+        display.ImagePipelineMode = Full_Graded;
+        display.ColorSpace = ImageColorRec709;
+        display.GammaCurve = display.Version == ColorVersion3 ? ImageGammaBT1886 : ImageGammaRec709;
+        display.OutputToneMap = ToneMap_Medium;
+        display.HighlightRollOff = RollOff_Medium;
+        display.CdlEnabled = false;
+        display.Lut3DEnabled = false;
         VideoDecodeJob job;
+        job.ImageProcessing = &display;
         job.Mode = divisor == 8 ? DECODE_EIGHT_RES_GOOD : divisor == 4 ? DECODE_QUARTER_RES_GOOD :
                    divisor == 2 ? DECODE_HALF_RES_GOOD : DECODE_FULL_RES_PREMIUM;
         job.PixelType = PixelType_8Bit_BGRA_Interleaved;

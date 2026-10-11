@@ -142,10 +142,11 @@ async def probe_media(path: str) -> dict:
 
 
 async def create_poster(path: str, output: str, duration: float):
+    from app.utils.display_geometry import POSTER_SCALE
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg", "-v", "error", "-ss", str(min(1, max(0, duration / 3))), "-i", path,
-        "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", "-y", output,
+        "-frames:v", "1", "-vf", POSTER_SCALE, "-q:v", "3", "-y", output,
         stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
         **hidden_process_kwargs(),
     )

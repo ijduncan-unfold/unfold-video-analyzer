@@ -7,6 +7,7 @@ export function isActiveAnalysis(status?: string | null) {
 
 export function analysisStageLabel(stage?: string | null, grouping?: string) {
   const labels: Record<string, string> = {
+    preparing_display: 'Preparing display color',
     starting: 'Starting analysis', queued: 'Queued', uploading: 'Uploading video',
     preparing_part: 'Preparing analysis proxy', preparing_proxy: 'Preparing analysis proxy', processing: 'Gemini is preparing video',
     indexing: 'Analyzing sections', enriching: grouping === 'processing_sections' ? 'Adding section details' : 'Analyzing scenes', summarizing: 'Writing summary',

@@ -35,7 +35,10 @@ export async function discoverNativeMedia(paths: string[]): Promise<{ paths: str
 }
 
 const videoExtension = /\.(mp4|mov|mxf|mkv|avi|webm|m4v|mpg|mpeg|mts|m2ts|braw|r3d|ari|arx|crm|flv|wmv|3gpp)$/i
-export function isVideoMedia(name: string) { return videoExtension.test(name) }
+export function isVideoMedia(name: string) {
+  const parts = name.replaceAll('\\', '/').split('/')
+  return !parts.includes('__MACOSX') && !parts.at(-1)?.startsWith('._') && videoExtension.test(name)
+}
 
 // Capture entries during the drop event: browsers clear DataTransfer afterwards.
 export function getDroppedFolders(transfer: DataTransfer): FileSystemDirectoryEntry[] {

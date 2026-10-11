@@ -37,6 +37,17 @@ router = APIRouter(prefix='/api/local-media', dependencies=[Depends(require_loca
 _import_progress = {}
 
 
+class DisplayColorRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    mode: str = Field(pattern=r'^(source|dji_zenmuse_dlog|red_rec709)$')
+
+
+@router.post('/{job_id}/display-color')
+async def display_color(job_id: UUID, body: DisplayColorRequest):
+    from app.services.display_color import set_display_color
+    return asset_view(await set_display_color(str(job_id), body.mode), detail=True)
+
+
 class BrowserDropRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str = Field(min_length=1, max_length=255)

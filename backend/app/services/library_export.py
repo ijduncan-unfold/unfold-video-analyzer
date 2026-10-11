@@ -44,7 +44,7 @@ for _prefix, _namespace in NS.items():
 
 _PRIVATE_FIELDS = {
     "camera_companions",
-    "local_path", "viewing_path", "viewing_fingerprint", "file_uri", "file_id", "api_key", "apikey", "api_token",
+    "local_path", "viewing_path", "viewing_base", "viewing_fingerprint", "file_uri", "file_id", "api_key", "apikey", "api_token",
     "access_token", "refresh_token", "authorization", "credentials", "secret",
     "password", "gemini_api_key", "google_api_key",
 }

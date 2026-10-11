@@ -16,9 +16,10 @@ from app.config import settings
 from app.services.media_probe import probe_media
 from app.services.sony_raw_worker import SONY_DLL_SHA256
 from app.utils.media_process import hidden_process_kwargs
+from app.utils.display_geometry import VIEWING_SCALE
 
 BRAW_DLL_SHA256 = '71a1f9ff0efdf2f9396f26a94a5a5e6ab52fbde927d6d0ba81c8f527c66b54b5'
-RED_BRIDGE_SHA256 = 'f8e9f0913a69e71525f8d7eb830d775059fa741e721a402a63734cc4e399377c'
+RED_BRIDGE_SHA256 = '7d809497d2550db906c7640918d1904610dab4949a948ec0cd2f615921bac2be'
 RED_DLL_SHA256 = '3e1a32e5101369dbabec7333d14cbc7bbef64acbb80c2f2710a342688e2611ef'
 
 
@@ -86,13 +87,16 @@ def red_runtime():
     return family_runtime('red', {'VideoAnalyzerRED.dll': RED_BRIDGE_SHA256, 'REDR3D-x64.dll': RED_DLL_SHA256})
 
 
-async def prepare_ffmpeg_viewing(original, folder, technical, on_progress=None):
+async def prepare_ffmpeg_viewing(original, folder, technical, on_progress=None, *, target_name='camera-viewing.mp4', lut=False):
     """Develop FFmpeg-supported camera codecs once, with complete audio and progress."""
     folder = Path(folder).resolve()
     if folder.parent != Path(settings.upload_dir).resolve():
         raise ValueError('Camera proxy cache must belong to this app')
     folder.mkdir(parents=True, exist_ok=True)
-    target, partial = folder / 'camera-viewing.mp4', folder / 'camera-viewing.partial.mp4'
+    if Path(target_name).name != target_name or not target_name.endswith('.mp4'):
+        raise ValueError('Invalid viewing cache filename')
+    target = folder / target_name
+    partial = target.with_suffix('.partial.mp4')
     duration = technical.get('duration_seconds') or 0
     if duration <= 0:
         raise ValueError('Camera source duration could not be measured')
@@ -104,11 +108,11 @@ async def prepare_ffmpeg_viewing(original, folder, technical, on_progress=None):
         with log.open('wb') as error:
             proc = await asyncio.create_subprocess_exec('ffmpeg', '-nostdin', '-v', 'error', '-i', str(original),
                 '-map', '0:v:0', '-map', '0:a?', '-vf',
-                'scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2',
+                VIEWING_SCALE + (',lut3d=file=display-lut.cube:interp=tetrahedral' if lut else ''),
                 '-fps_mode', 'passthrough', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
                 '-threads', '2', '-filter_threads', '2', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k',
                 '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', '-y', str(partial),
-                stdout=asyncio.subprocess.PIPE, stderr=error, **hidden_process_kwargs())
+                cwd=str(folder), stdout=asyncio.subprocess.PIPE, stderr=error, **hidden_process_kwargs())
             async def read_progress():
                 while line := await proc.stdout.readline():
                     key, _, raw = line.decode('utf-8', errors='replace').strip().partition('=')
@@ -137,6 +141,7 @@ async def prepare_ffmpeg_viewing(original, folder, technical, on_progress=None):
         return target, {'linked': False, 'generated': True,
             'decoder': 'ffmpeg_prores_raw' if technical.get('codec') == 'prores_raw' else 'ffmpeg_camera',
             'codec': 'h264', 'width': proxy['width'], 'height': proxy['height'],
+            'sample_aspect_ratio': proxy.get('sample_aspect_ratio'),
             'duration_seconds': proxy['duration_seconds'], 'frame_rate_fraction': proxy['frame_rate_fraction'],
             'audio_stream_count': proxy['audio_stream_count'], 'frame_count': proxy.get('frame_rate_verified_frames'),
             'color_calibrated': False, 'viewing_transform': 'FFmpeg decoded image; no automatic camera WB, color matrix or Log LUT',
@@ -156,7 +161,7 @@ def braw_runtime():
     return family_runtime('blackmagic', {'BlackmagicRawAPI.dll': BRAW_DLL_SHA256})
 
 
-async def prepare_braw_viewing(original, folder, on_progress=None, family='braw'):
+async def prepare_braw_viewing(original, folder, on_progress=None, family='braw', *, target_name=None):
     """SDK inspects and decodes the original inside a disposable worker process."""
     global _gate
     if _gate is None:
@@ -168,7 +173,10 @@ async def prepare_braw_viewing(original, folder, on_progress=None, family='braw'
         if folder.parent != Path(settings.upload_dir).resolve():
             raise ValueError('Native proxy cache must belong to this app')
         folder.mkdir(parents=True, exist_ok=True)
-        target, progress = folder / f'{family}-viewing.mp4', folder / f'{family}-progress.json'
+        name = target_name or f'{family}-viewing.mp4'
+        if Path(name).name != name or not name.endswith('.mp4'):
+            raise ValueError('Invalid viewing cache filename')
+        target, progress = folder / name, folder / f'{family}-progress.json'
         ffmpeg = shutil.which('ffmpeg')
         if not ffmpeg:
             raise ValueError(f'FFmpeg is required to encode the {label} viewing proxy')
@@ -218,7 +226,7 @@ async def prepare_braw_viewing(original, folder, on_progress=None, family='braw'
                 'codec': 'h264', 'width': proxy['width'], 'height': proxy['height'], 'frame_count': frames,
                 'duration_seconds': proxy['duration_seconds'], 'frame_rate_fraction': str(fps),
                 'audio_stream_count': proxy['audio_stream_count'], 'color_calibrated': False,
-                'viewing_transform': f'{label} SDK camera/sidecar processing defaults; reduced-resolution 8-bit viewing output',
+                'viewing_transform': 'RED SDK Rec.709 display development; recorded white balance, ISO and exposure; no creative LUT' if family == 'red' else f'{label} SDK camera/sidecar processing defaults; reduced-resolution 8-bit viewing output',
                 'alignment': 'Every source frame decoded at SDK cadence; complete frame count, duration, frame rate and audio verified'}
             from app.services.source_timing import camera_timing_fields
             technical.update(camera_timing_fields(technical, technical['viewing_proxy']))

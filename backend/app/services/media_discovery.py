@@ -30,7 +30,7 @@ def discover_media(paths):
             warnings.append(message)
 
     def add(path):
-        if not get_mime_type(path.name):
+        if '__MACOSX' in path.parts or not get_mime_type(path.name):
             return
         key, number = _recording_key(path)
         previous = recordings.get(key)
@@ -71,6 +71,8 @@ def discover_media(paths):
                         if item.is_symlink():
                             continue
                         if item.is_dir(follow_symlinks=False):
+                            if item.name == '__MACOSX':
+                                continue
                             attributes = getattr(item.stat(follow_symlinks=False), 'st_file_attributes', 0)
                             if not attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
                                 pending.append(Path(item.path))

@@ -27,6 +27,9 @@ ALLOWED_MIME_TYPES = set(ALLOWED_EXTENSIONS.values())
 
 
 def get_mime_type(filename: str) -> str | None:
+    # Finder's AppleDouble resources have the original extension but no video.
+    if filename.replace('\\', '/').rsplit('/', 1)[-1].startswith('._'):
+        return None
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     return ALLOWED_EXTENSIONS.get(ext)
 

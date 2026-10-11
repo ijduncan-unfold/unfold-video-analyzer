@@ -46,6 +46,15 @@
 .vw-viewer { padding: 28px; min-width: 0; overflow-y: auto; }
 .lw-video-workspace .lw-preview { background: #0c0d0e; border-radius: 7px; overflow: hidden; }
 .lw-video-workspace .lw-preview video { max-height: none; object-fit: contain; }
+.vw-preview-facts { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; color: #a8b8c9; font-size: 11px; }
+.vw-preview-facts label { display: flex; align-items: center; gap: 6px; }
+.vw-display-color { margin-top: 14px; padding: 12px; border: 1px solid #354353; border-radius: 5px; font-size: 11px; }
+.vw-display-color summary { cursor: pointer; color: #b7d7fc; }
+.vw-display-color p { color: #a8b8c9; line-height: 1.6; }
+.vw-display-color small { display: block; margin-top: 8px; color: #93a3b5; line-height: 1.6; }
+.vw-display-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.vw-display-controls label { display: grid; gap: 5px; flex: 1; }
+.vw-display-controls select { width: 100%; padding: 8px; background: #1b242e; color: #d4e5fa; border: 1px solid #415266; border-radius: 4px; }
 .lw-video-workspace .lw-no-preview { font-size: 13px; }
 .vw-shot-context { margin-top: 18px; }
 .vw-shot-transport { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 15px; }

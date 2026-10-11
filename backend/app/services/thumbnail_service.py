@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 from app.utils.media_process import hidden_process_kwargs
+from app.utils.display_geometry import POSTER_SCALE
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ async def _extract_frame(video_path: str, seconds: float, output_path: str) -> b
             "-ss", str(seconds),
             "-i", video_path,
             "-frames:v", "1",
-            "-vf", "scale=640:-2",
+            "-vf", POSTER_SCALE,
             "-q:v", "3",
             "-y",
             str(temporary),

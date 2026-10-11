@@ -1,5 +1,6 @@
 export function duration(seconds?: number | null) {
   if (seconds == null || !Number.isFinite(seconds)) return '—'
+  if (seconds > 0 && seconds < 1) return `${Number(seconds.toFixed(3))}s`
   const value = Math.max(0, Math.floor(seconds))
   return value >= 3600 ? `${Math.floor(value / 3600)}:${String(Math.floor(value % 3600 / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}` : `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`
 }

@@ -139,6 +139,8 @@ def asset_view(job, detail=False):
     if not metadata['title']:
         metadata['title'] = Path(job.filename).stem
     poster = Path(settings.upload_dir) / job.job_id / 'poster.jpg'
+    revision = job.technical.get('display_revision')
+    cache_key = '?v=' + quote(str(revision), safe='') if revision else ''
     view = {
         'job_id': job.job_id, 'filename': job.filename, 'status': job.status, 'folder_id': job.folder_id,
         'created_at': job.created_at.isoformat(), 'size_bytes': job.size_bytes,
@@ -147,8 +149,8 @@ def asset_view(job, detail=False):
         'metadata': metadata, 'technical': job.technical,
         'shot_count': sum(len(scene.get('shots', [])) for scene in (job.flash_result or {}).get('scenes', [])),
         'summary': (job.summary or {}).get('executive_summary', ''),
-        'thumbnail_url': f'/api/library/{job.job_id}/poster' if poster.is_file() else None,
-        'preview_url': f'/api/library/{job.job_id}/media' if job.local_path else None,
+        'thumbnail_url': f'/api/library/{job.job_id}/poster{cache_key}' if poster.is_file() else None,
+        'preview_url': f'/api/library/{job.job_id}/media{cache_key}' if job.local_path else None,
         'progress': job.progress, 'error': job.error, 'warnings': job.warnings,
         'analysis_progress': job.analysis_progress,
     }

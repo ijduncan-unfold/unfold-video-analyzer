@@ -1,4 +1,5 @@
 from pathlib import Path
+import asyncio
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,6 +15,7 @@ from app.services.library_service import (
 )
 
 router = APIRouter(prefix='/api/library')
+_poster_locks = {}
 
 
 def require_job(job_id):
@@ -194,8 +196,21 @@ async def media(job_id: str):
 
 @router.get('/{job_id}/poster')
 async def poster(job_id: str):
-    require_job(job_id)
+    job = require_job(job_id)
     path = Path(settings.upload_dir) / job_id / 'poster.jpg'
+    # Repair legacy anamorphic JPEGs without replacing the recording or proxy.
+    if job.technical.get('viewing_proxy', {}).get('decoder') == 'arri_raw':
+        from app.services.camera_media import viewing_media
+        from app.services.media_probe import create_poster
+        corrected = path.with_name('poster-display-' + job.viewing_fingerprint[:16] + '.jpg')
+        async with _poster_locks.setdefault(job_id, asyncio.Lock()):
+            if not corrected.is_file() or not corrected.stat().st_size:
+                try:
+                    await create_poster(viewing_media(job), str(corrected), job.technical['duration_seconds'])
+                except (ValueError, OSError, HTTPException):
+                    pass  # An offline original must not discard the retained poster.
+            if corrected.is_file() and corrected.stat().st_size:
+                path = corrected
     if not path.is_file():
         raise HTTPException(404, 'Poster not available')
     return FileResponse(path, media_type='image/jpeg')

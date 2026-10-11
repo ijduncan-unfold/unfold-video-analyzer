@@ -38,6 +38,14 @@ def test_red_parts_and_arri_image_frames_become_one_recording_each(tmp_path):
     assert result['paths'] == sorted(map(str, [red[1], arri[1], other]), key=str.casefold)
 
 
+def test_mac_resource_forks_are_ignored_for_folder_and_direct_drop(tmp_path):
+    original = write(tmp_path / 'RED' / 'movie.R3D')
+    fork = write(tmp_path / 'RED' / '._movie.R3D')
+    resource = write(tmp_path / '__MACOSX' / 'stray.MOV')
+    result = media_discovery.discover_media([str(tmp_path), str(fork), str(resource)])
+    assert result == {'paths': [str(original)], 'warnings': []}
+
+
 def test_no_video_missing_folder_and_relative_path_are_reported(tmp_path):
     write(tmp_path / 'only sidecars.xml')
     assert media_discovery.discover_media([str(tmp_path)]) == {'paths': [], 'warnings': []}

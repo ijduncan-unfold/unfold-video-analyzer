@@ -39,6 +39,10 @@ export interface LibraryAsset {
     source_timecode?: string | null
     has_audio?: boolean | null
     playback_proxy_required?: boolean
+    camera_frame_count?: number
+    display_color?: string
+    display_revision?: string
+    viewing_proxy?: { viewing_transform?: string; width?: number; height?: number; sample_aspect_ratio?: string }
     technical_basis?: string
     camera_metadata?: { manufacturer?: string; camera_model?: string; recording_format?: string; recorder_model?: string }
   }
@@ -229,6 +233,11 @@ export async function importLocalMedia(mediaPath: string, viewingPath: string, c
       body: JSON.stringify({ media_path: mediaPath, viewing_path: viewingPath, proxy_alignment_confirmed: confirmed, import_id: importId }) })
   } finally { finished = true; controller.abort() }
 }
+export function setDisplayColor(jobId: string, mode: string) {
+  return request<AssetDetail>(`/api/local-media/${jobId}/display-color`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) })
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
   if (!response.ok) {

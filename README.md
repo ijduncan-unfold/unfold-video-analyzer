@@ -4,6 +4,12 @@ Turn footage into a searchable shot library with Gemini analysis, visual match-c
 
 ![Video Analyzer showing a large footage preview beside shot thumbnails, descriptions, camera movements, and tags.](docs/screenshots/shot-workspace.png)
 
+## Camera previews and display color
+
+Camera previews preserve anamorphic framing in square pixels, including JPEG thumbnails and vision frames. Very short recordings show their fractional duration and decoded frame count, with a **Loop preview** control. Mac `._` resource files and `__MACOSX` folders are ignored during import.
+
+**Display color** under the player offers reversible viewing transforms. New R3D imports develop through the RED SDK into Rec.709 while retaining recorded white balance, ISO and exposure; existing R3D imports can select **RED SDK → Rec.709**. ARRI RAW develops to Rec.709 and applies its recorded anamorphic desqueeze. For **Zenmuse X5S/X7 D-Log** footage, select the corresponding DJI transform: the app downloads, verifies and caches [DJI’s official display LUT](https://www.dji.com/downloads/softwares/transcoding-zenmuse-x7-rec) on first use. Other DJI Log profiles are not inferred from generic Rec.709 container tags. Color changes affect playback and future analysis, preserve original media and edit metadata, and check cadence, duration and audio. Reanalyze existing results to refresh color descriptions and clip thumbnails.
+
 ## From import to edit
 
 1. **Drop videos or whole camera folders.** Multiple folders and nested subfolders import their video files as individual **shots**, ignoring sidecars and grouping numbered camera recording parts. Originals remain linked to their local or network location. Preview and organize footage without an AI key; analysis and metadata persist in SQLite across restarts. The arrow beside **Import** also offers **Import folders**.

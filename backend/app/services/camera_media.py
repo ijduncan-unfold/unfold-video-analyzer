@@ -14,6 +14,7 @@ from app.services.job_store import Job, create_job, list_jobs
 from app.services.media_probe import probe_media, create_poster, _stop_process
 from app.utils.media_process import hidden_process_kwargs
 from app.utils.video_formats import get_mime_type
+from app.utils.display_geometry import VIEWING_SCALE
 
 _preview_locks = {}
 _link_lock = asyncio.Lock()
@@ -40,7 +41,7 @@ async def browser_media(job):
         if not target.is_file():
             temporary = folder / f'playback-{uuid.uuid4().hex}.mp4'
             proc = await asyncio.create_subprocess_exec('ffmpeg', '-nostdin', '-v', 'error', '-i', source,
-                '-map', '0:v:0', '-map', '0:a:0?', '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2',
+                '-map', '0:v:0', '-map', '0:a:0?', '-vf', VIEWING_SCALE,
                 '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2', '-maxrate', '4M', '-bufsize', '8M',
                 '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
                 '-y', str(temporary), stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,

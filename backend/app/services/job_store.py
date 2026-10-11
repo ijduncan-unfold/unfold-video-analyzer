@@ -49,6 +49,7 @@ class Job:
     media_origin: str = "upload"
     source_fingerprint: str = ""
     viewing_path: str = ""
+    viewing_base: dict = field(default_factory=dict)
     viewing_fingerprint: str = ""
     camera_companions: list[dict] | None = None
     rough_cut: dict | None = None
@@ -134,6 +135,23 @@ def claim_analysis(job_id: str) -> bool:
         }
         _save(db, job)
     return True
+
+
+def claim_viewing(job_id: str) -> Job | None:
+    """Reserve the media while its display copy changes; keep analysis and edits."""
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT data FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+        if not row:
+            return None
+        job = _decode(row[0])
+        if job.status in ('queued', 'analyzing', 'processing', 'deleting') or cut_is_active(job):
+            return None
+        previous = _decode(row[0])
+        job.status, job.progress = 'processing', 'Preparing display color'
+        job.analysis_progress = {'stage': 'preparing_display'}
+        _save(db, job)
+    return previous
 
 
 def claim_deletion(job_id: str) -> bool:
