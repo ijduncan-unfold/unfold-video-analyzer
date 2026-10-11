@@ -188,11 +188,14 @@ async def cancel_analysis(job_id: str):
 
 
 @router.get('/{job_id}/export')
-async def export_asset(job_id: str, format: str = Query(default='json', pattern='^(json|csv|xmp|srt|edl|fcpxml)$'),
+async def export_asset(job_id: str, format: str = Query(default='json', pattern='^(json|csv|xmp|srt|edl|fcpxml|premiere_xml)$'),
                        shot_numbers: str | None = Query(default=None, max_length=20000),
                        analysis_started_at: str | None = Query(default=None, max_length=100)):
     from app.services.library_export import export_library, parse_shot_selection
     job = require_job(job_id)
+    if format in ('edl', 'fcpxml', 'premiere_xml'):
+        from app.services.source_timing import refresh_export_source
+        job = await refresh_export_source(job)
     if analysis_started_at is not None and analysis_started_at != str(job.analysis_config.get('started_at') or ''):
         raise HTTPException(409, 'The analysis changed. Refresh the shots before exporting this selection.')
     try:
@@ -211,6 +214,8 @@ async def available_exports(job_id: str, shot_numbers: str | None = Query(defaul
                             analysis_started_at: str | None = Query(default=None, max_length=100)):
     from app.services.library_export import export_options, parse_shot_selection
     job = require_job(job_id)
+    from app.services.source_timing import refresh_export_source
+    job = await refresh_export_source(job)
     if analysis_started_at is not None and analysis_started_at != str(job.analysis_config.get('started_at') or ''):
         raise HTTPException(409, 'The analysis changed. Refresh the shots before exporting this selection.')
     try:

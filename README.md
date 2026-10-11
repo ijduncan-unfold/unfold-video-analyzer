@@ -71,7 +71,7 @@ A drawn outline is compared against the candidate silhouettes already identified
 
 The dedicated Export screen supports the whole project or one or more selected shots. Available formats depend on the saved analysis and source timing; unavailable options explain what is missing.
 
-![Export workspace with whole-video and selected-shot scope, six file formats, and Final Cut Pro XML selected.](docs/screenshots/export-workspace.png)
+![Export workspace with whole-video and selected-shot scope.](docs/screenshots/export-workspace.png)
 
 | Format | Handoff |
 |---|---|
@@ -80,7 +80,8 @@ The dedicated Export screen supports the whole project or one or more selected s
 | XMP | Metadata sidecars with timed shot markers |
 | SRT | Subtitles from available timed transcript cues |
 | EDL | Video-only edit lists with supported source timecode |
-| Final Cut Pro XML | Shot sequences referencing the original media |
+| Premiere XML | FCP7 XML shot timelines with original media references, linked audio channels and shot logging metadata |
+| Final Cut Pro XML | Shot sequences for Final Cut Pro and Resolve referencing the original media |
 
 Exports preserve source coordinates and do not render or package video files. Selections from an older analysis are blocked until refreshed. See [accuracy and export boundaries](#accuracy-and-export-boundaries) for timing, subtitle, and editor compatibility details.
 
@@ -210,7 +211,9 @@ AI scene/shot boundaries are **approximate**. Sampling can miss short edits; dec
 
 Progressive indexing waits for the first upload to become ready. Long local films upload in parts. Processing sections do not create editorial shots: the next section includes two seconds of look-back context, and Gemini-confirmed continuous takes join into one shot with one updated description. The duration and midpoint thumbnail update as results arrive; dialogue, evidence, and searchable section notes are retained. Actual cuts, uncertain boundaries, and missing coverage stay separate. Later ten-minute upload parts include the same two-second look-back. Retry currently reprocesses the run; it does not skip successful sections. See [progressive analysis](docs/PROGRESSIVE_ANALYSIS.md) for behavior and measured latency.
 
-EDL requires verified integer source frame rate and embedded non-drop timecode. FCPXML supports integer and exact common fractional frame rates; when embedded timecode is absent, it explicitly uses the media file's zero origin. Import inspection verifies nominal frame cadence against packet presentation timestamps while retaining the independently measured average rate. Unknown or irregular timing stays unverified. FCPXML needs valid source dimensions and references the original filename relative to the exported XML; put the original beside the XML or relink in the editor. Drop-frame, variable-rate and unsupported source timing are rejected with a reason. Generated structures are tested, but round-trip behavior in installed editors remains unverified.
+EDL supports 24, 25, 30, 23.976 and 29.97 fps with verified constant timing and embedded non-drop timecode. XML supports integer and exact common fractional frame rates; without embedded timecode it explicitly uses the media file's zero origin. Original timing is verified through full packet presentation timestamps or complete native camera decoding with source-count and proxy-alignment checks. Existing native-camera imports refresh their proof from unchanged originals and cached proxies when Export opens, without reanalysis. Unknown or irregular timing stays unverified.
+
+Choose **Premiere XML** for Premiere's FCP7 (`xmeml` v5) importer: [Premiere cannot directly import FCPXML](https://helpx.adobe.com/premiere/desktop/organize-media/import-files/migrate-from-final-cut-pro-x.html). This `.xml` references original local/network media, preserves exact source in/out frames, links the original audio channels, and includes descriptions, slate scene/take fields and shot metadata, overlapping dialogue and relevant section notes in logging information. Original audio layout must be known; relink if source locations change. **Final Cut Pro XML** (`.fcpxml`) uses relative original filenames for Final Cut Pro and Resolve: put originals beside the XML or relink. Both require valid dimensions and supported orientation. Drop-frame and variable-rate source timing remain rejected. Generated structures and frame coordinates are tested; Premiere XML also passes Apple's v5 DTD validation, but round-trip behavior in installed editors remains unverified.
 
 Selected-shot exports preserve original timestamps and annotations. JSON includes relevant section notes as section-wide context, excluding unrelated whole-video summaries and custom reports. Selected SRT retains complete overlapping transcript cues and their original times; it does not invent word alignment. Selections from an older analysis are blocked until refreshed. Rendering a selected portion into a new video file is future work.
 

@@ -7,44 +7,14 @@ from fractions import Fraction
 from urllib.parse import quote
 
 from app.services.library_export import iter_shots, job_data, parse_seconds, segment_times, source_filename
+from app.services.source_timing import verified_rate
 
 
-def _source_timing(data: dict) -> tuple[int, int, Decimal]:
-    technical = data.get("technical") or {}
-    if technical.get("variable_frame_rate") or technical.get("is_vfr"):
-        raise ValueError("NLE export does not support variable frame rate media; use JSON, CSV or XMP")
-    if (any(key in technical for key in ("nominal_frame_rate_verified", "nominal_frame_rate_fraction"))
-            and not (technical.get("nominal_frame_rate_verified") is True
-                     and technical.get("frame_rate_verification") == "ffprobe_full_packet_pts")):
-        raise ValueError("NLE export requires verified constant frame timing; source cadence is unknown or irregular")
-    if technical.get("drop_frame") or str(technical.get("timecode_mode", "")).upper() in {"DF", "DROP", "DROP-FRAME"}:
-        raise ValueError("NLE export does not support drop-frame timecode; use JSON, CSV or XMP")
-    raw_rate = technical.get("frame_rate_fraction") or technical.get("frame_rate")
-    try:
-        rate = Fraction(str(raw_rate))
-    except (ValueError, ZeroDivisionError) as exc:
-        raise ValueError("NLE export requires a known source frame rate") from exc
-    if rate <= 0:
-        raise ValueError("NLE export requires a known positive source frame rate")
-    if rate.denominator != 1:
-        raise ValueError("NLE export does not yet support fractional frame rates; use JSON, CSV or XMP")
-    fps = rate.numerator
-    if fps not in {24, 25, 30, 48, 50, 60}:
-        raise ValueError("Unsupported source frame rate for NLE export")
-    timecode = str(technical.get("source_timecode") or "")
-    if ";" in timecode:
-        raise ValueError("NLE export does not support drop-frame timecode; use JSON, CSV or XMP")
-    match = re.fullmatch(r"(\d{2}):(\d{2}):(\d{2}):(\d{2})", timecode)
-    if not match:
-        raise ValueError("NLE export requires a known source timecode in HH:MM:SS:FF format")
-    hours, minutes, seconds, frames = map(int, match.groups())
-    if hours >= 24 or minutes >= 60 or seconds >= 60 or frames >= fps:
-        raise ValueError("Source timecode is invalid for the source frame rate")
-    source_start = ((hours * 60 + minutes) * 60 + seconds) * fps + frames
-    duration = parse_seconds(technical.get("duration_seconds"))
-    if duration <= 0:
-        raise ValueError("NLE export requires a known positive source duration")
-    return fps, source_start, duration
+def _source_timing(data: dict) -> tuple[Fraction, int, Decimal]:
+    rate, source_start, duration, basis = _fcpxml_timing(data)
+    if basis != 'embedded_source_timecode':
+        raise ValueError('EDL export requires a known embedded source timecode in HH:MM:SS:FF format')
+    return rate, source_start, duration
 
 
 def _frames(seconds: Decimal, fps: int | Fraction) -> int:
@@ -67,9 +37,7 @@ def _fcpxml_timing(data: dict) -> tuple[Fraction, int, Decimal, str]:
     if (technical.get("drop_frame") or ";" in timecode or
         str(technical.get("timecode_mode", "")).upper() in {"DF", "DROP", "DROP-FRAME"}):
         raise ValueError("FCPXML export does not yet support drop-frame source timecode; use JSON, CSV or XMP")
-    verified_nominal = (technical.get("nominal_frame_rate_fraction")
-                        if technical.get("nominal_frame_rate_verified") is True
-                        and technical.get("frame_rate_verification") == "ffprobe_full_packet_pts" else None)
+    verified_nominal = verified_rate(technical)
     if (any(key in technical for key in ("nominal_frame_rate_verified", "nominal_frame_rate_fraction"))
             and not verified_nominal):
         raise ValueError("FCPXML requires verified constant frame timing; source cadence is unknown or irregular")
@@ -113,7 +81,7 @@ def _frame_timecode(frame: int, fps: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d}"
 
 
-def _nle_shots(data: dict, fps: int, duration: Decimal, preserve_order=False):
+def _nle_shots(data: dict, fps: int | Fraction, duration: Decimal, preserve_order=False):
     rows = []
     for scene, shot, reviewed in iter_shots(data):
         start, end = segment_times(shot, duration)
@@ -134,8 +102,9 @@ def export_edl(job) -> str:
     """CMX3600 video-only selects, with verified non-drop source timing."""
     data = job_data(job)
     fps, source_start, duration = _source_timing(data)
-    if fps not in {24, 25, 30}:
-        raise ValueError("CMX3600 export supports only 24, 25 or 30 fps non-drop sources")
+    if fps not in {Fraction(24), Fraction(25), Fraction(30), Fraction(24000, 1001), Fraction(30000, 1001)}:
+        raise ValueError("CMX3600 export supports 24, 25, 30, 23.976 or 29.97 fps non-drop sources")
+    timebase = (fps.numerator + fps.denominator - 1) // fps.denominator
     shots = _nle_shots(data, fps, duration)
     if len(shots) > 999:
         raise ValueError("CMX3600 export is limited to 999 events")
@@ -147,8 +116,8 @@ def export_edl(job) -> str:
     for index, (first, last, scene, shot, reviewed) in enumerate(shots, 1):
         count = last - first
         lines.append(f"{index:03d}  AX       V     C        "
-                     f"{_frame_timecode(source_start + first, fps)} {_frame_timecode(source_start + last, fps)} "
-                     f"{_frame_timecode(record, fps)} {_frame_timecode(record + count, fps)}")
+                     f"{_frame_timecode(source_start + first, timebase)} {_frame_timecode(source_start + last, timebase)} "
+                     f"{_frame_timecode(record, timebase)} {_frame_timecode(record + count, timebase)}")
         lines.extend([f"* FROM CLIP NAME: {filename}",
                       f"* COMMENT: {_one_line(shot.get('visual_description'))}",
                       f"* SHOT TYPE: {_one_line(shot.get('shot_type'))}",

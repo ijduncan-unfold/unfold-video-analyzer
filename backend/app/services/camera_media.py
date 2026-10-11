@@ -257,6 +257,8 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps, o
                 except (ValueError, OSError) as exc:
                     raise HTTPException(422, str(exc))
                 technical['viewing_proxy'] = generated_facts
+                from app.services.source_timing import camera_timing_fields
+                technical.update(camera_timing_fields(technical, generated_facts))
                 technical['technical_basis'] = 'Original inspection and Sony recording metadata; SDK-developed viewing proxy'
                 generated = True
         elif not browser_playable(technical, original):

@@ -107,7 +107,7 @@ def test_options_match_real_download_validation_for_selected_scope(client, expor
         assert options.status_code == 200
         result = options.json()
         assert result["scope"] == "selected_shots" and result["shot_numbers"] == [int(selection)]
-        assert len(result["formats"]) == 6
+        assert len(result["formats"]) == 7
         for option in result["formats"]:
             response = client.get(f"/api/library/{export_asset.job_id}/export", params={
                 "format": option["format"], "shot_numbers": selection})
@@ -147,7 +147,7 @@ def test_fcpxml_single_shot_uses_exact_rational_file_zero_when_no_embedded_timec
     assert Fraction(clip.get("duration").removesuffix("s")) / frame == round(Fraction(12) * fps) - round(Fraction(10) * fps)
     assert "not an asserted original timecode" in xml_text
     assert job.technical["source_timecode"] is None
-    with pytest.raises(ValueError, match="fractional"):
+    with pytest.raises(ValueError, match="source timecode"):
         export_library(job, "edl", [3])
 
 

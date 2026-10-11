@@ -126,6 +126,8 @@ class Decoder:
             'frame_rate': float(rate), 'frame_rate_fraction': str(rate), 'duration_seconds': frames / float(rate),
             'nominal_frame_rate_fraction': str(rate), 'nominal_frame_rate_verified': True,
             'has_audio': bool(samples), 'audio_stream_count': 1 if samples else 0,
+            'audio_channels': [channels] if samples else [],
+            'audio_sample_rates': [value(self.audio, 6)] if samples else [],
             'source_timecode': self.text(self.clip, 7, (Q,), (0,)),
             'camera_metadata': {'camera_model': self.text(self.clip, 11),
                                 'metadata_source': 'Blackmagic RAW SDK', 'decoder_version': self.text(self.config, 12)},

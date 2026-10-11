@@ -22,16 +22,18 @@ const FORMATS: { format: ExportFormat; title: string; description: string }[] = 
   { format: 'xmp', title: 'Metadata sidecar', description: 'Asset metadata and shot markers in an XMP file.' },
   { format: 'srt', title: 'Timed transcript', description: 'Subtitles from the available spoken-word transcript.' },
   { format: 'edl', title: 'Edit decision list', description: 'A video-only shot sequence using source timecode.' },
-  { format: 'fcpxml', title: 'Final Cut Pro XML', description: 'An XML timeline referencing your source media.' },
+  { format: 'premiere_xml', title: 'Premiere XML', description: 'A shot timeline with original media, source audio and logging metadata.' },
+  { format: 'fcpxml', title: 'Final Cut Pro XML', description: 'A timeline for Final Cut Pro and Resolve.' },
 ]
 const PAGE_SIZE = 50
+const formatLabel = (format: ExportFormat) => format === 'premiere_xml' ? 'Premiere XML' : format.toUpperCase()
 
 function safeFilename(value: string, format: ExportFormat, selected: boolean) {
   const basename = value.split(/[\\/]/).pop() || 'video'
   const clean = Array.from(basename, character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127 ? '_' : character).join('')
   let stem = clean.replace(/\.[^.]+$/, '').replace(/[<>:"/\\|?*\u202a-\u202e\u2066-\u2069]/g, '_').replace(/[. ]+$/, '').slice(0, 140)
   if (!stem || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `video_${stem || 'metadata'}`
-  return `${stem}_${selected ? 'selected_shots' : 'metadata'}.${format}`
+  return `${stem}_${selected ? 'selected_shots' : 'metadata'}.${format === 'premiere_xml' ? 'xml' : format}`
 }
 
 function CopyGlyph() {
@@ -137,7 +139,7 @@ export function ExportPanel({ asset, shots, selectedShots, staleSelection, onCho
         URL.revokeObjectURL(objectUrl)
         if (downloadObjectUrl.current === objectUrl) downloadObjectUrl.current = null
       }, 1000)
-      setNotice(`${format.toUpperCase()} download started.`)
+      setNotice(`${formatLabel(format)} download started.`)
     } catch (cause) {
       if (!controller.signal.aborted) setError(errorMessage(cause))
     } finally {
@@ -180,7 +182,7 @@ export function ExportPanel({ asset, shots, selectedShots, staleSelection, onCho
             const option = options?.formats.find(value => value.format === item.format)
             const unavailable = !!option && !option.available
             return <label key={item.format} className={`ep-format${format === item.format ? ' is-selected' : ''}${unavailable ? ' is-unavailable' : ''}`}>
-              <div className="ep-format-heading"><span>{item.format.toUpperCase()}</span><input type="radio" name={`${choiceId}-format`} value={item.format} checked={format === item.format} disabled={blocked || loading || unavailable || !option} onChange={() => { setFormat(item.format); setError(''); setNotice('') }} /></div>
+              <div className="ep-format-heading"><span>{item.format === 'premiere_xml' ? 'XML' : item.format.toUpperCase()}</span><input type="radio" name={`${choiceId}-format`} value={item.format} checked={format === item.format} disabled={blocked || loading || unavailable || !option} onChange={() => { setFormat(item.format); setError(''); setNotice('') }} /></div>
               <strong>{item.title}</strong><p>{item.description}</p>
               {unavailable && <small className="ep-unavailable">Unavailable: {option.reason || 'This format is not available for the current scope.'}</small>}
             </label>
@@ -190,8 +192,8 @@ export function ExportPanel({ asset, shots, selectedShots, staleSelection, onCho
       {loading && <p className="ep-hint" role="status">Checking available formats…</p>}
       {current?.error && !blocked && <div className="ep-alert" role="alert"><p>{current.error}</p><button className="ep-button" onClick={() => setRetry(value => value + 1)}>Check again</button></div>}
       <div className="ep-download-bar">
-        <div><strong>{format.toUpperCase()} · {isSelection ? `${selectedShots.length} selected ${selectedShots.length === 1 ? 'shot' : 'shots'}` : 'Whole video'}</strong><p>{blocked ? 'Choose a current selection to continue.' : chosen && !chosen.available ? chosen.reason : format === 'fcpxml' ? 'Keep the original video beside the XML, or relink it in your editor.' : format === 'srt' && isSelection ? 'Complete overlapping subtitle cues keep their original timestamps.' : 'Metadata and editorial interchange files reference your source video.'}</p></div>
-        <button className="ep-button ep-primary" disabled={!canDownload} onClick={() => void download()}><Icon name="download" size={17} />{downloading ? 'Preparing download…' : `Download ${format.toUpperCase()}`}</button>
+        <div><strong>{formatLabel(format)} · {isSelection ? `${selectedShots.length} selected ${selectedShots.length === 1 ? 'shot' : 'shots'}` : 'Whole video'}</strong><p>{blocked ? 'Choose a current selection to continue.' : chosen && !chosen.available ? chosen.reason : format === 'premiere_xml' ? 'Originals stay in place. Relink in the editor if their location changes.' : format === 'fcpxml' ? 'Keep the original video beside the XML, or relink it in your editor.' : format === 'srt' && isSelection ? 'Complete overlapping subtitle cues keep their original timestamps.' : 'Metadata and editorial interchange files reference your source video.'}</p></div>
+        <button className="ep-button ep-primary" disabled={!canDownload} onClick={() => void download()}><Icon name="download" size={17} />{downloading ? 'Preparing download…' : `Download ${formatLabel(format)}`}</button>
       </div>
       {error && <p className="ep-alert" role="alert">{error}</p>}
       {notice && <p className="ep-notice" role="status">{notice}</p>}

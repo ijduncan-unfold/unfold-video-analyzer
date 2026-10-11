@@ -219,6 +219,8 @@ async def prepare_braw_viewing(original, folder, on_progress=None, family='braw'
                 'audio_stream_count': proxy['audio_stream_count'], 'color_calibrated': False,
                 'viewing_transform': f'{label} SDK camera/sidecar processing defaults; reduced-resolution 8-bit viewing output',
                 'alignment': 'Every source frame decoded at SDK cadence; complete frame count, duration, frame rate and audio verified'}
+            from app.services.source_timing import camera_timing_fields
+            technical.update(camera_timing_fields(technical, technical['viewing_proxy']))
             published = True
             if on_progress:
                 on_progress({'stage': 'complete', 'message': f'{label} proxy prepared', 'percent': 100})

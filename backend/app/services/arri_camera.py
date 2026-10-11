@@ -89,6 +89,8 @@ async def prepare_arri_viewing(original, folder, on_progress=None):
             'width': rectangle['width'], 'height': rectangle['height'], 'camera_frame_count': count,
             'duration_seconds': count / float(rate), 'source_timecode': original_facts.get('source_timecode'),
             'has_audio': derived['has_audio'], 'audio_stream_count': derived['audio_stream_count'],
+            'audio_channels': original_facts.get('audio_channels', []),
+            'audio_sample_rates': original_facts.get('audio_sample_rates', []),
             'frame_rate': float(rate), 'frame_rate_fraction': str(rate), 'nominal_frame_rate_fraction': str(rate),
             'nominal_frame_rate_verified': True, 'frame_rate_verified_frames': count,
             'frame_rate_verification': 'arri_sdk_project_rate_and_count',

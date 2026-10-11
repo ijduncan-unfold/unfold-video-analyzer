@@ -281,7 +281,7 @@ export function deleteAsset(id: string) {
     method: 'DELETE', headers,
   })
 }
-export type ExportFormat = 'json' | 'csv' | 'xmp' | 'srt' | 'edl' | 'fcpxml'
+export type ExportFormat = 'json' | 'csv' | 'xmp' | 'srt' | 'edl' | 'fcpxml' | 'premiere_xml'
 export interface ExportOptions {
   scope: 'selected_shots' | 'asset'
   shot_numbers: number[]

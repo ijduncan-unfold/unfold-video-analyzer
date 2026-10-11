@@ -29,6 +29,7 @@ SLATE_COLUMNS = (
 EXPORT_FORMATS = (
     ("json", "JSON metadata"), ("csv", "CSV shot list"), ("xmp", "XMP sidecar"),
     ("srt", "SRT subtitles"), ("edl", "EDL edit list"), ("fcpxml", "Final Cut Pro XML"),
+    ("premiere_xml", "Premiere XML"),
 )
 NS = {
     "x": "adobe:ns:meta/",
@@ -460,6 +461,9 @@ def _render_export(data: dict, format: str) -> tuple[bytes | str, str, str]:
         from app.services.nle_export import export_edl, export_fcpxml
         exporter, media_type = (export_edl, "text/plain") if name == "edl" else (export_fcpxml, "application/xml")
         return exporter(data), media_type, name
+    if name == "premiere_xml":
+        from app.services.premiere_xml import export_premiere_xml
+        return export_premiere_xml(data), "application/xml", "xml"
     raise ValueError(f"Unsupported export format: {format}")
 
 

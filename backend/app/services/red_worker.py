@@ -68,6 +68,8 @@ class Decoder:
             'frame_rate': float(fps), 'frame_rate_fraction': str(fps),
             'nominal_frame_rate_fraction': str(fps), 'nominal_frame_rate_verified': True,
             'has_audio': bool(info.channels and info.samples), 'audio_stream_count': 1 if info.channels and info.samples else 0,
+            'audio_channels': [info.channels] if info.channels and info.samples else [],
+            'audio_sample_rates': [info.sample_rate] if info.channels and info.samples else [],
             'source_timecode': info.timecode.decode('utf-8', errors='replace'),
             'camera_metadata': {'manufacturer': 'RED', 'camera_model': info.camera.decode('utf-8', errors='replace'),
                 'decoder_version': info.sdk.decode('utf-8', errors='replace').split(' [', 1)[0], 'metadata_source': 'RED SDK'},
