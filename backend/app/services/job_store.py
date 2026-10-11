@@ -52,6 +52,7 @@ class Job:
     viewing_fingerprint: str = ""
     camera_companions: list[dict] | None = None
     rough_cut: dict | None = None
+    folder_id: str | None = None
 
 
 @contextmanager
@@ -63,6 +64,7 @@ def connection():
         try:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("CREATE TABLE IF NOT EXISTS jobs (job_id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS library_folders (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE)")
             yield db
             db.commit()
         finally:

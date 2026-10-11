@@ -10,7 +10,7 @@ export function ProjectSearchPicker({ projects, selectedIds, onChange }: {
   const [open, setOpen] = useState(false)
   return <>
     <button className="lw-button mc-project-picker-trigger" aria-haspopup="dialog" onClick={() => setOpen(true)}>
-      <Icon name="search" size={16} />Search {selectedIds.length} project{selectedIds.length === 1 ? '' : 's'}
+      <Icon name="search" size={16} />Search {selectedIds.length} shot{selectedIds.length === 1 ? '' : 's'}
     </button>
     {open && <ProjectPickerDialog projects={projects} selectedIds={selectedIds} onClose={() => setOpen(false)} onApply={ids => { onChange(ids); setOpen(false) }} />}
   </>
@@ -49,15 +49,15 @@ function ProjectPickerDialog({ projects, selectedIds, onClose, onApply }: {
   }
 
   return <dialog ref={dialog} className="mc-project-picker" aria-labelledby={titleId} onCancel={onClose}>
-    <header><h2 id={titleId}>Search projects</h2><button className="lw-icon-button" aria-label="Close project picker" onClick={onClose}><Icon name="close" size={18} /></button></header>
-    <div className="mc-project-search"><Icon name="search" size={18} /><input ref={input} type="search" aria-label="Search projects by title or filename" placeholder="Search by title or filename…" value={query} onChange={event => setQuery(event.target.value)} /></div>
-    <div className="mc-project-picker-filter"><span role="status">{shown.length} project{shown.length === 1 ? '' : 's'}</span><button className="lw-text-button" aria-pressed={selectedOnly} onClick={() => setSelectedOnly(value => !value)}>Selected only</button></div>
-    <div className="mc-project-picker-results" role="group" aria-label="Projects to search">
+    <header><h2 id={titleId}>Search shots</h2><button className="lw-icon-button" aria-label="Close shot picker" onClick={onClose}><Icon name="close" size={18} /></button></header>
+    <div className="mc-project-search"><Icon name="search" size={18} /><input ref={input} type="search" aria-label="Search shots by title or filename" placeholder="Search by title or filename…" value={query} onChange={event => setQuery(event.target.value)} /></div>
+    <div className="mc-project-picker-filter"><span role="status">{shown.length} shot{shown.length === 1 ? '' : 's'}</span><button className="lw-text-button" aria-pressed={selectedOnly} onClick={() => setSelectedOnly(value => !value)}>Selected only</button></div>
+    <div className="mc-project-picker-results" role="group" aria-label="Shots to search">
       {shown.map(project => <label key={project.id} className={draft.has(project.id) ? 'is-selected' : ''}>
         <input type="checkbox" checked={draft.has(project.id)} onChange={() => toggle(project.id)} />
         <span><strong>{project.title || project.filename}</strong>{project.title && project.title !== project.filename && <small>{project.filename}</small>}</span>
       </label>)}
-      {!shown.length && <p className="mc-project-picker-empty">{query.trim() ? 'No projects match your search.' : selectedOnly ? 'No projects selected.' : 'No analyzed projects available.'}</p>}
+      {!shown.length && <p className="mc-project-picker-empty">{query.trim() ? 'No shots match your search.' : selectedOnly ? 'No shots selected.' : 'No analyzed shots available.'}</p>}
     </div>
     <footer><span>{draft.size} selected</span><button className="lw-button" onClick={onClose}>Cancel</button><button className="lw-button lw-button-primary" disabled={!draft.size} onClick={() => onApply([...draft])}>Use selection</button></footer>
   </dialog>

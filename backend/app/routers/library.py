@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, Response
 
 from app.config import settings
 from app.dependencies import get_api_key
-from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest
+from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove
 from app.services.job_store import get_job, list_jobs, update_job, claim_analysis, cut_is_active
 from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
@@ -23,8 +23,10 @@ def require_job(job_id):
     return job
 
 
-def _filtered(jobs, project='', review_status='', tag='', rights_status='', collection=''):
+def _filtered(jobs, project='', review_status='', tag='', rights_status='', collection='', folder_id=''):
     for job in jobs:
+        if folder_id and job.folder_id != (None if folder_id == 'unfiled' else folder_id):
+            continue
         meta = AssetMetadata(**job.metadata)
         if project and meta.project != project:
             continue
@@ -41,12 +43,12 @@ def _filtered(jobs, project='', review_status='', tag='', rights_status='', coll
 
 @router.get('')
 async def library(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
-                  tag: str = '', rights_status: str = '', collection: str = '',
+                  tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
                   sort: str = Query(default='relevance', pattern='^(name|newest|relevance)$'),
                   limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     jobs = list_jobs()
     matched = []
-    for job in _filtered(jobs, project, review_status, tag, rights_status, collection):
+    for job in _filtered(jobs, project, review_status, tag, rights_status, collection, folder_id):
         public = asset_view(job)
         score = search_score(q, [job.filename, public['metadata'], public['technical'], job.summary, job.flash_result,
                                  job.deep_results, job.shot_annotations,
@@ -76,13 +78,13 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
 
 @router.get('/search/shots')
 async def search_shots(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
-                       tag: str = '', rights_status: str = '', collection: str = '',
+                       tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
                        job_id: str | None = Query(default=None, max_length=200),
                        limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     matches = []
     jobs = list_jobs()
     scoped = [require_job(job_id)] if job_id is not None else jobs
-    for job in _filtered(scoped, project=project, rights_status=rights_status, collection=collection):
+    for job in _filtered(scoped, project=project, rights_status=rights_status, collection=collection, folder_id=folder_id):
         for shot in shot_views(job):
             if review_status and shot['review_status'] != review_status:
                 continue
@@ -97,13 +99,52 @@ async def search_shots(q: str = Query(default='', max_length=500), project: str 
 
 
 @router.get('/projects')
-async def projects():
+async def projects(folder_id: str = ''):
     imports = []
-    for job in list_jobs():
+    for job in _filtered(list_jobs(), folder_id=folder_id):
         view = asset_view(job)
         imports.append({'id': job.job_id, 'title': view['metadata']['title'],
                         'filename': job.filename, 'status': job.status, 'shot_count': view['shot_count']})
     return {'projects': imports, 'total': len(imports)}
+
+
+@router.get('/folders')
+async def list_folders():
+    from app.services.library_folders import folders
+    return folders()
+
+
+def folder_action(action, *args):
+    try:
+        return action(*args)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc.args[0])) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post('/folders', status_code=201)
+async def create_folder(body: FolderName):
+    from app.services.library_folders import save_folder
+    return folder_action(save_folder, body.name)
+
+
+@router.patch('/folders/{folder_id}')
+async def rename_folder(folder_id: str, body: FolderName):
+    from app.services.library_folders import save_folder
+    return folder_action(save_folder, body.name, folder_id)
+
+
+@router.delete('/folders/{folder_id}')
+async def delete_folder(folder_id: str):
+    from app.services.library_folders import remove_folder
+    return folder_action(remove_folder, folder_id)
+
+
+@router.post('/move')
+async def move_to_folder(body: FolderMove):
+    from app.services.library_folders import move_shots
+    return folder_action(move_shots, body.job_ids, body.folder_id)
 
 
 @router.get('/{job_id}')

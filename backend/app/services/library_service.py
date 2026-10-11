@@ -140,7 +140,7 @@ def asset_view(job, detail=False):
         metadata['title'] = Path(job.filename).stem
     poster = Path(settings.upload_dir) / job.job_id / 'poster.jpg'
     view = {
-        'job_id': job.job_id, 'filename': job.filename, 'status': job.status,
+        'job_id': job.job_id, 'filename': job.filename, 'status': job.status, 'folder_id': job.folder_id,
         'created_at': job.created_at.isoformat(), 'size_bytes': job.size_bytes,
         'mime_type': job.mime_type, 'youtube_url': job.youtube_url,
         'media_origin': job.media_origin, 'uses_viewing_proxy': bool(job.viewing_path),

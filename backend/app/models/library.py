@@ -48,3 +48,22 @@ class AnalyzeRequest(BaseModel):
     fps: float = Field(default=1, ge=0.5, le=5)
     custom_prompt: str = Field(default='', max_length=10000)
     proxy_mode: Literal['auto', 'always', 'off'] = 'auto'
+
+
+class FolderName(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator('name')
+    @classmethod
+    def clean_name(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError('Enter a folder name')
+        return value
+
+
+class FolderMove(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    job_ids: list[str] = Field(min_length=1, max_length=500)
+    folder_id: str | None = Field(default=None, max_length=100)

@@ -6,11 +6,17 @@ Turn footage into a searchable shot library with Gemini analysis, visual match-c
 
 ## From import to edit
 
-1. **Drop videos or whole camera folders.** Multiple folders and nested subfolders import their video files as individual projects, ignoring sidecars and grouping numbered camera recording parts. Originals remain linked to their local or network location. Preview and organize footage without an AI key; analysis and metadata persist in SQLite across restarts. The arrow beside **Import** also offers **Import folders**.
-2. **Choose Shots and tags or Full analysis.** Select individual projects or **Select page**, choose the analysis type, and click **Analyze selected** to process multiple clips. Two analyses run concurrently by default; the rest wait in the queue. Each card shows its current stage and progress. Failed requests remain selected for retry. Gemini describes shots, subjects, actions, colors, camera movement, and audio. Full analysis adds deeper cinematography, editing, narrative notes, and a video summary. Known-duration videos are processed in 30-second sections; shots and midpoint thumbnails appear as sections finish after provider upload processing.
-3. **Find and review shots.** Search inside one project, play matching shots, edit human tags and notes, and record review and usage-rights status. Open an analysis section to jump back to its shots.
-4. **Explore visual match cuts.** Select a detected shape or trace your own outline, then search for similar silhouettes, framing, and colors across selected projects.
-5. **Export the whole video or selected shots.** Download metadata and editorial interchange files, or copy individual in/out times and shot ranges.
+1. **Drop videos or whole camera folders.** Multiple folders and nested subfolders import their video files as individual **shots**, ignoring sidecars and grouping numbered camera recording parts. Originals remain linked to their local or network location. Preview and organize footage without an AI key; analysis and metadata persist in SQLite across restarts. The arrow beside **Import** also offers **Import folders**.
+2. **Choose Clips and tags or Full analysis.** Select individual shots or **Select page**, choose the analysis type, and click **Analyze selected**. Two analyses run concurrently by default; the rest wait in the queue. Each card shows its current stage and progress. Failed requests remain selected for retry. Gemini identifies **clips** within each shot and describes subjects, actions, colors, camera movement, and audio. Full analysis adds deeper cinematography, editing, narrative notes, and a video summary. Known-duration videos are processed in 30-second sections; clips and midpoint thumbnails appear as sections finish after provider upload processing.
+3. **Find and review clips.** Search inside one source shot, play matching clips, edit human tags and notes, and record review and usage-rights status. Open an analysis section to jump back to its clips.
+4. **Explore visual match cuts.** Select a detected shape or trace your own outline, then search for similar silhouettes, framing, and colors across selected shots.
+5. **Export the whole shot or selected clips.** Download metadata and editorial interchange files, or copy individual in/out times and clip ranges.
+
+## Organize shots in folders
+
+Imported source videos appear under **Shots**; their analyzed segments appear under **Clips**. Create named folders in the library sidebar, then drag a shot into a folder or select several shots and choose **Move to folder**. The destination picker supports folder search. Folder selection scopes both the shot library and the source choices in the Clips view. Imports made inside a folder are added to that folder.
+
+Rename folders without changing membership. Deleting a folder returns its shots to **Unfiled**, preserving all media and analysis. Folder organization is saved in the local database across app restarts; it never moves or renames the original camera files.
 
 Analysis runs in the background while the server is running, including when the browser tab closes. Partial results persist, duplicate runs are rejected, and interrupted runs are identified on restart. Retry is explicit; restarting the server does not automatically resume model calls.
 
@@ -51,7 +57,7 @@ Use **Download SRT** in this tab to export all saved dialogue as subtitles. Sear
 
 ## Explore visual match cuts
 
-Open **Match cuts** to connect shots through shape, composition, and color. Use the searchable project picker to choose which videos to search by title or filename, and adjust the weight of each matching dimension.
+Open **Match cuts** to connect clips through shape, composition, and color. Use the searchable shot picker to choose which source videos to search by title or filename, and adjust the weight of each matching dimension.
 
 ![Shape detection on the Match cuts page, with outlines around a character's head and armor, shape and composition controls, and an outgoing frame preview.](docs/screenshots/shape-detection.png)
 

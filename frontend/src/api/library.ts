@@ -16,6 +16,7 @@ export interface AssetMetadata {
   collections: string[]
 }
 export interface LibraryAsset {
+  folder_id?: string | null
   progress?: { message?: string; pass?: number; scene?: number; total?: number } | string | null
   analysis_progress?: AnalysisProgress | null
   error?: string | null
@@ -236,7 +237,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
   return response.json() as Promise<T>
 }
-export function getLibrary(filters: { q?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; limit?: number; offset?: number; sort?: string }, signal?: AbortSignal) {
+export function getLibrary(filters: { q?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number; sort?: string }, signal?: AbortSignal) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
   return request<LibraryResponse>(`/api/library?${params}`, { signal })
@@ -244,13 +245,27 @@ export function getLibrary(filters: { q?: string; project?: string; review_statu
 export function getAsset(id: string, signal?: AbortSignal) {
   return request<AssetDetail>(`/api/library/${encodeURIComponent(id)}`, { signal })
 }
-export function getProjects(signal?: AbortSignal) {
-  return request<{ projects: LibraryProject[]; total: number }>('/api/library/projects', { signal })
+export function getProjects(signal?: AbortSignal, folderId = '') {
+  return request<{ projects: LibraryProject[]; total: number }>(`/api/library/projects?${new URLSearchParams({ folder_id: folderId })}`, { signal })
 }
-export function getShots(filters: { q: string; job_id?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+export function getShots(filters: { q: string; job_id?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
   return request<{ shots: LibraryShot[]; total: number }>(`/api/library/search/shots?${params}`, { signal })
+}
+export interface LibraryFolder { id: string; name: string; shot_count: number }
+export interface FolderResponse { folders: LibraryFolder[]; total_shots: number; unfiled_shots: number }
+export function getFolders(signal?: AbortSignal) { return request<FolderResponse>('/api/library/folders', { signal }) }
+export function saveFolder(name: string, id?: string) {
+  return request<{ id: string; name: string }>(id ? `/api/library/folders/${encodeURIComponent(id)}` : '/api/library/folders', {
+    method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  })
+}
+export function deleteFolder(id: string) { return request<{ status: string; note: string }>(`/api/library/folders/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
+export function moveToFolder(ids: string[], folderId: string | null) {
+  return request<{ moved: number; folder_id: string | null }>('/api/library/move', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_ids: ids, folder_id: folderId }),
+  })
 }
 export function saveMetadata(id: string, metadata: Partial<AssetMetadata>) {
   return request<LibraryAsset>(`/api/library/${encodeURIComponent(id)}`, {

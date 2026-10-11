@@ -17,12 +17,12 @@ interface Props {
 }
 
 const FORMATS: { format: ExportFormat; title: string; description: string }[] = [
-  { format: 'json', title: 'Structured metadata', description: 'Shot metadata, annotations and analysis in a portable document.' },
-  { format: 'csv', title: 'Shot list', description: 'Rows for spreadsheets and production handoffs.' },
-  { format: 'xmp', title: 'Metadata sidecar', description: 'Asset metadata and shot markers in an XMP file.' },
+  { format: 'json', title: 'Structured metadata', description: 'Clip metadata, annotations and analysis in a portable document.' },
+  { format: 'csv', title: 'Clip list', description: 'Rows for spreadsheets and production handoffs.' },
+  { format: 'xmp', title: 'Metadata sidecar', description: 'Asset metadata and clip markers in an XMP file.' },
   { format: 'srt', title: 'Timed transcript', description: 'Subtitles from the available spoken-word transcript.' },
-  { format: 'edl', title: 'Edit decision list', description: 'A video-only shot sequence using source timecode.' },
-  { format: 'premiere_xml', title: 'Premiere XML', description: 'A shot timeline with original media, source audio and logging metadata.' },
+  { format: 'edl', title: 'Edit decision list', description: 'A video-only clip sequence using source timecode.' },
+  { format: 'premiere_xml', title: 'Premiere XML', description: 'A clip timeline with original media, source audio and logging metadata.' },
   { format: 'fcpxml', title: 'Final Cut Pro XML', description: 'A timeline for Final Cut Pro and Resolve.' },
 ]
 const PAGE_SIZE = 50
@@ -109,9 +109,9 @@ export function ExportPanel({ asset, shots, selectedShots, staleSelection, onCho
   }
 
   function copyAll() {
-    const text = ['Shot\tIn (source relative)\tOut (source relative)\tRange', ...scopedShots.map(shot =>
+    const text = ['Clip\tIn (source relative)\tOut (source relative)\tRange', ...scopedShots.map(shot =>
       `${shot.shot_number}\t${shot.start_time}\t${shot.end_time}\t${shot.start_time} - ${shot.end_time}`)].join('\n')
-    void copy(text, `${scopedShots.length} shot ${scopedShots.length === 1 ? 'range' : 'ranges'}`)
+    void copy(text, `${scopedShots.length} clip ${scopedShots.length === 1 ? 'range' : 'ranges'}`)
   }
 
   async function download() {
@@ -159,21 +159,21 @@ export function ExportPanel({ asset, shots, selectedShots, staleSelection, onCho
         <div className="ep-scope-grid">
           <label className={scope === 'asset' ? 'is-selected' : ''}>
             <input type="radio" name={`${choiceId}-scope`} value="asset" checked={!isSelection} onChange={() => changeScope('asset')} />
-            <span><strong>Whole video</strong><small>{shots.length} saved {shots.length === 1 ? 'shot' : 'shots'} · {duration(asset.technical.duration_seconds)}</small></span>
+            <span><strong>Whole video</strong><small>{shots.length} saved {shots.length === 1 ? 'clip' : 'clips'} · {duration(asset.technical.duration_seconds)}</small></span>
           </label>
           <label className={isSelection ? 'is-selected' : ''}>
             <input type="radio" name={`${choiceId}-scope`} value="selected_shots" checked={isSelection} onChange={() => changeScope('selected_shots')} />
-            <span><strong>Selected shots</strong><small>{selectedShots.length} {selectedShots.length === 1 ? 'shot' : 'shots'} selected</small></span>
+            <span><strong>Selected clips</strong><small>{selectedShots.length} {selectedShots.length === 1 ? 'clip' : 'clips'} selected</small></span>
           </label>
         </div>
       </fieldset>
       {isSelection && <div className="ep-selection-tools">
-        <button className="ep-button" onClick={onChooseShots} disabled={downloading}>{staleSelection ? 'Reselect shots' : selectedShots.length ? 'Change selection' : 'Choose shots'}</button>
+        <button className="ep-button" onClick={onChooseShots} disabled={downloading}>{staleSelection ? 'Reselect clips' : selectedShots.length ? 'Change selection' : 'Choose clips'}</button>
         {(selectedShots.length > 0 || staleSelection) && <button className="ep-text-button" disabled={downloading} onClick={() => { onClearSelection(); changeScope('asset') }}>Clear selection</button>}
-        <p>{staleSelection ? 'Analysis changed the selected shots. Reselect them before exporting, or clear the selection to export the whole video.' : selectedShots.length ? 'Only these shots and their relevant metadata will be included.' : 'Choose one or more shots in the shot browser to create a scoped export.'}</p>
+        <p>{staleSelection ? 'Analysis changed the selected clips. Reselect them before exporting, or clear the selection to export the whole video.' : selectedShots.length ? 'Only these clips and their relevant metadata will be included.' : 'Choose one or more clips in the clip browser to create a scoped export.'}</p>
       </div>}
-      {staleSelection && isSelection && <p className="ep-alert" role="alert">This selection is out of date. Selected-shot downloads and time copying are paused.</p>}
-      {(active || asset.status === 'error') && <p className="ep-hint"><Icon name="info" size={15} />Exports include the results currently saved. {active ? 'More shots may arrive as analysis continues.' : 'Some sections may be incomplete.'}</p>}
+      {staleSelection && isSelection && <p className="ep-alert" role="alert">This selection is out of date. Selected-clip downloads and time copying are paused.</p>}
+      {(active || asset.status === 'error') && <p className="ep-hint"><Icon name="info" size={15} />Exports include the results currently saved. {active ? 'More clips may arrive as analysis continues.' : 'Some sections may be incomplete.'}</p>}
 
       <fieldset className="ep-formats" disabled={downloading} aria-busy={loading}>
         <legend>File format</legend>
@@ -192,7 +192,7 @@ export function ExportPanel({ asset, shots, selectedShots, staleSelection, onCho
       {loading && <p className="ep-hint" role="status">Checking available formats…</p>}
       {current?.error && !blocked && <div className="ep-alert" role="alert"><p>{current.error}</p><button className="ep-button" onClick={() => setRetry(value => value + 1)}>Check again</button></div>}
       <div className="ep-download-bar">
-        <div><strong>{formatLabel(format)} · {isSelection ? `${selectedShots.length} selected ${selectedShots.length === 1 ? 'shot' : 'shots'}` : 'Whole video'}</strong><p>{blocked ? 'Choose a current selection to continue.' : chosen && !chosen.available ? chosen.reason : format === 'premiere_xml' ? 'Originals stay in place. Relink in the editor if their location changes.' : format === 'fcpxml' ? 'Keep the original video beside the XML, or relink it in your editor.' : format === 'srt' && isSelection ? 'Complete overlapping subtitle cues keep their original timestamps.' : 'Metadata and editorial interchange files reference your source video.'}</p></div>
+        <div><strong>{formatLabel(format)} · {isSelection ? `${selectedShots.length} selected ${selectedShots.length === 1 ? 'clip' : 'clips'}` : 'Whole video'}</strong><p>{blocked ? 'Choose a current selection to continue.' : chosen && !chosen.available ? chosen.reason : format === 'premiere_xml' ? 'Originals stay in place. Relink in the editor if their location changes.' : format === 'fcpxml' ? 'Keep the original video beside the XML, or relink it in your editor.' : format === 'srt' && isSelection ? 'Complete overlapping subtitle cues keep their original timestamps.' : 'Metadata and editorial interchange files reference your source video.'}</p></div>
         <button className="ep-button ep-primary" disabled={!canDownload} onClick={() => void download()}><Icon name="download" size={17} />{downloading ? 'Preparing download…' : `Download ${formatLabel(format)}`}</button>
       </div>
       {error && <p className="ep-alert" role="alert">{error}</p>}
@@ -201,14 +201,14 @@ export function ExportPanel({ asset, shots, selectedShots, staleSelection, onCho
       <section className="ep-times" aria-labelledby={`${choiceId}-times`}>
         <div className="ep-times-heading"><div><h3 id={`${choiceId}-times`}>Time ranges</h3><p>Source-relative timestamps. AI boundaries are approximate.</p></div><button className="ep-button" disabled={blocked || scopedShots.length === 0} onClick={copyAll}><CopyGlyph />Copy all ranges</button></div>
         {asset.technical.source_timecode && <p className="ep-source-time">Embedded source timecode: <code>{asset.technical.source_timecode}</code>. The times below are relative to the start of the video.</p>}
-        {blocked ? <p className="ep-empty">{staleSelection ? 'Reselect shots to see their current time ranges.' : 'Your selected shot ranges will appear here.'}</p> : scopedShots.length === 0 ? <p className="ep-empty">No shot ranges are available yet. Asset metadata can still be exported in supported formats.</p> : <>
-          <div className="ep-table-scroll"><table><thead><tr><th scope="col">Shot</th><th scope="col">In</th><th scope="col">Out</th><th scope="col"><span className="lw-sr-only">Copy range</span></th></tr></thead><tbody>{visibleShots.map(shot => <tr key={`${shot.shot_number}-${shot.start_time}-${shot.end_time}`}>
+        {blocked ? <p className="ep-empty">{staleSelection ? 'Reselect clips to see their current time ranges.' : 'Your selected clip ranges will appear here.'}</p> : scopedShots.length === 0 ? <p className="ep-empty">No clip ranges are available yet. Asset metadata can still be exported in supported formats.</p> : <>
+          <div className="ep-table-scroll"><table><thead><tr><th scope="col">Clip</th><th scope="col">In</th><th scope="col">Out</th><th scope="col"><span className="lw-sr-only">Copy range</span></th></tr></thead><tbody>{visibleShots.map(shot => <tr key={`${shot.shot_number}-${shot.start_time}-${shot.end_time}`}>
             <th scope="row"><strong>{String(shot.shot_number).padStart(2, '0')} <span>{shot.shot_type}</span></strong><p title={shot.visual_description}>{shot.visual_description}</p></th>
-            <td><button className="ep-time-copy" title="Copy in time" aria-label={`Copy in time for shot ${shot.shot_number}: ${shot.start_time}`} onClick={() => void copy(shot.start_time, `Shot ${shot.shot_number} in time`)}><code>{shot.start_time}</code><CopyGlyph /></button></td>
-            <td><button className="ep-time-copy" title="Copy out time" aria-label={`Copy out time for shot ${shot.shot_number}: ${shot.end_time}`} onClick={() => void copy(shot.end_time, `Shot ${shot.shot_number} out time`)}><code>{shot.end_time}</code><CopyGlyph /></button></td>
-            <td><button className="ep-time-copy" aria-label={`Copy range for shot ${shot.shot_number}`} onClick={() => void copy(`${shot.start_time} - ${shot.end_time}`, `Shot ${shot.shot_number} range`)}><CopyGlyph /><span>Range</span></button></td>
+            <td><button className="ep-time-copy" title="Copy in time" aria-label={`Copy in time for clip ${shot.shot_number}: ${shot.start_time}`} onClick={() => void copy(shot.start_time, `Clip ${shot.shot_number} in time`)}><code>{shot.start_time}</code><CopyGlyph /></button></td>
+            <td><button className="ep-time-copy" title="Copy out time" aria-label={`Copy out time for clip ${shot.shot_number}: ${shot.end_time}`} onClick={() => void copy(shot.end_time, `Clip ${shot.shot_number} out time`)}><code>{shot.end_time}</code><CopyGlyph /></button></td>
+            <td><button className="ep-time-copy" aria-label={`Copy range for clip ${shot.shot_number}`} onClick={() => void copy(`${shot.start_time} - ${shot.end_time}`, `Clip ${shot.shot_number} range`)}><CopyGlyph /><span>Range</span></button></td>
           </tr>)}</tbody></table></div>
-          {totalPages > 1 && <nav className="ep-pagination" aria-label="Shot range pages"><span>{currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, scopedShots.length)} of {scopedShots.length} shots</span><div><button className="ep-button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><button className="ep-button" disabled={currentPage === totalPages - 1} onClick={() => setPage(currentPage + 1)}>Next</button></div></nav>}
+          {totalPages > 1 && <nav className="ep-pagination" aria-label="Clip range pages"><span>{currentPage * PAGE_SIZE + 1}–{Math.min((currentPage + 1) * PAGE_SIZE, scopedShots.length)} of {scopedShots.length} clips</span><div><button className="ep-button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><button className="ep-button" disabled={currentPage === totalPages - 1} onClick={() => setPage(currentPage + 1)}>Next</button></div></nav>}
         </>}
       </section>
     </div>
