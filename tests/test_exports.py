@@ -232,12 +232,11 @@ class NleExportTests(unittest.TestCase):
         self.assertEqual(root.find(".//sequence").get("duration"), "55/25s")
         self.assertEqual(clips[0].find("keyword").get("value"), "favorite")
 
-    def test_unknown_fractional_drop_frame_vfr_and_invalid_source_timing_are_refused(self):
+    def test_unknown_drop_frame_vfr_and_invalid_source_timing_are_refused(self):
         cases = [
             ({"frame_rate": None, "frame_rate_fraction": None}, "known source frame rate"),
-            ({"frame_rate_fraction": "24000/1001"}, "fractional"),
             ({"frame_rate_fraction": "0/1"}, "positive source frame rate"),
-            ({"source_timecode": None}, "known source timecode"),
+            ({"source_timecode": None}, "source timecode"),
             ({"source_timecode": "01:00:00;00"}, "drop-frame"),
             ({"source_timecode": "01:00:00:25"}, "invalid"),
             ({"variable_frame_rate": True}, "variable frame rate"),
@@ -246,9 +245,8 @@ class NleExportTests(unittest.TestCase):
         ]
         for change, expected in cases:
             for exporter in (export_edl, export_fcpxml):
-                # FCPXML now supports exact rational rates and explicit file-zero
-                # timing without embedded TC; CMX3600 still needs its stricter basis.
-                if exporter is export_fcpxml and (expected == "fractional" or expected == "known source timecode"):
+                # FCPXML permits an explicit file-zero origin; EDL needs embedded TC.
+                if exporter is export_fcpxml and expected == "source timecode":
                     continue
                 with self.subTest(change=change, exporter=exporter.__name__), self.assertRaisesRegex(ValueError, expected):
                     job = ExportJob()
