@@ -9,6 +9,10 @@ A person entering/leaving, a new action, dialogue, a flashlight sweep, lighting 
 camera movement or a change of framing during the SAME take is not an edit. Describe
 the development of the entire continuous take in one shot description. Create a new
 shot only for a visible edit/transition to another camera view.
+Someone saying "cut" is a crew instruction, not evidence of a picture edit.
+A pan into darkness, a covered lens, a flashlight turning away or an actor passing
+close to the lens remains part of the take. Do not create a black-screen shot merely
+because the last sampled frames are dark; an actual transition must be visible.
 
 For each shot, beginning with shot number {shot_number_offset}, return:
 - start_time/end_time: source-relative MM:SS.mmm or HH:MM:SS.mmm, end strictly after start.

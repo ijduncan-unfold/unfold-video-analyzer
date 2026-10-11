@@ -96,6 +96,21 @@ class ContinuousAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved.flash_result['total_shots'], 3)
         self.assertEqual([s['shot_number'] for s in shot_views(saved)], [1, 2, 3])
 
+    async def test_joined_interior_fragments_keep_dialogue_coordinates_across_sections(self):
+        async def detect(_uri, _mime, section, number, fps, **kwargs):
+            start = (section.scene_number - 1) * 30
+            item = fragment(start, min(start + 30, 62.375), 'continuation' if start else 'unknown', number)
+            if section.scene_number == 2:
+                item._dialogue_fragments = [
+                    {'start_time': '00:30.000', 'end_time': '00:40.000', 'text': 'Before the pan'},
+                    {'start_time': '00:40.000', 'end_time': '01:00.000', 'text': 'After the pan'},
+                ]
+            return [item], {}
+        saved, *_ = await self.analyze(detect)
+        assert saved.flash_result['total_shots'] == 1
+        assert [(cue['shot_number'], cue['start_time'], cue['end_time'], cue['text']) for cue in saved.transcript][1:3] == [
+            (1, '00:30.000', '00:40.000', 'Before the pan'), (1, '00:40.000', '01:00.000', 'After the pan')]
+
     async def test_continuation_followed_by_an_interior_cut_preserves_correct_numbers(self):
         async def detect(_uri, _mime, section, number, fps, **kwargs):
             if section.scene_number == 1:

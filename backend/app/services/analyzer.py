@@ -153,6 +153,7 @@ async def run_analysis(
                        "timestamp_accuracy": "approximate", "grouping": "processing_sections",
                        "section_duration_seconds": 30,
                        "shot_boundaries": "contextual_continuity", "continuity_lookback_seconds": 2,
+                       "boundary_review_fps": 8, "boundary_review_window_seconds": 2,
                        "started_at": datetime.now(timezone.utc).isoformat()})
         if media:
             config.update(upload_strategy='segmented_proxy', upload_part_seconds=600,
@@ -213,6 +214,7 @@ async def run_analysis(
                         if shot.transcript or any(e.modality in {"audio", "both"} for e in shot.evidence):
                             shot.analysis_warnings.append("Audio claims removed: source has no audio stream.")
                         shot.transcript = ""
+                        shot._dialogue_fragments = []
                         shot.audio_notes = "No audio stream in source."
                         shot.evidence = [e for e in shot.evidence if e.modality == "visual"]
                 if any(shot.slates for shot in shots):
@@ -221,10 +223,12 @@ async def run_analysis(
                 fragments = list(shots)
                 shots, changed_shots = stitch_section(previous, shots)
                 for shot in fragments:
-                    if shot.transcript.strip():
+                    cues = shot._dialogue_fragments or ([{'start_time': shot.start_time, 'end_time': shot.end_time,
+                                                          'text': shot.transcript}] if shot.transcript.strip() else [])
+                    for cue in cues:
                         transcript.append({"shot_number": shot.shot_number,
-                                           "start_time": shot.start_time, "end_time": shot.end_time,
-                                           "text": shot.transcript, "source": "model_transcription",
+                                           "start_time": cue['start_time'], "end_time": cue['end_time'],
+                                           "text": cue['text'], "source": "model_transcription",
                                            "review_status": "unreviewed", "timestamp_accuracy": "approximate"})
                 analysis_progress["completed_sections"] += 1
                 analysis_progress["processed_seconds"] = round(

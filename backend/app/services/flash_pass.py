@@ -15,6 +15,7 @@ from app.models.analysis import (
 from app.prompts.scene_prompt import SCENE_DETECTION_PROMPT
 from app.prompts.shot_prompt import SHOT_DETECTION_PROMPT
 from app.services.gemini_client import get_client
+from app.services.shot_boundary_review import review_boundaries
 from app.services.analysis_support import (
     EVIDENCE_INSTRUCTION, clip_offset, extract_usage, response_text,
     time_to_seconds, validate_scenes, validate_shots, format_time,
@@ -165,6 +166,19 @@ async def run_shot_detection(
     usage = extract_usage(response, settings.gemini_analysis_model, "shot_analysis")
     result = ShotDetectionResult.model_validate_json(response_text(response))
     result.shots = validate_shots(result.shots, start_secs, end_secs, shot_number_offset)
+    for shot in result.shots:
+        if shot.transcript.strip():
+            shot._dialogue_fragments = [{'start_time': shot.start_time, 'end_time': shot.end_time, 'text': shot.transcript}]
+    result.shots, reviews = await review_boundaries(client, _generate, file_uri, mime_type, result.shots,
+        start_secs, end_secs, previous_shot, source_offset)
+    # One returned usage record includes every successful verification request.
+    if reviews:
+        usage['boundary_reviews'] = reviews
+        for key in ('input_tokens', 'output_tokens', 'candidate_tokens', 'thinking_tokens', 'cached_input_tokens', 'total_tokens'):
+            usage[key] += sum(record.get(key, 0) for record in reviews)
+        usage['usage_available'] = usage['usage_available'] and all(r['usage_available'] for r in reviews)
+    for index, shot in enumerate(result.shots, shot_number_offset):
+        shot.shot_number = index
     if source_offset:
         # The model sees one uploaded part as its source. Translate exactly once
         # in code so exported shots, evidence and subtitles keep film timecodes.
@@ -172,6 +186,9 @@ async def run_shot_detection(
             for interval in [shot, *shot.evidence, *shot.slates]:
                 interval.start_time = format_time(time_to_seconds(interval.start_time) + source_offset)
                 interval.end_time = format_time(time_to_seconds(interval.end_time) + source_offset)
+            for cue in shot._dialogue_fragments:
+                cue['start_time'] = format_time(time_to_seconds(cue['start_time']) + source_offset)
+                cue['end_time'] = format_time(time_to_seconds(cue['end_time']) + source_offset)
 
     logger.info(
         f"Stage 2 complete: scene {scene_outline.scene_number} → {len(result.shots)} shots"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 # --- Pass 1: Flash Scene Detection (intermediate models) ---
@@ -66,6 +66,9 @@ class Slate(SlateReading):
 
 
 class Shot(BaseModel):
+    # Preserve observed dialogue intervals when adjacent fragments are joined.
+    # This is application state, not a field the model is asked to invent.
+    _dialogue_fragments: list[dict] = PrivateAttr(default_factory=list)
     shot_number: int
     start_time: str  # MM:SS.mmm or HH:MM:SS.mmm on the source timeline
     end_time: str
