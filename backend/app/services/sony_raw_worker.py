@@ -208,9 +208,7 @@ def run(args):
             first = next(iterator, None)
             if first is None:
                 raise ValueError('No Sony RAW picture essence was found')
-            seq, coded_width, coded_height = picture_header(first)
-            if seq != 0:
-                raise ValueError('Spanned or incomplete Sony RAW recordings are not supported yet')
+            first_sequence, coded_width, coded_height = picture_header(first)
             decoder = Decoder(Path(args.dll).resolve(strict=True), Path(args.shared).resolve(strict=True), first, args.width, args.height)
             emit(progress, stage='decoding', message='Preparing Sony RAW proxy', percent=0, frames=0, total_frames=args.frames)
             proc = subprocess.Popen([args.ffmpeg, '-nostdin', '-v', 'error', '-f', 'rawvideo', '-pixel_format', 'bgr24',
@@ -223,7 +221,9 @@ def run(args):
             last_update = 0
             while payload is not None:
                 sequence, w, h = picture_header(payload)
-                if sequence != count or (w, h) != (coded_width, coded_height) or count >= args.frames:
+                # Sony picture counters can begin above zero in a complete MXF.
+                # They establish ordering, not the proxy's source-relative start.
+                if sequence != first_sequence + count or (w, h) != (coded_width, coded_height) or count >= args.frames:
                     raise ValueError('Sony RAW frame sequence or raster changed')
                 proc.stdin.write(decoder.decode(payload, size, lut))
                 count += 1

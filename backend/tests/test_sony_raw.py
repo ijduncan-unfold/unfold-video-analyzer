@@ -4,7 +4,7 @@ import json
 import struct
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from types import SimpleNamespace
 
 import numpy as np
@@ -49,6 +49,51 @@ def test_picture_geometry_is_bounded_and_not_guessed():
         worker.picture_header(picture(width=65534, height=65534))
     with pytest.raises(ValueError):
         worker.picture_header(picture(width=3))
+
+
+@pytest.mark.parametrize('indices,expected_frames,error', [
+    ([0, 1, 2], 3, None),
+    ([2720, 2721, 2722], 3, None),
+    ([2720, 2722, 2723], 3, 'sequence'),
+    ([2720, 2721, 2721], 3, 'sequence'),
+    ([2720, 2719, 2722], 3, 'sequence'),
+    ([2720, 2721], 3, 'incomplete'),
+    ([2720, 2721, 2722], 2, 'sequence'),
+])
+def test_complete_clip_may_start_above_zero_but_missing_or_reordered_frames_fail(tmp_path, indices, expected_frames, error):
+    original = tmp_path / 'original.mxf'
+    contents = b''.join(klv(picture(index)) for index in indices)
+    original.write_bytes(contents)
+    target = tmp_path / 'viewing.mp4'
+    progress = tmp_path / 'progress.json'
+    args = SimpleNamespace(source=str(original), target=str(target), progress=str(progress), fps='24000/1001',
+        frames=expected_frames, width=4096, height=2160, black=512, white=5472, dll=str(original),
+        shared=str(tmp_path), ffmpeg='ffmpeg')
+    decoder = Mock()
+    decoder.decode.return_value = b'pixels'
+    processes = []
+    def encode(command, **kwargs):
+        output = Path(command[-1])
+        output.write_bytes(b'encoded')
+        process = Mock(stdin=io.BytesIO())
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        processes.append(command)
+        return process
+    with patch.object(worker, 'Decoder', return_value=decoder), patch.object(worker.subprocess, 'Popen', side_effect=encode):
+        if error:
+            with pytest.raises(ValueError, match=error):
+                worker.run(args)
+            assert not target.exists()
+        else:
+            worker.run(args)
+            assert target.exists()
+            state = json.loads(progress.read_text())
+            assert state['frames'] == expected_frames and state['stage'] == 'complete'
+            # A nonzero picture counter never trims, offsets, or retimes proxy audio.
+            assert processes[1][processes[1].index('-t') + 1] == str(expected_frames * 1001 / 24000)
+        decoder.close.assert_called_once()
+    assert original.read_bytes() == contents
 
 
 def test_coded_plane_strides_and_active_crop_preserve_image_and_bgr_channels():

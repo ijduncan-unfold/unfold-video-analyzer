@@ -24,6 +24,8 @@ Import keeps original dimensions, codec, available source timecode, exact SDK ca
 
 Native adapters check the complete proxy frame count, rational rate, duration and audio before publishing it. FFmpeg routes preserve timestamps and check duration, all audio streams and available original cadence. RED and BRAW preserve all native audio channels in an interleaved AAC track; Sony preserves its separate audio tracks. ARRI rejects a changed audio-stream layout when the original can be probed.
 
+Complete Sony F55 MXFs can start with a nonzero picture counter. The Sony worker checks consecutive pictures relative to that first counter, while proxy playback still starts at the beginning of the clip. Gaps, repeated or reordered pictures, changing rasters, and incomplete frame counts remain errors; a nonzero first counter alone does not mean the recording is incomplete.
+
 RED numbered file parts are canonicalized to the first part and checked for gaps. ARI/ARX sequences are canonicalized to their first numbered frame and checked for gaps. Companion files and sidecars are fingerprinted along with the original: changed, added, missing or offline members invalidate cached analysis. This does not certify arbitrary P2 card assembly or every editor's image-sequence relinking behavior.
 
 Unchanged imports reuse the viewing proxy across restarts. Only derivatives and thumbnails are stored in the app-owned cache. Deleting a project removes those derivatives and keeps original media and any externally supplied viewing proxy. Auto/Always/Off control additional analysis proxy preparation; Off does not discard the viewing image needed to decode a RAW original.
