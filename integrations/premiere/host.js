@@ -411,7 +411,13 @@ function createHost(injectedApi, injectedXmp) {
     const key = JSON.stringify([binding.item_id, binding.media_path, frameStart, frameEnd, String(range.session || "")]);
     let hash = 2166136261;
     for (let i = 0; i < key.length; i++) hash = Math.imul(hash ^ key.charCodeAt(i), 16777619) >>> 0;
-    const name = String(descriptor.name || "Source").slice(0, 70) + " · " + String(range.name || "Clip").slice(0, 35) + " · VA " + hash.toString(16);
+    // Premiere 26.5's subclip action replaces non-ASCII separators in the
+    // resulting native name. Use an ASCII display label so readback/reuse is
+    // stable; the original source name and path are never changed.
+    const label = (value, fallback, maximum) => String(value || fallback).normalize("NFKD")
+      .replace(/[^\x20-\x7e]/g, "").trim().slice(0, maximum) || fallback;
+    const name = label(descriptor.name, "Source", 70) + " - " + label(range.name, "Clip", 35) + " - VA " + hash.toString(16);
+    let rangeReadback = "No matching native item was returned.";
     const find = async () => {
       let found;
       const root = await project.getRootItem();
@@ -424,6 +430,8 @@ function createHost(injectedApi, injectedXmp) {
         requiredMethod(candidate, "getInPoint"); requiredMethod(candidate, "getOutPoint");
         const mediaType = ppro.Constants.MediaType.VIDEO;
         const a = await candidate.getInPoint(mediaType), b = await candidate.getOutPoint(mediaType);
+        rangeReadback = `Expected ${frameStart.toFixed(6)}–${frameEnd.toFixed(6)}s; Premiere returned ${a && a.seconds}–${b && b.seconds}s.`;
+        if (!a || !b || !Number.isFinite(a.seconds) || !Number.isFinite(b.seconds)) return false;
         const tolerance = 0.5 / (fps || 24) + 0.000001;
         if (Math.abs(a.seconds - frameStart) > tolerance || Math.abs(b.seconds - frameEnd) > tolerance) return false;
         found = candidate; return true;
@@ -439,7 +447,7 @@ function createHost(injectedApi, injectedXmp) {
         { takeVideo: true, takeAudio: true }));
       created = true;
       subclip = await find();
-      if (!subclip) fail("SUBCLIP_VERIFY_FAILED", "Premiere did not confirm the new subclip's source range. Inspect the Project panel before retrying.");
+      if (!subclip) fail("SUBCLIP_VERIFY_FAILED", "Premiere did not confirm the new subclip's source range. " + rangeReadback + " Inspect the Project panel before retrying.");
     }
     await activeProject(binding.project_id);
     return { project, subclip, name, created, start: frameStart, end: frameEnd };

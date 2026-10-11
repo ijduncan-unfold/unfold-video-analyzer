@@ -28,7 +28,7 @@ def verify(app: Path, frontend: Path, smoke: Path) -> None:
         raise ValueError("The app must be built natively for Apple Silicon")
     resources = app / "Contents/Resources"
     for relative in ("desktop-docs/setup-premiere-macos.command", "desktop-docs/macos-common.sh",
-                     "plugins/VideoAnalyzer-Premiere-0.1.11.ccx", "desktop-docs/install-resolve-macos.command",
+                     "plugins/VideoAnalyzer-Premiere-0.1.12.ccx", "desktop-docs/install-resolve-macos.command",
                      "desktop-docs/public-files.json", "resolve-panel/manifest.xml"):
         if not (resources / relative).is_file():
             raise ValueError("A required public setup resource is missing")

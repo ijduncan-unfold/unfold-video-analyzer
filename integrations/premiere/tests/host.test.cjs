@@ -137,6 +137,31 @@ test('missing timeline and invalid ranges reject before creating subclips', asyn
   assert.deepEqual(f.edits, []);
 });
 
+test('native subclip names survive Premiere lossy Unicode conversion without renaming the source', async () => {
+  const f = editFixture();
+  f.clip.name = 'Caméra 日本';
+  f.range.name = 'Clíp · 01';
+  const result = await f.host.makeSubclip(f.binding, f.range);
+  assert.match(result.name, /^Camera - Clip  01 - VA [a-f0-9]+$/);
+  assert.equal(f.clip.name, 'Caméra 日本');
+  await f.host.makeSubclip(f.binding, f.range);
+  assert.equal(f.items.length, 2);
+});
+
+test('invalid native range readback never opens or inserts an unverified subclip', async () => {
+  const f = editFixture();
+  const commit = f.project.executeTransaction;
+  f.project.executeTransaction = (...args) => {
+    const result = commit(...args);
+    f.items.at(-1).getInPoint = async () => ({ seconds: NaN });
+    return result;
+  };
+  await assert.rejects(f.host.makeSubclip(f.binding, f.range), error =>
+    error.code === 'SUBCLIP_VERIFY_FAILED' && /Premiere returned NaN/.test(error.message));
+  assert.equal(f.calls.some(call => call[0] === 'open'), false);
+  assert.equal(f.edits.some(edit => edit.kind === 'insert'), false);
+});
+
 test('changing timeline during subclip preparation never edits the replacement sequence', async () => {
   const f = editFixture();
   let reads = 0;
