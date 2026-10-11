@@ -16,6 +16,9 @@ export interface AssetMetadata {
   collections: string[]
 }
 export interface LibraryAsset {
+  progress?: { message?: string; pass?: number; scene?: number; total?: number } | string | null
+  analysis_progress?: AnalysisProgress | null
+  error?: string | null
   job_id: string
   filename: string
   status: string
