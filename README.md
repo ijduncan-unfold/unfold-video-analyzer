@@ -113,6 +113,8 @@ git lfs pull
 
 Double-click **Run Video Analyzer.cmd**. It verifies the bundled ZIP and extracts it under `%LOCALAPPDATA%/VideoAnalyzer/portable-bundles` on first launch. No separate Python, Node, Premiere, or Resolve installation is needed for the standalone app. Enter your own Gemini key in Settings; keys, footage, and library databases are excluded. Original media stays at its local or network path.
 
+To install an editor panel, right-click Video Analyzer's Windows tray icon and choose **Install Premiere integration** or **Install Resolve integration**. Premiere opens Adobe Creative Cloud's installer and requires Premiere 26.3+. Resolve requires Studio 20.1+ and must be closed during installation.
+
 The portable ZIP includes the app, FFmpeg and selected camera runtime resources. **Automatic Windows x64 viewing proxies are connected for Sony F55 RAW, Blackmagic BRAW and RED R3D.** Drop the original into the desktop window: import shows progress, retains the original path and metadata, and caches a small H.264/AAC viewing copy. Keep camera sidecars and numbered recording parts together. These adapters were tested against real recordings with complete frame, rational-rate and audio checks.
 
 **ARRI RAW is connected through ARRI Reference Tool CMD.** On first use, the app downloads a checksum-pinned official package into its local decoder cache; it is not redistributed in the public ZIP. ARRIRAW image sequences and an ARRIRAW MXF were verified. An internet connection is needed for that first download.

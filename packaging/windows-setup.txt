@@ -19,12 +19,12 @@ Then quit and reopen Video Analyzer. The preview detects WinGet's FFmpeg folder.
 Enter your own Gemini API key in the app's settings. No developer key is included.
 
 Video Analyzer runs locally at http://127.0.0.1:8000 and opens your browser.
-The system tray menu offers Open, Pair with editor, Install Resolve integration,
+The system tray menu offers Open, Install Premiere integration, Install Resolve integration,
 Open data folder, and Quit. Closing the
 browser leaves the engine running; Quit stops it. Port 8000 must be available.
 
 Premiere's UXP panel is included as a separate CCX plugin package. Use the Start
-menu's "Install Premiere panel" shortcut to open Adobe's Creative Cloud plugin
+menu's "Install Premiere panel" shortcut or the tray's "Install Premiere integration" to open Adobe's Creative Cloud plugin
 installer. Premiere 26.3+ and Adobe Creative Cloud are required. This installer
 does not install Adobe Premiere or silently load a plugin.
 

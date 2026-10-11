@@ -40,10 +40,11 @@ install [Microsoft App Installer](https://learn.microsoft.com/windows/package-ma
 and install `Gyan.FFmpeg` before importing video. FFmpeg is not redistributed in
 this app bundle; WinGet retrieves the vendor package separately.
 
-The tray offers **Open Video Analyzer**, **Pair with editor**, **Install Resolve
-integration**, **Open data folder**, and **Quit**. Closing the desktop window does not stop the engine. The pairing
-command opens the local token file for the user to copy into the Premiere integration;
-the token is never printed in build logs. Port 8000 must be available: an existing
+The tray offers **Open Video Analyzer**, **Install Premiere integration**, **Install Resolve
+integration**, **Open data folder**, and **Quit**. Both integration installers are available
+in the Windows portable app too. Premiere installation opens Adobe Creative Cloud's
+installer for the bundled CCX package. Closing the desktop window does not stop the engine.
+Port 8000 must be available: an existing
 server is never killed or silently taken over. Uninstall removes the application,
 and preserves the user's database/media and original source files.
 

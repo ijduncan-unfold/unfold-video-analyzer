@@ -365,12 +365,13 @@ def main(argv: list[str] | None = None) -> int:
                 server.should_exit = True
                 icon.stop()
 
-            def pair(icon, item):
+            def install_premiere(icon, item):
                 try:
-                    show_pairing_token()
+                    _install_premiere_panel()
                 except Exception:
-                    log.exception("Unable to open editor pairing file")
-                    show_message("Could not open the pairing file. See desktop.log for details.", error=True)
+                    log.exception("Unable to start Premiere installation")
+                    show_message("Could not open the Premiere installer. Make sure Adobe Creative Cloud is installed. "
+                                 "See desktop.log for details.", error=True)
 
             def install_resolve(icon, item):
                 try:
@@ -381,8 +382,7 @@ def main(argv: list[str] | None = None) -> int:
 
             icon = pystray.Icon("video-analyzer", _tray_image(), "Video Analyzer", menu=pystray.Menu(
                 pystray.MenuItem("Open Video Analyzer", lambda icon, item: _open_ui(base_url), default=True),
-                pystray.MenuItem("Pair with editor", pair),
-                pystray.MenuItem("Install Premiere panel", lambda icon, item: _install_premiere_panel(), visible=sys.platform == 'darwin'),
+                pystray.MenuItem("Install Premiere integration", install_premiere),
                 pystray.MenuItem("Install Resolve integration", install_resolve),
                 pystray.MenuItem("Set up Premiere HTTPS", lambda icon, item: _setup_premiere_mac(data_dir), visible=sys.platform == 'darwin'),
                 pystray.MenuItem("Open data folder", lambda icon, item: _open_data_folder(data_dir)),

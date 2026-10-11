@@ -419,6 +419,29 @@ def test_mac_setup_and_panel_actions_report_missing_resources_without_launch(mon
     launch.assert_not_called()
 
 
+@pytest.mark.parametrize('platform', ['win32', 'darwin'])
+def test_frozen_premiere_install_opens_bundled_ccx(monkeypatch, tmp_path, platform):
+    package = tmp_path / 'plugins' / 'VideoAnalyzer-Premiere-0.1.0.ccx'
+    package.parent.mkdir()
+    package.write_bytes(b'test package')
+    monkeypatch.setattr(desktop.sys, 'platform', platform)
+    monkeypatch.setattr(desktop.sys, 'frozen', True, raising=False)
+    resource = Mock(return_value=package)
+    monkeypatch.setattr(desktop, '_resource_path', resource)
+    startfile = Mock()
+    monkeypatch.setattr(desktop.os, 'startfile', startfile, raising=False)
+    launch = Mock()
+    monkeypatch.setattr(desktop.subprocess, 'Popen', launch)
+    desktop._install_premiere_panel()
+    resource.assert_called_once_with('plugins/VideoAnalyzer-Premiere-0.1.0.ccx')
+    if platform == 'win32':
+        startfile.assert_called_once_with(str(package))
+        launch.assert_not_called()
+    else:
+        launch.assert_called_once_with(['/usr/bin/open', str(package)])
+        startfile.assert_not_called()
+
+
 def _resolve_install_resources(tmp_path, suffix):
     plugin = tmp_path / "App's $(touch ignored); & public plugin"
     plugin.mkdir()
