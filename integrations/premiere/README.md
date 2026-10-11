@@ -10,7 +10,7 @@ Use **Sync metadata to Premiere** to populate project Description, Scene, Shot, 
 
 1. Install `VideoAnalyzer-0.1.0-preview-windows-x64.exe`. Keep its FFmpeg setup option enabled if media tools are not installed. This retrieves the separate FFmpeg package using Windows Package Manager.
 2. Open **Video Analyzer** from the Start menu. It runs in the tray and opens its browser interface. Configure your Gemini key in **Settings**; it is stored in your local user data and used by the panel.
-3. Right-click Video Analyzer's tray icon and choose **Install Premiere integration** (also available in the Windows portable app). Alternatively, use the Start menu's **Install Premiere panel** shortcut, or double-click `VideoAnalyzer-Premiere-0.1.13.ccx`. Creative Cloud Desktop handles the plugin install. Open **Window → UXP Plugins → Video Analyzer** in Premiere.
+3. Right-click Video Analyzer's tray icon and choose **Install Premiere integration** (also available in the Windows portable app). Alternatively, use the Start menu's **Install Premiere panel** shortcut, or double-click `VideoAnalyzer-Premiere-0.1.14.ccx`. Creative Cloud Desktop handles the plugin install. Open **Window → UXP Plugins → Video Analyzer** in Premiere.
 4. Start the companion and open the Premiere panel. It finds the private local connection automatically, with no token to copy. If Premiere opens first, the panel retries until the companion starts. **Connect** retries immediately; **Disconnect** pauses automatic reconnection.
 5. Select original media clips or a bin in Premiere's **Project** panel. Click **Load Premiere selection**. Import does not start billable analysis.
 6. Loading a previously analyzed source restores its saved results, including analysis made in the full app. **Reload saved results** reloads results without starting a billable request. Choose **Shots and tags** or **Full analysis**, then click **Analyze**. Shots and transcript lines appear as saved analysis sections finish. Closing the panel leaves the companion's analysis running.
@@ -74,3 +74,5 @@ Validation: 89 Premiere JavaScript tests and 70 relevant backend/desktop/Mac pac
 - [Plugin installation](https://developer.adobe.com/premiere-pro/uxp/plugins/distribution/install/)
 - [Networking and macOS restrictions](https://developer.adobe.com/premiere-pro/uxp/resources/recipes/network/)
 - [UXP filesystem permissions](https://developer.adobe.com/premiere-pro/uxp/resources/recipes/filesystem-operations/)
+
+Panel 0.1.14 fixes the changed-source recovery loop: explicit source loads activate the newly registered version, and Analyze current source can re-register and analyze the current original while older saved results remain readable. Older results stay blocked from timeline actions. A missing or relinked original produces an actionable error rather than sending an analysis request for the wrong source.

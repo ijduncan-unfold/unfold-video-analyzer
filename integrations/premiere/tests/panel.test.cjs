@@ -134,6 +134,12 @@ function harness(options = {}) {
   let nextTimer = 0;
   let interceptor;
   const host = {
+    async resolveBinding(binding) {
+      if (binding.project_id !== current.project) throw new Error("The active Premiere project changed.");
+      const clip = current.clips.find(clip => clip.item_id === binding.item_id);
+      if (!clip || clip.media_path !== binding.media_path) throw new Error("The original Premiere source changed or is unavailable.");
+      return { descriptor: clone(clip) };
+    },
     async getSelection() {
       return { project_id: current.project, project_name: current.project === "project-a" ? "Film A" : "Film B",
         project_path: "C:\\edits\\film.prproj", clips: clone(current.clips), warnings: [], capabilities: { source_seek: true, source_markers: true } };
@@ -251,11 +257,12 @@ test('changed source restores readable saved results without enabling native edi
   await h.start();
   assert.equal(h.panel.getState().asset.job_id, 'old');
   assert.match(h.el('results').textContent, /Saved description/);
-  assert.equal(h.el('analyze').disabled, true);
+  assert.equal(h.el('analyze').disabled, false);
+  assert.equal(h.el('analyze').textContent, 'Analyze current source');
   const actions = descendants(h.el('results'), item => item.className === 'clip-action');
   assert.equal(actions.every(item => item.disabled), true);
   await h.el('refresh-analysis').fire('click');
-  assert.match(h.el('message').textContent, /timeline actions are disabled/);
+  assert.match(h.el('message').textContent, /Timeline actions stay disabled/);
   assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false);
 });
 
@@ -270,6 +277,37 @@ test('empty results hide marker actions and reload explains that no results exis
   await h.el('refresh-analysis').fire('click');
   assert.match(h.el('message').textContent, /No saved clips/);
   assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false);
+});
+
+function changedSourceHarness() {
+  const old = asset('old'); old.source_available = false; old.source_media_path = 'C:\\footage\\clip-a.mp4'; old.editor_sources = [];
+  const fresh = asset(); fresh.source_media_path = old.source_media_path; fresh.source_available = true; fresh.status = 'ready'; fresh.shot_count = 0; fresh.transcript = []; fresh.flash = null;
+  const h = harness({ service: { assets: [fresh, old], shots: [shot(1, 'Older saved analysis')] } });
+  h.intercept(request => request.pathname.endsWith('/assets') && request.query.get('include_saved') === 'true' ? h.json({ assets: [fresh, old] }) : undefined);
+  return { h, fresh, old };
+}
+test('explicit source load activates the current version instead of falling back to older saved results', async () => {
+  const { h, fresh } = changedSourceHarness(); await h.start(); assert.equal(h.panel.getState().asset.job_id, 'old');
+  await h.panel.loadSelection(); assert.equal(h.panel.getState().asset.job_id, fresh.job_id); assert.equal(h.el('analyze').disabled, false);
+  assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false);
+});
+test('analyzing older saved results registers and analyzes the current source, keeping the older record intact', async () => {
+  const { h, fresh, old } = changedSourceHarness(); await h.start(); h.el('mode').value = 'flash_pro';
+  assert.equal(h.el('analyze').disabled, false); await h.el('analyze').fire('click');
+  const posts = h.requests.filter(request => request.pathname.endsWith('/analyze'));
+  assert.equal(posts.length, 1); assert.ok(posts[0].pathname.endsWith('/assets/' + fresh.job_id + '/analyze'));
+  assert.deepEqual(posts[0].body, { mode: 'flash_pro' }); assert.equal(h.panel.getState().asset.job_id, fresh.job_id);
+  assert.equal(old.status, 'complete'); assert.equal(old.source_available, false); assert.equal(h.el('analyze').disabled, true);
+});
+test('offline or relinked originals report failure without submitting an analysis or enabling old timeline actions', async () => {
+  const { h } = changedSourceHarness(); await h.start(); h.current.clips[0].media_path = 'C:\\footage\\relinked.mp4';
+  await h.el('analyze').fire('click'); assert.match(h.el('message').textContent, /changed or is unavailable/);
+  assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false); assert.equal(h.panel.getState().nativeBlocked, true);
+});
+test('already running current-source analysis is restored without issuing a duplicate analysis', async () => {
+  const { h, fresh } = changedSourceHarness(); await h.start(); fresh.status = 'analyzing';
+  await h.el('analyze').fire('click'); assert.equal(h.panel.getState().asset.job_id, fresh.job_id); assert.match(h.el('message').textContent, /already being analyzed/);
+  assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false); assert.equal(h.el('analyze').disabled, true);
 });
 
 test('HTML script without a CommonJS module global keeps lifecycle callbacks synchronous', async t => {

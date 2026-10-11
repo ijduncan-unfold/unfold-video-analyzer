@@ -162,6 +162,19 @@ function createPanel(dependencies) {
   function show(id, visible) { el(id).classList.toggle("hidden", !visible); }
   function isAnalyzing() { return state.asset && ACTIVE_STATUSES.indexOf(state.asset.status) !== -1; }
   function binding() { return state.asset && state.asset.source_available === false ? null : sourceBinding(state.asset, state.project && state.project.id); }
+  function analysisBinding() {
+    const projectId = state.project && state.project.id;
+    const direct = sourceBinding(state.asset, projectId);
+    if (direct) return direct;
+    const key = path => typeof path === "string" && (/^[a-z]:[\\/]/i.test(path) || path.startsWith("\\\\")) ? path.replace(/\\/g, "/").toLowerCase() : path;
+    const path = state.asset && state.asset.source_media_path;
+    if (!path) return null;
+    for (const asset of state.assets) {
+      const source = sourceBinding(asset, projectId);
+      if (source && key(source.media_path) === key(path)) return source;
+    }
+    return null;
+  }
   function controls() {
     const active = !!state.asset;
     const mutation = !!(state.busy.selection || state.busy.analyze || state.busy.markers || state.busy.metadata || state.busy.timeline);
@@ -170,9 +183,9 @@ function createPanel(dependencies) {
     el("load-selection").disabled = !state.connected || mutation;
     el("refresh-analysis").disabled = !state.connected || mutation;
     for (const button of state.resultActions) button.disabled = !state.connected || !binding() || mutation || state.resultsPending || state.nativeBlocked;
-    el("analyze").disabled = !state.connected || !active || state.asset.source_available === false || mutation || !!isAnalyzing();
+    el("analyze").disabled = !state.connected || !active || !analysisBinding() || mutation || !!isAnalyzing();
     el("mode").disabled = mutation || !!isAnalyzing();
-    el("analyze").textContent = isAnalyzing() ? "Analyzing…" : active && (state.asset.shot_count || state.asset.flash) ? "Analyze again" : "Analyze";
+    el("analyze").textContent = isAnalyzing() ? "Analyzing…" : active && state.asset.source_available === false ? "Analyze current source" : active && (state.asset.shot_count || state.asset.flash) ? "Analyze again" : "Analyze";
     el("add-markers").disabled = !state.connected || !binding() || !visibleResults().length || mutation || state.resultsPending || state.nativeBlocked;
     const markerCount = visibleResults().length;
     el("add-markers").textContent = state.busy.markers ? "Adding…" : "Add " + markerCount + " source " + (markerCount === 1 ? "marker" : "markers");
@@ -182,7 +195,7 @@ function createPanel(dependencies) {
     el("sync-metadata").textContent = state.busy.metadata ? "Syncing metadata…" : "Sync metadata to Premiere";
     el("export-subtitles").disabled = !state.connected || !active || !transcriptCues(state.asset.transcript, state.asset.technical && state.asset.technical.duration_seconds).length || !!state.busy.export;
     show("workspace", state.connected);
-    el("progress").textContent = state.asset && state.asset.source_available === false ? "Saved results · source changed or offline. Load the original Premiere source to analyze its current version." : progressText(state.asset);
+    el("progress").textContent = state.asset && state.asset.source_available === false ? "Older saved results. Analyze current source to update them; timeline actions require results for the current file." : progressText(state.asset);
   }
 
   function remember() {
@@ -684,7 +697,7 @@ function createPanel(dependencies) {
       }
       if (scope !== state.scope) return;
       await refreshProject(selection);
-      if (firstId && (!state.asset || state.asset.source_available !== false)) await selectAsset(firstId);
+    if (firstId) await selectAsset(firstId);
       const warnings = Array.isArray(selection.warnings) ? selection.warnings : [];
       message((selection.clips.length - failed) + " clips loaded. " + (state.asset && state.asset.shot_count ? "Saved analysis restored. Click a result to preview or insert it." : "Choose an analysis type and click Analyze.") +
         (failed ? " " + failed + " could not be loaded: " + errors[0] : "") + (warnings.length ? " " + warnings.join(" ") : ""), failed > 0);
@@ -692,25 +705,55 @@ function createPanel(dependencies) {
   }
 
   async function analyze() {
-    if (!state.connected || !state.asset || state.busy.analyze || state.busy.metadata || isAnalyzing()) return;
+    if (!state.connected || !state.asset || state.busy.selection || state.busy.timeline || state.busy.markers || state.busy.analyze || state.busy.metadata || isAnalyzing()) return;
+    const source = analysisBinding();
+    if (!source) throw new Error("Load the original clip from Premiere before analyzing its current version.");
     state.busy.analyze = true;
+    stopPoll();
     controls();
     const scope = state.scope;
-    const id = state.asset.job_id;
     try {
       const mode = el("mode").value;
       if (mode !== "flash_only" && mode !== "flash_pro") throw new Error("Choose Shots and tags or Full analysis.");
       ++assetRevision;
       ++state.resultRevision;
+      // Refresh the file identity independently of the saved results being read.
+      // This never promotes old analysis into a changed source's timeline edits.
+      await host.resolveBinding(source);
+      if (scope !== state.scope) return;
+      message("Checking current Premiere source…");
+      const current = await request("/register", { method: "POST", body: JSON.stringify({
+        project_id: source.project_id, item_id: source.item_id, media_path: source.media_path,
+        name: assetName(state.asset), source_fps: source.source_fps,
+      }) });
+      if (scope !== state.scope) return;
+      const currentSource = sourceBinding(current, source.project_id);
+      if (!currentSource || currentSource.item_id !== source.item_id || currentSource.media_path !== source.media_path) throw new Error("The current source changed. Load the Premiere selection again.");
+      await host.resolveBinding(currentSource);
+      if (scope !== state.scope) return;
+      const id = current.job_id;
+      const index = state.assets.findIndex(asset => asset.job_id === id);
+      if (index >= 0) state.assets[index] = current; else state.assets.unshift(current);
+      const changed = state.asset.job_id !== id;
+      state.asset = current;
+      state.nativeBlocked = false;
+      if (changed) { state.shots = []; state.shotTotal = 0; state.resultsPending = false; state.actionFeedback = {}; }
+      renderPicker(); renderResults();
+      if (ACTIVE_STATUSES.includes(current.status)) {
+        message("The current source is already being analyzed. Results update as sections finish.");
+        await remember(); return;
+      }
       await request("/assets/" + encodeURIComponent(id) + "/analyze", { method: "POST", body: JSON.stringify({ mode }) });
       if (scope !== state.scope || !state.asset || state.asset.job_id !== id) return;
       state.asset.status = "analyzing";
       state.asset.error = null;
       state.asset.analysis_progress = { stage: "preparing" };
+      state.shots = []; state.shotTotal = 0; state.resultsPending = false;
+      renderResults();
       message("Analysis started. You can keep editing; results update here as sections finish.");
       await remember();
       startPoll(1000);
-    } finally { state.busy.analyze = false; controls(); }
+    } finally { state.busy.analyze = false; controls(); startPoll(); }
   }
 
   async function setTab(tab) {
@@ -807,7 +850,7 @@ function createPanel(dependencies) {
         state.busy.selection = true; stopPoll(); controls();
         try {
           const selected = await host.getSelection();
-          const source = sourceBinding(state.asset, selected.project_id);
+          const source = selected.project_id === (state.project && state.project.id) ? analysisBinding() : null;
           // Re-register the bound original to discover analysis saved by the
           // full app or another editor session, rather than rereading an empty job.
           if (source) await request("/register", { method: "POST", body: JSON.stringify({
@@ -817,7 +860,7 @@ function createPanel(dependencies) {
           await refreshProject(selected);
           const count = state.asset && state.asset.shot_count || 0;
           message(state.asset && state.asset.source_available === false ?
-            "Restored saved results for this source. Its file changed or is offline, so timeline actions are disabled until the current source is analyzed." :
+            "Restored older saved results. Choose Analyze current source to update them. Timeline actions stay disabled for these older results." :
             count ? "Restored " + count + " saved " + (count === 1 ? "clip" : "clips") + ". No new analysis was started." :
             isAnalyzing() ? "Analysis is still running. Completed clips will appear here." :
             "No saved clips for this source version. Choose a source and Analyze, or select its saved results in the source picker.");
