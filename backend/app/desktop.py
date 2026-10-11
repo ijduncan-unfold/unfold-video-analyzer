@@ -90,10 +90,11 @@ def _get_json(url: str, context: ssl.SSLContext | None = None, headers=None) -> 
 
 
 def _open_ui(base_url: str) -> None:
-    # The fragment stays in the local browser and is removed by the frontend
+    # The fragment stays in the desktop window and is removed by the frontend
     # after bootstrapping settings access; it is never sent in server URLs.
     from app.services.editor_bridge import get_pairing_token
-    webbrowser.open(base_url + "/#desktop-token=" + get_pairing_token())
+    from app.desktop_window import launch_window
+    launch_window(base_url, get_pairing_token())
 
 
 def _open_data_folder(data_dir: Path) -> None:
@@ -199,7 +200,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--no-tray", action="store_true", help="Run until interrupted, without a tray icon")
     parser.add_argument("--smoke-test", action="store_true", help="Start, check health and frontend, then stop")
+    parser.add_argument("--desktop-window", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.desktop_window:
+        from app.desktop_window import run_window
+        run_window(os.environ['VIDEO_ANALYZER_WINDOW_URL'], os.environ.get('VIDEO_ANALYZER_WINDOW_PICK') == '1')
+        return 0
     if args.http and (args.https or args.tls_cert or args.tls_key or args.tls_ca):
         parser.error('--http cannot be combined with HTTPS certificate options')
     use_https = not args.http and (sys.platform == 'darwin' or args.https or any((args.tls_cert, args.tls_key, args.tls_ca)))

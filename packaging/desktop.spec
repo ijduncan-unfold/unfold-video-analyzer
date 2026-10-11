@@ -17,7 +17,7 @@ if python_license is not None:
     datas.append((str(python_license), "desktop-docs/python"))
 binaries = []
 hiddenimports = collect_submodules("app")
-for package in ("google.genai", "pystray", "uvicorn"):
+for package in ("google.genai", "pystray", "uvicorn", "webview"):
     package_data, package_bins, package_imports = collect_all(
         package, include_py_files=False,
         filter_submodules=lambda name: ".tests" not in name and "._test" not in name,
@@ -27,8 +27,11 @@ for package in ("google.genai", "pystray", "uvicorn"):
     binaries += package_bins
     hiddenimports += package_imports
 for package in ("google-genai", "pydantic", "pydantic-settings", "fastapi", "uvicorn",
-                "pystray", "Pillow", "numpy", "opencv-python-headless"):
+                "pystray", "Pillow", "numpy", "opencv-python-headless", "pywebview", "bottle", "proxy_tools"):
     datas += copy_metadata(package)
+if sys.platform == 'win32':
+    for package in ('pythonnet', 'clr_loader'):
+        datas += copy_metadata(package)
 datas += copy_metadata("pyinstaller")
 datas += [(str(root / "packaging" / "README.md"), "desktop-docs"),
           (str(root / "packaging" / "THIRD_PARTY.md"), "desktop-docs")]

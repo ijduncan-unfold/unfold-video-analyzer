@@ -1,6 +1,8 @@
 # Camera originals and RAW workflows
 
-Import defaults to **Link original**. Paste a complete file path, including a Windows UNC/network-share path. The app reads that file in place; it does not copy the camera original into its library. The file must remain online. **Copy files instead** is an explicit alternative with a size check before transfer. Drag/drop opens the linking form rather than silently copying media.
+**Drop videos into the desktop window or use Import to choose files.** Native file drops and the file picker supply the original absolute path, including Windows UNC/network-share paths, automatically. There is no path-paste form. The app reads the source in place without copying the camera original into its library. The file/share must remain online.
+
+Normal browser tabs hide absolute paths for dropped files. Browser Import opens the native desktop window and its picker; a browser drop opens that window so you can drop the original there. Source checkouts require `requirements-desktop.txt`; packaged desktop builds include the native window runtime. The existing copy-upload API remains for compatibility, but the library import UI does not use it.
 
 The extension identifies a container, not its decoder. Import probes the actual video stream and tests one decoded frame. MXF is now recognized consistently by the picker, API, editor bridge, and proxy policy. Supported codecs depend on the installed FFmpeg build and the particular recording.
 
@@ -35,7 +37,7 @@ Where bundling is allowed, installers can carry the runtime with its notices. Ot
 
 ## Linking a viewing proxy
 
-In Import, expand **Use an existing viewing proxy** and provide the proxy's path. It is referenced too, never copied. Confirm that it is the complete original clip: same frame rate, first frame, framing and content, without trimming, speed changes, or padding. Retain dialogue/audio and original start timecode. Preserve aspect ratio without cropping or letterboxing. A low-resolution H.264 MP4 works well for the browser; use a viewing transform suitable for recognizing the image.
+The editor registration/local-media API can supply an existing viewing proxy with the original path; it is referenced too, never copied. This is an advanced decoder fallback rather than a step in normal drag-and-drop import. Confirm that it is the complete original clip: same frame rate, first frame, framing and content, without trimming, speed changes, or padding. Retain dialogue/audio and original start timecode. Preserve aspect ratio without cropping or letterboxing. A low-resolution H.264 MP4 works well for playback; use a viewing transform suitable for recognizing the image.
 
 The app checks whatever original duration, rate, resolution/aspect ratio and timecode it can inspect against the proxy. Missing proxy timecode cannot prove start alignment: the explicit confirmation remains necessary. The original and proxy are fingerprinted; changed/offline files stop further use. Search, thumbnails, shape/composition analysis, playback and Gemini requests use the viewing image while the source filename and edit identity remain the original. Proxy modes control additional temporary analysis encoding; Off does not discard an explicitly linked viewing proxy.
 

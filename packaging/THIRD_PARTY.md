@@ -8,6 +8,8 @@ The build writes an exact installed dependency list alongside the installer.
 Python: https://docs.python.org/3/license.html
 PyInstaller bootloader exception: https://pyinstaller.org/en/stable/license.html
 Pystray (LGPL-3.0): https://github.com/moses-palmer/pystray/blob/master/COPYING.LGPL
+pywebview (BSD-3-Clause): https://github.com/r0x0r/pywebview/blob/master/LICENSE
+Python.NET (MIT, Windows native window bridge): https://github.com/pythonnet/pythonnet/blob/master/LICENSE
 Pillow (HPND): https://github.com/python-pillow/Pillow/blob/main/LICENSE
 OpenCV: https://github.com/opencv/opencv/blob/4.x/LICENSE
 NumPy: https://github.com/numpy/numpy/blob/main/LICENSE.txt

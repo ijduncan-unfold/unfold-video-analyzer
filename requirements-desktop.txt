@@ -2,3 +2,4 @@
 pyinstaller>=6.22,<7
 pystray>=0.19,<1
 Pillow>=12,<13
+pywebview==6.2.1

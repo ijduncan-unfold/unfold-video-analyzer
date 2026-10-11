@@ -215,13 +215,14 @@ def test_mac_data_folder_open_uses_argument_list(monkeypatch, tmp_path):
     launch.assert_called_once_with(['/usr/bin/open', str(folder)])
 
 
-def test_browser_launch_keeps_pairing_in_fragment_on_verified_https_origin(monkeypatch):
+def test_desktop_launch_passes_pairing_to_native_window_on_verified_https_origin(monkeypatch):
     token = 'p' * 43
     monkeypatch.setattr(editor_bridge, 'get_pairing_token', Mock(return_value=token))
-    browser = Mock()
-    monkeypatch.setattr(desktop.webbrowser, 'open', browser)
+    from app import desktop_window
+    native = Mock()
+    monkeypatch.setattr(desktop_window, 'launch_window', native)
     desktop._open_ui('https://localhost:8443')
-    browser.assert_called_once_with('https://localhost:8443/#desktop-token=' + token)
+    native.assert_called_once_with('https://localhost:8443', token)
 
 
 @pytest.fixture

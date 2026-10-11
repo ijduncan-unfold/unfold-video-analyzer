@@ -1,5 +1,6 @@
 """Same-origin, loopback-only registration; no originals are uploaded or copied."""
 from urllib.parse import urlsplit
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -50,3 +51,19 @@ class LocalMediaRequest(BaseModel):
 async def import_original(body: LocalMediaRequest):
     job = await register_camera_source(body.media_path, body.viewing_path, body.proxy_alignment_confirmed)
     return asset_view(job, detail=True)
+
+
+class OpenDesktopRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    pick: bool = False
+
+
+@router.post('/open-desktop')
+def open_desktop(body: OpenDesktopRequest, request: Request):
+    from app.desktop_window import launch_window
+    from app.services.editor_bridge import get_pairing_token
+    try:
+        launch_window(str(request.base_url).rstrip('/'), get_pairing_token() if os.environ.get('VIDEO_ANALYZER_DESKTOP') == '1' else '', body.pick)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(503, str(exc))
+    return {'opened': True}

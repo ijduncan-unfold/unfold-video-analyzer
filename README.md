@@ -82,7 +82,7 @@ Exports preserve source coordinates and do not render or package video files. Se
 
 ### Installed app and editor previews
 
-A Windows companion installer packages the local engine and browser interface, with a tray menu for opening the app, pairing editors, installing the Resolve integration, and quitting. User data stays in `%LOCALAPPDATA%/VideoAnalyzer`; API keys, databases, and footage are excluded from the installer. Setup can install the required FFmpeg tools separately through WinGet.
+A Windows companion installer packages the local engine and a native desktop window, with a tray menu for opening the app, pairing editors, installing the Resolve integration, and quitting. Drop videos from Explorer into that window or choose files with Import: the app references their original local or network paths automatically. User data stays in `%LOCALAPPDATA%/VideoAnalyzer`; API keys, databases, and footage are excluded from the installer. Setup can install the required FFmpeg tools separately through WinGet.
 
 Windows installers and integration ZIPs are produced by successful [Windows build workflow runs](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml). Downloads require signing into GitHub; choose a completed successful run.
 
@@ -109,6 +109,8 @@ npm --prefix frontend run build
 ```
 
 Open [the local workspace](http://127.0.0.1:8000). The backend serves the built frontend, so one server is enough.
+
+For native drag-and-drop, install `requirements-desktop.txt` in this environment. Import in the browser opens the desktop window and its file picker. A browser cannot expose an original absolute/network path from a dropped file; dropping there opens the desktop window, where you can drop the original. The desktop companion opens this window directly.
 
 ### macOS / Linux
 
@@ -148,7 +150,7 @@ Open [the Docker workspace](http://localhost:5173). Compose binds to loopback an
 
 ## Storage and processing
 
-**Import now defaults to Link original**: reference local or network-share camera media without copying it. MXF and common camera containers are recognized and checked against the installed decoder. Sony, Panasonic, Canon and ARRI workflows use direct FFmpeg proxies when decodable; proprietary RAW can use a separately linked, full-length viewing proxy from Resolve or a vendor tool while preserving the original as the edit source. Unknown original facts remain unknown. [Camera media support and RAW limits](docs/CAMERA_MEDIA.md).
+**Drop videos into the desktop window or use Import**. The original local or network-share path is referenced automatically, without a path form or a full-size copy. MXF and common camera containers are recognized and checked against the installed decoder. Sony, Panasonic, Canon and ARRI workflows use direct FFmpeg proxies when decodable. Proprietary RAW still requires a compatible decoder or an aligned viewing proxy supplied through the editor integration/API; native vendor decoders are not bundled yet. Unknown original facts remain unknown. [Camera media support and RAW limits](docs/CAMERA_MEDIA.md).
 
 **Proxy: Auto / Always / Off** sits beside the analysis controls and is remembered in this browser. Auto uses temporary **10-minute, up-to-720p analysis parts** for measured local sources at least **30 minutes** long, larger than **1 GiB**, encoded in heavy camera formats (including ProRes, DNxHD/HR, CineForm, and RAW), or with an estimated data rate of **50 Mb/s or more**. Always proxies any local video with a measured duration; Off uploads the original without encoding. YouTube URLs bypass local proxying. During encoding, the app displays **Preparing analysis proxy** and the current part number; Run details records the selected mode and decision reason. When proxying, only the first part must be prepared before indexing starts; shots still arrive after each 30-second section. Original film timestamps are restored in code for shot search, dialogue, exports, and editor handoffs. Originals are never modified, and this path creates no additional full-film copy.
 
@@ -156,14 +158,14 @@ Proxy creation requires FFmpeg to decode the original or its explicitly linked v
 
 For proxy runs, full analysis combines saved shot and section evidence into a film-wide summary through bounded editorial notes. Custom briefs use the same evidence, so a trailer brief can ask for visual hooks, character introductions, dialogue quotes, escalating stakes, and suggested moments with shot numbers and original timecodes. These reports inherit any missed observations; they do not generate a finished trailer. Gemini 1.5 Pro is deprecated according to [Google's migration guide](https://github.com/google-gemini/gemini-skills/blob/main/skills/gemini-api-dev/references/migration.md); this workflow keeps the configured current Gemini models.
 
-For a film larger than the browser copy limit below, use Link original or load it through the Resolve or Premiere panel. These imports reference the local file without copying it into the library. See [long-video processing details](docs/PROGRESSIVE_ANALYSIS.md#long-local-films).
+Desktop drops, native file selection, and Resolve/Premiere imports reference the original file in place. They are not subject to the legacy copy-upload limit below. See [long-video processing details](docs/PROGRESSIVE_ANALYSIS.md#long-local-films).
 
 | Item | Default location / behavior |
 |---|---|
-| App-created video copies, thumbnails, and visual caches | `backend/uploads/` (ignored by Git); original source files stay where you selected them |
+| Derived playback/analysis proxies, thumbnails, and visual caches | `backend/uploads/` (ignored by Git); original source files stay where you selected them |
 | Library and analysis records | `backend/data/library.sqlite3` (ignored by Git) |
 | Provider key | `.env.local` / `.env` or optional browser override; never in SQLite |
-| Upload limit | 2,000 MiB per file; configurable via `MAX_FILE_SIZE_MB` |
+| Legacy copy-upload API limit | 2,000 MiB per file; configurable via `MAX_FILE_SIZE_MB`; normal desktop import does not upload/copy originals |
 | Analysis concurrency | Two jobs; configurable via `MAX_CONCURRENT_ANALYSES` |
 | Google file retention | Short-video references are refreshed from the available local source; temporary long-video uploads are deleted after the run, with cleanup attempted after failure or cancellation too |
 | Results | Durable after each processing section; partial shots are searchable and reviewable during analysis. Failed sections retain successful results and report incomplete coverage. |

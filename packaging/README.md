@@ -1,8 +1,9 @@
 # Desktop companion preview
 
 The installable companion runs the existing FastAPI engine on loopback, opens the
-browser interface, and keeps running in the system tray/menu bar. Premiere and
-Resolve integrations connect to this same engine. The browser is the UI; users do not need to
+native desktop window, and keeps running in the system tray/menu bar. Premiere and
+Resolve integrations connect to this same engine. The web interface runs in pywebview;
+native file drops and the file picker pass original local/network paths without copying media. Users do not need to
 install Python or Node.js to run the frozen app.
 
 ## Windows
@@ -35,7 +36,7 @@ and install `Gyan.FFmpeg` before importing video. FFmpeg is not redistributed in
 this app bundle; WinGet retrieves the vendor package separately.
 
 The tray offers **Open Video Analyzer**, **Pair with editor**, **Install Resolve
-integration**, **Open data folder**, and **Quit**. Closing the browser does not stop the engine. The pairing
+integration**, **Open data folder**, and **Quit**. Closing the desktop window does not stop the engine. The pairing
 command opens the local token file for the user to copy into the Premiere integration;
 the token is never printed in build logs. Port 8000 must be available: an existing
 server is never killed or silently taken over. Uninstall removes the application,
@@ -127,7 +128,9 @@ $env:PYTHONPATH = 'backend'
 
 When running from source, set `PYTHONPATH=backend` or use
 `python -m app.desktop` from the backend directory. `--no-tray` runs until
-interrupted; `--no-browser` suppresses opening a browser during diagnostics.
+interrupted; `--no-browser` suppresses opening the desktop window during diagnostics.
+
+Windows uses Edge WebView2 (normally present on current Windows installations); Mac uses WebKit. Source runs need `requirements-desktop.txt` for the native window. File access is limited to the local app origin, and external links open in the system browser. Vendor RAW decoders are separate from this window runtime.
 Logs are rotated in the data folder as `desktop.log`. A successful smoke run
 writes `smoke-test.json`, and never calls Gemini or analyzes private footage.
 
