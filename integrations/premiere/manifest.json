@@ -2,7 +2,7 @@
   "manifestVersion": 5,
   "id": "com.ijduncan.video-analyzer.premiere",
   "name": "Video Analyzer",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "main": "index.html",
   "host": { "app": "premierepro", "minVersion": "26.3.0" },
   "entrypoints": [
@@ -17,7 +17,7 @@
   ],
   "requiredPermissions": {
     "network": { "domains": ["http://127.0.0.1:8000", "http://localhost:8000", "https://localhost:8443", "https://127.0.0.1:8443"] },
-    "localFileSystem": "request",
+    "localFileSystem": "fullAccess",
     "launchProcess": { "schemes": ["http", "https"], "extensions": [] }
   }
 }

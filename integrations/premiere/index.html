@@ -12,16 +12,14 @@
       </div>
       <div id="connection" class="connection">
         <span class="field-label" id="server-label">Local service</span>
-        <input id="server" type="text" value="http://127.0.0.1:8000" aria-labelledby="server-label" />
-        <span class="field-label" id="token-label">Panel token</span>
-        <input id="token" type="password" aria-labelledby="token-label" placeholder="Paste your Premiere pairing code" />
+        <input id="server" type="text" value="http://127.0.0.1:8000" aria-labelledby="server-label" readonly />
         <div class="row">
           <button id="connect" type="button" class="primary">Connect</button>
           <button id="disconnect" type="button" disabled>Disconnect</button>
         </div>
-        <p id="connection-hint" class="hint">Open the companion app. In Settings, copy the Premiere pairing code and paste it here.</p>
+        <p id="connection-hint" class="hint">Start Video Analyzer. This panel connects automatically; no pairing code is needed.</p>
       </div>
-      <p id="message" class="message" role="status" aria-live="polite">Connect to your local analyzer to begin.</p>
+      <p id="message" class="message" role="status" aria-live="polite">Connecting to Video Analyzer…</p>
       <div id="workspace" class="workspace hidden">
         <p id="project-name" class="project-name"></p>
         <button id="load-selection" type="button" class="full-width">Load selected Premiere clips</button>

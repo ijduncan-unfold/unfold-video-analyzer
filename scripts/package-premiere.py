@@ -5,7 +5,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'integrations' / 'premiere'
-FILES = ('manifest.json', 'index.html', 'styles.css', 'panel.js', 'host.js')
+FILES = ('manifest.json', 'index.html', 'styles.css', 'panel.js', 'host.js', 'connection.js')
 
 
 def main():

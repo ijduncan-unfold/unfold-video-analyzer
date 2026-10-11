@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createPanel, normalizeServer } = require("../panel.js");
 
-const TOKEN = "test-local-panel-token-1234567890";
+const TOKEN = "t".repeat(43);
 const clone = value => JSON.parse(JSON.stringify(value));
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -117,6 +117,7 @@ function persistentStorage() {
 function harness(options = {}) {
   const document = mockDocument();
   const stored = options.stored || persistentStorage();
+  const connection = options.connection || { server: options.platform === 'darwin' ? 'https://localhost:8443' : 'http://127.0.0.1:8000', token: TOKEN, instance_id: '3cbdf73c-344e-4a7f-8988-869876b413e7' };
   const service = options.service || {
     assets: [asset()],
     shots: [shot(1, "A circular scope in a dark frame.", { tags: ["circle"] }),
@@ -180,15 +181,16 @@ function harness(options = {}) {
     throw new Error("Unmocked request " + url);
   }
   const panel = createPanel({ document, host, fetch, platform: options.platform,
+    readConnection: options.readConnection || (async () => clone(connection)),
     uxp: { storage: stored.storage, shell: { async openExternal(url) { browser.push(url); return ""; } } },
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
   });
   return {
-    panel, document, stored, service, current, requests, opens, markers, metadataSyncs, browser, timers, json,
+    panel, document, stored, service, current, requests, opens, markers, metadataSyncs, browser, timers, json, connection, host, fetch,
     el: id => document.getElementById(id),
     intercept(callback) { interceptor = callback; },
-    async start() { await panel.init(); document.elements.token.value = TOKEN; await panel.connect(); },
+    async start() { await panel.init(); },
     async poll() {
       const entry = Array.from(timers).find(([, timer]) => timer.callback.name === "poll");
       assert.ok(entry, "There is a scheduled progress refresh");
@@ -202,8 +204,38 @@ function descendants(element, predicate) {
   return element.children.flatMap(child => (predicate(child) ? [child] : []).concat(descendants(child, predicate)));
 }
 
+test('HTML script without a CommonJS module global keeps lifecycle callbacks synchronous', async t => {
+  const vm = require('node:vm');
+  const h = harness();
+  let hooks;
+  const timers = new Set();
+  const modules = {
+    uxp: { storage: h.stored.storage, entrypoints: { setup(value) { hooks = value; } } },
+    './host.js': h.host,
+    './connection.js': { readConnection: async () => ({ ...h.connection }) },
+    os: { platform: () => 'win32' },
+  };
+  const context = { document: h.document, fetch: h.fetch,
+    require(name) { assert.ok(modules[name], 'Explicit UXP module: ' + name); return modules[name]; },
+    setTimeout(fn, delay) { const id = setTimeout(fn, delay); timers.add(id); return id; },
+    clearTimeout(id) { clearTimeout(id); timers.delete(id); },
+  };
+  t.after(() => { hooks?.plugin.destroy(); for (const id of timers) clearTimeout(id); });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../panel.js'), 'utf8'), context);
+  assert.ok(hooks);
+  assert.equal(hooks.panels.videoAnalyzerPanel.create(), undefined);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.match(h.el('message').textContent, /Connected automatically/);
+  assert.equal(h.el('workspace').className.includes('hidden'), false);
+  assert.equal(h.requests.filter(request => request.pathname.endsWith('/health')).length, 1);
+  assert.equal(hooks.panels.videoAnalyzerPanel.show(), undefined);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(h.requests.filter(request => request.pathname.endsWith('/health')).length, 1);
+});
+
 test("connects only to the authenticated local service and never analyzes while loading clips", async t => {
   const h = harness();
+  h.stored.secrets.set('video-analyzer-premiere-token', Buffer.from('old-manual-token'));
   t.after(() => h.panel.destroy());
   await h.start();
   assert.equal(h.el("workspace").className.includes("hidden"), false);
@@ -222,23 +254,62 @@ test("connects only to the authenticated local service and never analyzes while 
   }
   const serialized = Array.from(h.stored.files.values()).join("");
   assert.equal(serialized.includes(TOKEN), false);
-  assert.equal(h.stored.secrets.size, 1);
+  assert.equal(h.stored.secrets.size, 0);
+  assert.equal(h.document.elements.token, undefined);
 });
 
-test("rejects remote endpoints and explains rejected credentials without leaking the token", async t => {
-  const h = harness();
+test('opening Premiere first retries discovery; disconnect stops retries and reconnection rereads credentials', async t => {
+  let available = false;
+  const connection = { server: 'http://127.0.0.1:8000', token: TOKEN };
+  const h = harness({ readConnection: async () => { if (!available) throw new Error('Start Video Analyzer'); return { ...connection }; } });
   t.after(() => h.panel.destroy());
   await h.panel.init();
-  h.el("server").value = "http://127.0.0.1.evil.test:8000";
-  h.el("token").value = TOKEN;
+  assert.equal(h.panel.getState().connected, false);
+  const retry = Array.from(h.timers).find(([, timer]) => timer.callback.name === 'reconnect');
+  assert.ok(retry);
+  available = true;
+  h.timers.delete(retry[0]); // A fired native timeout is no longer scheduled.
+  await retry[1].callback();
+  assert.equal(h.panel.getState().connected, true);
+  await h.panel.disconnect();
+  assert.equal(h.timers.size, 0);
+  connection.token = 'r'.repeat(43);
+  await h.panel.connect();
+  assert.equal(h.requests.at(-1).init.headers.Authorization, 'Bearer ' + connection.token);
+  assert.equal(h.requests.filter(request => request.pathname.endsWith('/analyze')).length, 0);
+});
+
+test("rejects remote discovery and explains reconnection without leaking the credential", async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  h.connection.server = "http://127.0.0.1.evil.test:8000";
+  await h.panel.init();
   await assert.rejects(h.panel.connect(), /only to the local analyzer/);
   assert.equal(h.requests.length, 0);
-  h.el("server").value = "http://127.0.0.1:8000";
+  h.connection.server = "http://127.0.0.1:8000";
   h.intercept(request => request.pathname.endsWith("/health") ? h.json({ detail: "Invalid token" }, 401) : undefined);
   await h.el("connect").fire("click");
-  assert.match(h.el("message").textContent, /token rejected/i);
+  assert.match(h.el("message").textContent, /connection changed/i);
   assert.equal(h.el("message").textContent.includes(TOKEN), false);
   assert.equal(h.panel.getState().connected, false);
+});
+
+test('a stopped companion reconnects using fresh discovery without repeating analysis', async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  h.intercept(request => { if (request.pathname.endsWith('/analyze')) throw new TypeError('Failed to fetch'); });
+  await assert.rejects(h.panel.analyze(), /Failed to fetch/);
+  assert.equal(h.panel.getState().connected, false);
+  const retry = Array.from(h.timers).find(([, timer]) => timer.callback.name === 'reconnect');
+  assert.ok(retry);
+  h.connection.token = 'n'.repeat(43);
+  h.intercept(() => undefined);
+  h.timers.delete(retry[0]);
+  await retry[1].callback();
+  assert.equal(h.panel.getState().connected, true);
+  assert.equal(h.requests.at(-1).init.headers.Authorization, 'Bearer ' + h.connection.token);
+  assert.equal(h.requests.filter(request => request.pathname.endsWith('/analyze')).length, 1);
 });
 
 test('metadata button syncs a fresh complete server record after source preflight', async () => {
@@ -525,31 +596,30 @@ test("new Mac profiles use authenticated local HTTPS and open the secure analyze
   assert.deepEqual(h.browser, ["https://localhost:8443/"]);
 });
 
-test("explicit secure endpoint preferences survive reopening on Mac", async t => {
+test("Mac discovery overrides obsolete endpoint preferences on reopening", async t => {
   const stored = persistentStorage();
   const first = harness({ platform: "darwin", stored });
   t.after(() => first.panel.destroy());
   await first.panel.init();
-  first.el("server").value = "https://127.0.0.1:8443";
-  first.el("token").value = TOKEN;
+  first.connection.server = "https://127.0.0.1:8443";
   await first.panel.connect();
   first.panel.destroy();
   const second = harness({ platform: "darwin", stored });
   t.after(() => second.panel.destroy());
   await second.panel.init();
-  assert.equal(second.el("server").value, "https://127.0.0.1:8443");
+  assert.equal(second.el("server").value, "https://localhost:8443");
   assert.equal(second.panel.getState().connected, true);
-  assert.ok(second.requests.every(request => new URL(request.url).origin === "https://127.0.0.1:8443"));
+  assert.ok(second.requests.every(request => new URL(request.url).origin === "https://localhost:8443"));
 });
 
-test("saved HTTP endpoint stays visible on Mac but cannot send a token before HTTPS setup", async t => {
+test("an insecure Mac discovery cannot send credentials before HTTPS setup", async t => {
   const stored = persistentStorage();
   stored.files.set("premiere-panel.json", JSON.stringify({ server: "http://localhost:8000", mode: "flash_only", projects: {} }));
   const h = harness({ platform: "darwin", stored });
+  h.connection.server = 'http://localhost:8000';
   t.after(() => h.panel.destroy());
   await h.panel.init();
   assert.equal(h.el("server").value, "http://localhost:8000");
-  h.el("token").value = TOKEN;
   await h.el("connect").fire("click");
   assert.equal(h.requests.length, 0);
   assert.match(h.el("message").textContent, /Mac requires HTTPS/);
@@ -559,9 +629,9 @@ test("saved HTTP endpoint stays visible on Mac but cannot send a token before HT
 test("TLS failures give certificate guidance without disabling verification or falling back to HTTP", async t => {
   const h = harness({ platform: "darwin" });
   t.after(() => h.panel.destroy());
-  await h.panel.init();
-  h.el("token").value = TOKEN;
   h.intercept(() => { throw new TypeError("Certificate trust failure"); });
+  await h.panel.init();
+  h.requests.length = 0;
   await h.el("connect").fire("click");
   assert.equal(h.panel.getState().connected, false);
   assert.match(h.el("message").textContent, /certificate setup/);

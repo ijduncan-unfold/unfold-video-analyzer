@@ -51,10 +51,9 @@ and preserves the user's database/media and original source files.
 The installer also includes the Premiere CCX plugin package. Its Start menu
 **Install Premiere panel** shortcut opens Adobe Creative Cloud's plugin installer;
 Premiere 26.3+ and Creative Cloud must already be installed. Plugin installation
-is a separate user action. **Pair Video Analyzer with editor** opens the local
-token for Premiere connection settings. Resolve discovers and connects to the local
-companion automatically, without a pairing field. Browser Settings also offers
-**Copy editor pairing code** when launched by the companion.
+is a separate user action. Both Premiere and Resolve discover the running local
+companion automatically, without a pairing field or code to copy. Start Video
+Analyzer, then open the editor panel.
 
 The **Install Resolve integration** shortcut starts the separate Resolve installer.
 It requires **Resolve Studio 20.1+ on Windows x64**, with Resolve closed. It copies

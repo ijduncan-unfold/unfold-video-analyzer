@@ -22,4 +22,4 @@ ca_dir="$(mkcert -CAROOT)"
 cp "$ca_dir/rootCA.pem" "$tls_dir/rootCA.pem"
 chmod 600 "$tls_dir/localhost-key.pem"
 chmod 644 "$tls_dir/localhost.pem" "$tls_dir/rootCA.pem"
-printf '%s\n' 'Setup complete. Restart Video Analyzer and connect the Premiere panel to https://localhost:8443.' 'Copy the pairing token from Settings in the app.' 'The private CA key remains in mkcert storage; only its public certificate was copied to Video Analyzer.'
+printf '%s\n' 'Setup complete. Restart Video Analyzer and open the Premiere panel.' 'The panel connects automatically to https://localhost:8443; no pairing token is needed.' 'The private CA key remains in mkcert storage; only its public certificate was copied to Video Analyzer.'

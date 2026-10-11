@@ -21,7 +21,7 @@ class MacBuildGuardTests(unittest.TestCase):
         self.app = root / "Video Analyzer.app"
         resources = self.app / "Contents/Resources"
         for relative in ("desktop-docs/setup-premiere-macos.command", "desktop-docs/macos-common.sh",
-                         "plugins/VideoAnalyzer-Premiere-0.1.0.ccx", "desktop-docs/install-resolve-macos.command",
+                         "plugins/VideoAnalyzer-Premiere-0.1.2.ccx", "desktop-docs/install-resolve-macos.command",
                          "desktop-docs/public-files.json", "resolve-panel/manifest.xml"):
             resource = resources / relative
             resource.parent.mkdir(parents=True, exist_ok=True)

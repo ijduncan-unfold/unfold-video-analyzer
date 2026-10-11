@@ -1,7 +1,6 @@
 /* UXP uses CommonJS. This panel deliberately has no build step or webview. */
 const DEFAULT_SERVER = "http://127.0.0.1:8000";
 const MAC_SERVER = "https://localhost:8443";
-const TOKEN_KEY = "video-analyzer-premiere-token";
 const PREFS_FILE = "premiere-panel.json";
 const MAX_RESULTS = 500;
 const PAGE_SIZE = 100;
@@ -129,6 +128,7 @@ function createPanel(dependencies) {
   const fetch = dependencies.fetch;
   const schedule = dependencies.setTimeout || setTimeout;
   const unschedule = dependencies.clearTimeout || clearTimeout;
+  const readConnection = dependencies.readConnection || require("./connection.js").readConnection;
   const defaultServer = dependencies.platform === "darwin" ? MAC_SERVER : DEFAULT_SERVER;
   const el = id => document.getElementById(id);
   const state = {
@@ -138,8 +138,22 @@ function createPanel(dependencies) {
     busy: {}, preferences: { projects: {}, mode: "flash_only", server: defaultServer },
   };
   let initialization;
+  let connectionTimer = null;
+  let autoConnect = true;
   let preferenceWrites = Promise.resolve();
   let assetRevision = 0;
+
+  function stopConnectionRetry() {
+    if (connectionTimer !== null) unschedule(connectionTimer);
+    connectionTimer = null;
+  }
+  function retryConnection() {
+    stopConnectionRetry();
+    if (autoConnect) connectionTimer = schedule(async function reconnect() {
+      connectionTimer = null;
+      if (autoConnect && !state.connected) await run(connect);
+    }, 4000);
+  }
 
   function message(text, error) {
     el("message").textContent = text;
@@ -206,6 +220,13 @@ function createPanel(dependencies) {
         }, 30000);
       }),
     ]).catch(error => {
+      if (autoConnect && endpoint === state.server && token === state.token) {
+        state.connected = false;
+        state.token = "";
+        stopPoll();
+        retryConnection();
+        controls();
+      }
       if (endpoint.indexOf("https://") === 0 && error && error.name === "TypeError") {
         throw new Error("Could not reach the local HTTPS service. Complete the Mac certificate setup, trust its local certificate, and start the companion app on port 8443.");
       }
@@ -214,7 +235,10 @@ function createPanel(dependencies) {
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       const reason = body && typeof body.detail === "string" ? body.detail : "Local service request failed (" + response.status + ").";
-      if (response.status === 401 || response.status === 403) throw new Error("Panel token rejected. Run Premiere setup and reconnect with the current token.");
+      if ((response.status === 401 || response.status === 403) && endpoint === state.server && token === state.token) {
+        state.connected = false; state.token = ""; stopPoll(); retryConnection(); controls();
+        throw new Error("The local connection changed. Reconnecting to Video Analyzer…");
+      }
       const error = new Error(reason);
       error.status = response.status;
       throw error;
@@ -501,44 +525,49 @@ function createPanel(dependencies) {
 
   async function connect() {
     if (state.busy.connect) return;
-    const server = normalizeServer(el("server").value);
-    if (dependencies.platform === "darwin" && server.indexOf("http://") === 0) {
-      throw new Error("Premiere on Mac requires HTTPS. Use https://localhost:8443 after completing the local certificate setup.");
-    }
-    const token = String(el("token").value || state.token).trim();
-    if (!token || !/^[\x21-\x7e]{16,512}$/.test(token)) throw new Error("Paste a valid panel token from the Premiere setup command.");
+    autoConnect = true;
+    stopConnectionRetry();
     state.busy.connect = true;
     ++state.scope;
     stopPoll();
     state.connected = false;
-    state.server = server;
-    state.token = token;
+    state.token = "";
     controls();
     const scope = state.scope;
     try {
+      const connection = await readConnection();
+      if (scope !== state.scope) return;
+      const server = normalizeServer(connection.server);
+      if (dependencies.platform === "darwin" && server.indexOf("http://") === 0) {
+        throw new Error("Premiere on Mac requires HTTPS. Use https://localhost:8443 after completing the local certificate setup.");
+      }
+      state.server = server;
+      state.token = connection.token;
+      el("server").value = server;
       const health = await request("/health");
       if (scope !== state.scope) return;
       state.connected = true;
-      let saved = false;
-      if (uxp.storage.secureStorage) {
-        try { await uxp.storage.secureStorage.setItem(TOKEN_KEY, token); saved = true; }
-        catch (error) { /* Leave the token in memory only if OS secure storage is unavailable. */ }
-      }
-      el("token").value = "";
       show("connection", false);
       el("connection-toggle").setAttribute("aria-expanded", "false");
-      message("Connected." + (!saved ? " Token is kept for this session only." : "") +
+      message("Connected automatically." +
         (health.google_configured === false ? " Configure Gemini in the local service before analyzing." : ""));
       await remember();
       try { await refreshProject(); }
       catch (error) { message("Connected. " + error.message, true); }
+    } catch (error) {
+      state.connected = false;
+      state.token = "";
+      throw error;
     } finally {
       state.busy.connect = false;
       controls();
+      if (scope === state.scope && !state.connected) retryConnection();
     }
   }
 
   async function disconnect() {
+    autoConnect = false;
+    stopConnectionRetry();
     ++state.scope;
     ++assetRevision;
     ++state.resultRevision;
@@ -551,8 +580,6 @@ function createPanel(dependencies) {
     state.shots = [];
     state.resultsPending = false;
     state.nativeBlocked = true;
-    el("token").value = "";
-    if (uxp.storage.secureStorage) await uxp.storage.secureStorage.removeItem(TOKEN_KEY).catch(() => {});
     show("connection", true);
     el("connection-toggle").setAttribute("aria-expanded", "true");
     message("Disconnected. Analysis already running in the local service continues.");
@@ -742,10 +769,9 @@ function createPanel(dependencies) {
           }
         });
       }
-      for (const id of ["server", "token"]) el(id).addEventListener("keydown", event => { if (event.key === "Enter") run(connect); });
       el("server").value = state.server;
       if (dependencies.platform === "darwin") {
-        el("connection-hint").textContent = "Mac uses local HTTPS on port 8443. Complete certificate setup, open the companion app, then copy the Premiere pairing code from Settings.";
+        el("connection-hint").textContent = "Mac uses local HTTPS on port 8443. Complete certificate setup and start Video Analyzer. This panel connects automatically.";
       }
       try {
         const folder = await uxp.storage.localFileSystem.getDataFolder();
@@ -760,19 +786,18 @@ function createPanel(dependencies) {
         }
       } catch (error) { /* Missing or obsolete preferences should use defaults. */ }
       if (uxp.storage.secureStorage) {
-        try {
-          const stored = await uxp.storage.secureStorage.getItem(TOKEN_KEY);
-          state.token = Array.from(stored, value => String.fromCharCode(value)).join("");
-        } catch (error) { /* Secure storage is a cache; users can reconnect when cleared. */ }
+        await uxp.storage.secureStorage.removeItem("video-analyzer-premiere-token").catch(() => {});
       }
       state.initialized = true;
       controls();
-      if (state.token) await run(connect);
+      await run(connect);
     })();
     return initialization;
   }
 
   function destroy() {
+    autoConnect = false;
+    stopConnectionRetry();
     ++state.scope;
     state.connected = false;
     stopPoll();
@@ -783,28 +808,33 @@ function createPanel(dependencies) {
   return { init, connect, disconnect, loadSelection, refreshProject, selectAsset, analyze, setTab, search, addMarkers, syncMetadata, exportSubtitles, destroy, getState: () => state };
 }
 
-module.exports = { createPanel, normalizeServer, parseSeconds, validRange, transcriptCues, cueTime, searchTerms, includesQuery, appendHighlight, sourceBinding, cleanSubtitleName, progressText };
+if (typeof module !== "undefined") module.exports = { createPanel, normalizeServer, parseSeconds, validRange, transcriptCues, cueTime, searchTerms, includesQuery, appendHighlight, sourceBinding, cleanSubtitleName, progressText };
 
 if (typeof document !== "undefined") {
+  try {
   const uxp = require("uxp");
-  const host = require("./host");
+  const host = require("./host.js");
   let platform;
   try { platform = require("os").platform(); }
-  catch (error) { /* The editable endpoint remains available if host OS detection fails. */ }
+  catch (error) { /* Discovery will report unavailable if host OS detection fails. */ }
   const panel = createPanel({ document, uxp, host, fetch, platform });
+  function startupError(error) { document.getElementById("message").textContent = "Panel startup failed: " + error.message; }
   uxp.entrypoints.setup({
     plugin: { destroy() { panel.destroy(); } },
     panels: {
       videoAnalyzerPanel: {
-        async create() { await panel.init(); },
-        async show() {
-          await panel.init();
-          if (panel.getState().connected) {
-            try { await panel.refreshProject(); }
-            catch (error) { document.getElementById("message").textContent = error.message; }
-          }
+        create() { setTimeout(() => { panel.init().catch(startupError); }, 0); },
+        show() {
+          setTimeout(() => {
+            panel.init().then(() => {
+              if (panel.getState().connected) return panel.refreshProject();
+            }).catch(startupError);
+          }, 0);
         },
       },
     },
   });
+  } catch (error) {
+    document.getElementById("message").textContent = "Panel startup failed: " + error.message;
+  }
 }
