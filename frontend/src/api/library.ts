@@ -79,6 +79,7 @@ export interface TranscriptSegment {
   speaker?: string
 }
 export interface AssetDetail extends LibraryAsset {
+  editor_metadata?: { schema_version: string; fields: EditorMetadataField[]; shot_fields: Record<string, EditorMetadataField[]>; conflicts: string[] }
   rough_cut?: RoughCutDraft | null
   flash: FlashAnalysis | null
   deep: SceneDeepAnalysis[] | null
@@ -92,6 +93,15 @@ export interface AssetDetail extends LibraryAsset {
   analysis_config?: { provider?: string; analysis_model?: string; deep_model?: string; fps?: number; mode?: string; started_at?: string; timestamp_accuracy?: string; grouping?: string; proxy_mode?: ProxyMode; proxy_used?: boolean; proxy_reason?: string }
   cost_estimate?: { estimated_cost_usd: number | null; pricing_status?: string; pricing_as_of?: string; warnings?: string[]; total_input_tokens?: number; total_output_tokens?: number } | null
   transcript: TranscriptSegment[]
+}
+export interface EditorMetadataField {
+  key: string
+  label: string
+  value: string
+  origin: string
+  resolve: string | null
+  premiere: string
+  xmp: string
 }
 export interface CutMoment {
   moment_id: string

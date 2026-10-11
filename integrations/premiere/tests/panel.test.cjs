@@ -127,6 +127,7 @@ function harness(options = {}) {
   const requests = [];
   const opens = [];
   const markers = [];
+  const metadataSyncs = [];
   const browser = [];
   const timers = new Map();
   let nextTimer = 0;
@@ -146,6 +147,7 @@ function harness(options = {}) {
       markers.push({ binding: clone(binding), cues: clone(cues) });
       return { added: cues.length, skipped: 0 };
     },
+    async syncMetadata(binding, mapping) { metadataSyncs.push({ binding: clone(binding), mapping: clone(mapping) }); return { updated: 3, preserved: 1 }; },
   };
   function json(data, status = 200) { return { ok: status >= 200 && status < 300, status, async json() { return clone(data); }, async text() { return String(data); } }; }
   async function fetch(url, init) {
@@ -167,6 +169,7 @@ function harness(options = {}) {
     const item = match && service.assets.find(value => value.job_id === match[1]);
     if (!item) return json({ detail: "Unknown clip" }, 404);
     if (!match[2]) return json(item);
+    if (match[2] === '/metadata') return json({ schema_version: '1.0', fields: [], record: { schema: 'video-analyzer.library', transcript: item.transcript } });
     if (match[2] === "/shots") {
       const q = (parsed.searchParams.get("q") || "").toLowerCase();
       const shots = service.shots.filter(value => JSON.stringify(value).toLowerCase().includes(q));
@@ -182,7 +185,7 @@ function harness(options = {}) {
     clearTimeout(id) { timers.delete(id); },
   });
   return {
-    panel, document, stored, service, current, requests, opens, markers, browser, timers, json,
+    panel, document, stored, service, current, requests, opens, markers, metadataSyncs, browser, timers, json,
     el: id => document.getElementById(id),
     intercept(callback) { interceptor = callback; },
     async start() { await panel.init(); document.elements.token.value = TOKEN; await panel.connect(); },
@@ -238,6 +241,19 @@ test("rejects remote endpoints and explains rejected credentials without leaking
   assert.equal(h.panel.getState().connected, false);
 });
 
+test('metadata button syncs a fresh complete server record after source preflight', async () => {
+  const f = harness(); f.service.assets[0].analysis_config = { started_at: 'first' }; await f.start();
+  assert.equal(f.el('sync-metadata').disabled, false);
+  await f.panel.syncMetadata();
+  assert.equal(f.metadataSyncs.length, 1);
+  assert.equal(f.metadataSyncs[0].mapping.record.transcript[0].text, 'Look at that circle.');
+  const request = f.requests.find(item => item.pathname.endsWith('/metadata'));
+  assert.equal(request.query.get('analysis_session'), f.service.assets[0].analysis_config.started_at);
+  assert.match(f.el('message').textContent, /editor fields preserved/);
+  f.service.assets[0].analysis_config.started_at = 'replaced';
+  await assert.rejects(f.panel.syncMetadata(), /analysis changed/);
+  assert.equal(f.metadataSyncs.length, 1);
+});
 test("starts the explicitly chosen full analysis and receives incremental results", async t => {
   const h = harness();
   t.after(() => h.panel.destroy());

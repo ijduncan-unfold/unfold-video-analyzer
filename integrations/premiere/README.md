@@ -2,7 +2,9 @@
 
 An installable UXP panel for **Premiere Pro 26.3 or newer**. It connects to the local Video Analyzer companion, loads selected original clips or bins from the Project panel, analyzes on explicit request, searches saved shots and dialogue, opens source moments, adds source markers, and exports SRT.
 
-The panel and desktop companions are a development preview. Native API behavior is covered by injected host tests; installation, Source Monitor timing, and marker round trips still require acceptance inside Premiere. The Premiere application is not installed on this Windows workstation.
+The panel and desktop companions are a development preview. Native API behavior is covered by injected host tests; installation, Source Monitor timing, markers and metadata sync still require acceptance inside Premiere.
+
+Use **Sync metadata to Premiere** to populate project Description, Scene, Shot, Tape Name and Log Note where empty or previously written by this integration. Other values get named Video Analyzer fields; **Complete analysis JSON** preserves all analysis and timed dialogue. Human edits are preserved. Enable the custom fields with Project panel **Metadata Display**. This uses project metadata; Premiere's own metadata linking preferences can mirror linked standard fields into file XMP. See [the complete mapping and transcript limits](../../docs/EDITOR_METADATA.md). SRT and searchable dialogue do not substitute for a word-aligned native speech transcript.
 
 ## Install and pair on Windows
 

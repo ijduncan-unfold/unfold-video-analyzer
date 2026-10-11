@@ -75,6 +75,21 @@ test("repeat exports reuse the same subclips and preserve human comments, descri
   const after = await m.saved[0].GetMetadata(); assert.equal(after.Description, "Editor revised description"); assert.match(after.Keywords, /approved/); assert.match(after.Comments, /Editor's prefix/); assert.match(after.Comments, /Editor's suffix/);
   assert.equal(after.Comments.split("[Video Analyzer shot]").length, 2);
 });
+test("native shot fields map slate values, retain editor revisions and clear only stale owned fields", async () => {
+  const m = fixture();
+  const enriched = { ...pack, shots: [{ ...pack.shots[0], editor_metadata: { fields: [
+    { resolve: 'Scene', value: '012B' }, { resolve: 'Take', value: '03' },
+    { resolve: 'Roll/Card', value: 'A001' }, { resolve: 'Shot Type', value: 'Close-up' },
+    { resolve: 'FPS', value: '999' }
+  ] } }] };
+  await m.host.exportShots(binding, enriched);
+  const before = await m.saved[0].GetMetadata();
+  assert.equal(before.Scene, '012B'); assert.equal(before.Take, '03'); assert.equal(before['Roll/Card'], 'A001'); assert.equal(before.FPS, undefined);
+  m.saved[0].edit({ Scene: 'Editor scene' });
+  await m.host.exportShots(binding, enriched); assert.equal((await m.saved[0].GetMetadata()).Scene, 'Editor scene');
+  await m.host.exportShots(binding, { ...pack, shots: [pack.shots[0]] });
+  const after = await m.saved[0].GetMetadata(); assert.equal(after.Scene, 'Editor scene'); assert.equal(after.Take, '');
+});
 test("an original ID or incorrect source range blocks all metadata and timeline writes", async t => {
   for (const options of [{ sameId: true }, { subclipProperties: { Start: 0 } }, { subclipProperties: { Frames: 240 } }, { subclipProperties: { FPS: 25 } }, { subclipProperties: { FPS: null } }, { subclipProperties: { "File Path": "C:\\other.mp4" } }]) {
     await t.test(JSON.stringify(options), async () => { const m = fixture(options); await assert.rejects(m.host.exportShots(binding, pack, "current"), { code: "SUBCLIP_VERIFY_FAILED" }); assert.equal(m.events.some(e => e[0] === "metadata" || e[0] === "append"), false); });

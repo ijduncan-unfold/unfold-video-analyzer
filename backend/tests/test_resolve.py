@@ -191,7 +191,23 @@ def test_shot_package_contains_public_shot_section_dialogue_and_review_metadata(
     assert first['transcript_segments'][0]['text'] == 'Hello there'
     assert 'private' not in response.text and 'api_key' not in response.text
     assert 'thumbnail_url' not in first and 'preview_url' not in first
+    assert any(field['key'] == 'transcript' and 'Hello there' in field['value'] for field in first['editor_metadata']['fields'])
     assert (original.read_bytes(), original.stat().st_mtime_ns) == before
+
+
+def test_premiere_metadata_snapshot_keeps_complete_analysis_and_rejects_stale_session(resolve_editor, resolve_source):
+    asset, _ = seed_shots(resolve_editor, resolve_source)
+    path = f"/api/editor/premiere/assets/{asset['job_id']}/metadata"
+    response = resolve_editor.get(path, params={'analysis_session': 'session-1'})
+    assert response.status_code == 200, response.text
+    record = response.json()['record']
+    assert record['analysis']['deep_results'][0]['composition'] == 'Centered shapes'
+    assert record['transcript'][0]['text'] == 'Hello there'
+    assert record['shots'][0]['notes'] == 'Editor note'
+    assert 'api_key' not in response.text and 'private' not in response.text
+    assert resolve_editor.get(path, params={'analysis_session': 'old'}).status_code == 409
+    Path(resolve_source['media_path']).write_bytes(b'changed original')
+    assert resolve_editor.get(path, params={'analysis_session': 'session-1'}).status_code == 409
 
 
 @pytest.mark.parametrize('patch', [

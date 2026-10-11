@@ -2,6 +2,8 @@
 
 A native Workflow Integration window for **Resolve Studio 20.1+**, using the local Video Analyzer companion. Windows x64 comes first; the Mac path targets native Apple Silicon. The free edition does not support this Workflow Integration window.
 
+Use **Sync metadata to Resolve** to apply the whole clip's mapped fields, searchable timed dialogue and complete structured analysis to the source Media Pool item. Saved individual shots also promote Scene, Shot, Take, Roll/Card, Camera #, Director, DOP, Shot Type, Move and Location when available. Existing editor values and manual revisions are preserved; conflicting slate readings remain in the record instead of being assigned to one clip field. See [the mapping and transcript/After Effects limits](../../docs/EDITOR_METADATA.md). New sync actions still need live host acceptance.
+
 Load selected original Media Pool clips, choose **Shots and tags** or **Full analysis**, and click **Analyze**. Search progressive shot results or dialogue, select a source clip in the Media Pool, copy file-relative in/out times, export SRT, or add source markers to verified constant-rate originals. **Open full analyzer** provides the complete metadata, export, and visual match-cut workspace.
 
 Use **Add to timeline** on a shot, or select up to 50 shots and choose **Save to Media Pool**, **Add to timeline**, or **New selects timeline**. Shots become separate native subclips in **Video Analyzer shots**, referencing the original file without copying it. Timeline additions go to the end in source order, with available audio. You can also drag saved subclips from Resolve's Media Pool into your edit; direct dragging from the integration window is not implemented.

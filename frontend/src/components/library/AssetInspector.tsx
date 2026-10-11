@@ -196,6 +196,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       {error && <div className="lw-inline-error" role="alert">{error}</div>}{notice && <div className="lw-inline-success" role="status">{notice}</div>}
       {tab === 'analysis' && warnings.length > 0 && <details className="lw-details"><summary>Analysis notes<Icon name="down" size={14} /></summary><div className="lw-analysis-warning">{warnings.map(warning => <p key={warning}>{warning}</p>)}</div></details>}
       {tab === 'metadata' && <>
+        <MetadataHandoff asset={asset} selectedShot={selectedShot} />
         {shots.some(shot => shot.slates?.length) && <details className="lw-details" open><summary>Slates<Icon name="down" size={14} /></summary>{shots.flatMap(shot => (shot.slates || []).map((slate, index) => <div key={`${shot.shot_number}-${index}`}><button className="lw-text-button" onClick={() => { setPreviewedShot(shot.shot_number); seek(timestamp(slate.start_time)) }}>Shot {String(shot.shot_number).padStart(2, '0')} · {slate.start_time}–{slate.end_time}</button><SlateFields slate={slate} /></div>))}<small className="lw-model-note">Read from the slate · unreviewed</small></details>}
         {asset.summary && <details className="lw-details"><summary>AI summary<Icon name="down" size={14} /></summary><p className="lw-panel-description">{asset.summary}</p></details>}
         <label className="lw-field">Title<input value={draft.title} onChange={event => field('title', event.target.value)} placeholder={asset.filename} /></label>
@@ -242,6 +243,23 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
 
 function sameShot(a: Shot, b: Shot) {
   return a.shot_number === b.shot_number && a.start_time === b.start_time && a.end_time === b.end_time
+}
+
+function MetadataHandoff({ asset, selectedShot }: { asset: AssetDetail; selectedShot?: Shot }) {
+  const [scope, setScope] = useState<'asset' | 'shot'>('asset')
+  const [showAnalysis, setShowAnalysis] = useState(false)
+  const mapping = asset.editor_metadata
+  if (!mapping) return null
+  const fields = scope === 'shot' && selectedShot ? mapping.shot_fields[String(selectedShot.shot_number)] || [] : mapping.fields
+  return <details className="lw-details" open><summary>Editor metadata<Icon name="down" size={14} /></summary>
+    <label className="lw-field">Scope<select aria-label="Metadata scope" value={scope} onChange={event => setScope(event.target.value as 'asset' | 'shot')}><option value="asset">Whole clip</option>{selectedShot && <option value="shot">Shot {String(selectedShot.shot_number).padStart(2, '0')}</option>}</select></label>
+    <dl className="vw-analysis-fields">{fields.map(field => <div key={field.key}><dt>{field.label}<small> · {field.origin}</small></dt><dd>{field.key === 'transcript' ? <details className="lw-details"><summary>Read dialogue<Icon name="down" size={13} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{field.value}</p></details> : <p style={{ whiteSpace: 'pre-wrap' }}>{field.value}</p>}<small>{field.resolve ? `Resolve: ${field.resolve} · ` : 'Resolve: structured record · '}Premiere: {field.premiere.startsWith('VideoAnalyzer') ? 'Video Analyzer field' : field.label} · XMP: {field.xmp}</small></dd></div>)}</dl>
+    {scope === 'asset' && mapping.conflicts.map(conflict => <p className="lw-model-note" key={conflict}>{conflict}</p>)}
+    {!fields.length && <p className="lw-panel-description">Analyze this clip to populate editor metadata.</p>}
+    <p className="lw-model-note">Native fields carry searchable values. JSON and XMP retain the complete analysis and timed dialogue. Section numbers stay separate from slate scenes.</p>
+    <button className="lw-text-button" aria-expanded={showAnalysis} onClick={() => setShowAnalysis(value => !value)}>{showAnalysis ? 'Hide' : 'View'} all analysis metadata<Icon name="down" size={13} /></button>
+    {showAnalysis && <AnalysisFields value={{ shots_and_sections: asset.flash, section_analysis: asset.deep, summary: asset.video_summary, custom_analysis: asset.custom_result, reviewed_shots: asset.shot_annotations, transcript: asset.transcript, rough_cut: asset.rough_cut }} />}
+  </details>
 }
 
 function AnalysisFields({ value, query = '' }: { value: unknown; query?: string }) {

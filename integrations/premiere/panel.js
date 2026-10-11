@@ -150,7 +150,7 @@ function createPanel(dependencies) {
   function binding() { return sourceBinding(state.asset, state.project && state.project.id); }
   function controls() {
     const active = !!state.asset;
-    const mutation = !!(state.busy.selection || state.busy.analyze || state.busy.markers);
+    const mutation = !!(state.busy.selection || state.busy.analyze || state.busy.markers || state.busy.metadata);
     el("connect").disabled = !!state.busy.connect;
     el("disconnect").disabled = !state.connected || !!state.busy.connect;
     el("load-selection").disabled = !state.connected || mutation;
@@ -159,6 +159,8 @@ function createPanel(dependencies) {
     el("analyze").textContent = isAnalyzing() ? "Analyzing…" : active && (state.asset.shot_count || state.asset.flash) ? "Analyze again" : "Analyze";
     el("add-markers").disabled = !state.connected || !binding() || !visibleResults().length || mutation || state.resultsPending || state.nativeBlocked;
     el("add-markers").textContent = state.busy.markers ? "Adding…" : "Add " + visibleResults().length + " markers";
+    el("sync-metadata").disabled = !state.connected || !binding() || !active || mutation || !!isAnalyzing() || state.nativeBlocked;
+    el("sync-metadata").textContent = state.busy.metadata ? "Syncing metadata…" : "Sync metadata to Premiere";
     el("export-subtitles").disabled = !state.connected || !active || !transcriptCues(state.asset.transcript, state.asset.technical && state.asset.technical.duration_seconds).length || !!state.busy.export;
     show("workspace", state.connected);
     el("progress").textContent = progressText(state.asset);
@@ -471,7 +473,7 @@ function createPanel(dependencies) {
   }
 
   async function selectAsset(id) {
-    if (!state.connected || state.busy.analyze || state.busy.markers) return;
+    if (!state.connected || state.busy.analyze || state.busy.markers || state.busy.metadata) return;
     const scope = state.scope;
     const revision = ++assetRevision;
     ++state.resultRevision;
@@ -560,7 +562,7 @@ function createPanel(dependencies) {
   }
 
   async function loadSelection() {
-    if (!state.connected || state.busy.selection || state.busy.analyze || state.busy.markers) return;
+    if (!state.connected || state.busy.selection || state.busy.analyze || state.busy.markers || state.busy.metadata) return;
     state.busy.selection = true;
     controls();
     const scope = state.scope;
@@ -593,7 +595,7 @@ function createPanel(dependencies) {
   }
 
   async function analyze() {
-    if (!state.connected || !state.asset || state.busy.analyze || isAnalyzing()) return;
+    if (!state.connected || !state.asset || state.busy.analyze || state.busy.metadata || isAnalyzing()) return;
     state.busy.analyze = true;
     controls();
     const scope = state.scope;
@@ -638,7 +640,7 @@ function createPanel(dependencies) {
   async function addMarkers() {
     const source = binding();
     const results = visibleResults();
-    if (!source || !results.length || state.busy.markers || state.resultsPending || state.nativeBlocked) return;
+    if (!source || !results.length || state.busy.markers || state.busy.metadata || state.resultsPending || state.nativeBlocked) return;
     const context = nativeContext(source);
     state.busy.markers = true;
     controls();
@@ -655,6 +657,20 @@ function createPanel(dependencies) {
         message(result.added + " source markers added." + (result.skipped ? " " + result.skipped + " existing markers skipped." : ""));
       }
     } finally { state.busy.markers = false; controls(); }
+  }
+
+  async function syncMetadata() {
+    const source = binding();
+    if (!source || state.busy.metadata || state.busy.markers || state.busy.analyze || state.busy.selection || isAnalyzing() || state.nativeBlocked) return;
+    const context = nativeContext(source);
+    state.busy.metadata = true; controls();
+    try {
+      const verified = await verifyNativeContext(context);
+      const mapping = await request("/assets/" + encodeURIComponent(context.id) + "/metadata?analysis_session=" + encodeURIComponent(context.session));
+      if (!contextIsCurrent(context)) throw new Error("The selected clip changed. Refresh before syncing metadata.");
+      const result = await host.syncMetadata(verified, mapping);
+      if (contextIsCurrent(context)) message(result.updated + " metadata fields synced. Complete analysis and timed dialogue retained." + (result.preserved ? " " + result.preserved + " editor fields preserved." : ""));
+    } finally { state.busy.metadata = false; controls(); }
   }
 
   async function exportSubtitles() {
@@ -702,6 +718,7 @@ function createPanel(dependencies) {
       on("mode", "change", remember);
       on("show-more", "click", () => { state.shown = Math.min(state.shown + PAGE_SIZE, MAX_RESULTS); renderResults(); });
       on("add-markers", "click", addMarkers);
+      on("sync-metadata", "click", syncMetadata);
       on("export-subtitles", "click", exportSubtitles);
       on("open-library", "click", async () => {
         const error = await uxp.shell.openExternal(normalizeServer(state.server) + "/");
@@ -763,7 +780,7 @@ function createPanel(dependencies) {
     state.searchTimer = null;
     state.token = "";
   }
-  return { init, connect, disconnect, loadSelection, refreshProject, selectAsset, analyze, setTab, search, addMarkers, exportSubtitles, destroy, getState: () => state };
+  return { init, connect, disconnect, loadSelection, refreshProject, selectAsset, analyze, setTab, search, addMarkers, syncMetadata, exportSubtitles, destroy, getState: () => state };
 }
 
 module.exports = { createPanel, normalizeServer, parseSeconds, validRange, transcriptCues, cueTime, searchTerms, includesQuery, appendHighlight, sourceBinding, cleanSubtitleName, progressText };

@@ -2,8 +2,8 @@
 const helpers = require("./controller");
 const DEFAULT_SERVER = "http://127.0.0.1:8000";
 const MAC_SERVER = "https://localhost:8443";
-const ACTIONS = Object.freeze(["bootstrap", "connect", "disconnect", "refresh", "loadSelection", "selectAsset", "setView", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "exportSubtitles", "openAnalyzer"]);
-const PAYLOAD_FIELDS = Object.freeze({ selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportShots: ["revision", "indices", "destination"], exportSubtitles: ["revision"] });
+const ACTIONS = Object.freeze(["bootstrap", "connect", "disconnect", "refresh", "loadSelection", "selectAsset", "setView", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "syncMetadata", "exportSubtitles", "openAnalyzer"]);
+const PAYLOAD_FIELDS = Object.freeze({ selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportShots: ["revision", "indices", "destination"], syncMetadata: ["revision"], exportSubtitles: ["revision"] });
 const OFFLINE = "Start Video Analyzer. This panel connects automatically.";
 function normalizeServer(value) {
   const match = /^(http|https):\/\/(127\.0\.0\.1|localhost):(8000|8443)\/?$/i.exec(String(value || "").trim());
@@ -255,6 +255,16 @@ function createService(dependencies) {
       return view();
     },
     async exportSubtitles(payload) { const { asset } = await nativeContext(payload); if (!helpers.cues(asset, [], "transcript", "").length) throw new Error("No timed dialogue to export yet."); const content = await request("/assets/" + encodeURIComponent(asset.job_id) + "/subtitles", {}, true); const result = await saveSubtitle(helpers.subtitleName(asset), content); state.message = result ? "Subtitles exported." : "Export cancelled."; return view(); },
+    async syncMetadata(payload) {
+      const { binding, asset, revision } = await nativeContext(payload);
+      if (helpers.ACTIVE_STATUSES.includes(asset.status)) throw new Error("Wait for analysis to finish before syncing metadata.");
+      const mapping = await request("/assets/" + encodeURIComponent(asset.job_id) + "/metadata?analysis_session=" + encodeURIComponent(session(asset)));
+      if (revision !== state.revision || !mapping.record || mapping.record.asset.id !== asset.job_id) throw new Error("The selected analysis changed. Refresh before syncing metadata.");
+      await validateConnection();
+      const result = await host.syncMetadata(binding, mapping);
+      state.message = result.updated + " metadata fields synced. Complete analysis and timed dialogue retained." + (result.preserved ? " " + result.preserved + " editor fields preserved." : "");
+      return view();
+    },
     async openAnalyzer() { assertConnected(); await openBrowser(state.server + "/"); return view(); },
   };
   async function invoke(action, payload) {
@@ -264,7 +274,7 @@ function createService(dependencies) {
     if (payload && Object.keys(payload).some(key => !allowed.includes(key))) throw new Error("Unsupported plugin action field.");
     if (PAYLOAD_FIELDS[action] && payload === undefined) throw new Error("This plugin action requires its current context.");
     if (nativeBusy && !["refresh", "bootstrap"].includes(action)) throw new Error("Wait for the current native action to finish.");
-    const locked = ["connect", "disconnect", "loadSelection", "selectAsset", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "exportSubtitles"].includes(action);
+    const locked = ["connect", "disconnect", "loadSelection", "selectAsset", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "syncMetadata", "exportSubtitles"].includes(action);
     if (locked) nativeBusy = true;
     try { return await actions[action](payload); } finally { if (locked) nativeBusy = false; }
   }

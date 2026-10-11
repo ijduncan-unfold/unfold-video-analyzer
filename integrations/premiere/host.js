@@ -57,7 +57,10 @@ function markerKey(name, start, duration, comments) {
   return JSON.stringify([name, Math.round(start * 1000000), Math.round(duration * 1000000), comments]);
 }
 
-function createHost(injectedApi) {
+const PROJECT_META_NS = "http://ns.adobe.com/premierePrivateProjectMetaData/1.0/";
+const METADATA_COLUMNS = new Set(["Column.PropertyText.Description", "Column.Intrinsic.LogNote", "Column.PropertyText.Scene", "Column.PropertyText.Shot", "Column.Intrinsic.TapeName",
+  "VideoAnalyzerKeywords", "VideoAnalyzerTake", "VideoAnalyzerCamera", "VideoAnalyzerProduction", "VideoAnalyzerDirector", "VideoAnalyzerCinematographer", "VideoAnalyzerShotType", "VideoAnalyzerCameraMovement", "VideoAnalyzerLocation", "VideoAnalyzerColors", "VideoAnalyzerSubjects", "VideoAnalyzerDialogue"]);
+function createHost(injectedApi, injectedXmp) {
   let api = injectedApi;
   function getApi() {
     if (!api) {
@@ -316,6 +319,66 @@ function createHost(injectedApi) {
       items: result.clips.map(clip => ({ id: clip.item_id, itemId: clip.item_id, name: clip.name, mediaPath: clip.media_path, sourceFps: clip.source_fps, selectionSource: "project" })),
       warnings: result.warnings, capabilities: result.capabilities };
   }
+  async function syncMetadata(binding, mapping) {
+    const { project, clip } = await resolveBinding(binding);
+    const ppro = getApi(), metadata = ppro.Metadata;
+    for (const name of ["getProjectMetadata", "createSetProjectMetadataAction", "addPropertyToProjectMetadataSchema"]) requiredMethod(metadata, name);
+    requiredMethod(project, "lockedAccess"); requiredMethod(project, "executeTransaction");
+    let toolkit = injectedXmp;
+    if (!toolkit) { try { toolkit = require("uxp").xmp; } catch (_) { /* capability error below */ } }
+    if (!toolkit || typeof toolkit.XMPMeta !== "function") fail("UNSUPPORTED_API", "This Premiere build does not expose the XMP toolkit for project metadata.");
+    if (!mapping || mapping.schema_version !== "1.0" || !Array.isArray(mapping.fields) || !mapping.record || mapping.record.schema !== "video-analyzer.library") fail("INVALID_METADATA", "Refresh the analysis before syncing metadata.");
+    const record = JSON.stringify(mapping.record);
+    if (record.length > 4000000) fail("METADATA_LIMIT", "This analysis exceeds the panel's 4 MB metadata limit. Export the complete JSON and XMP from the analyzer instead; nothing was truncated.");
+    toolkit.XMPMeta.registerNamespace(PROJECT_META_NS, "premierePrivateProjectMetaData");
+    const packet = await metadata.getProjectMetadata(clip);
+    if (typeof packet !== "string") fail("METADATA_READ_FAILED", "Premiere could not read this clip's project metadata.");
+    const xmp = new toolkit.XMPMeta(packet);
+    const read = (document, key) => { const value = document.getProperty(PROJECT_META_NS, key); return value == null ? "" : String(value.value === undefined ? value : value.value); };
+    let prior = {};
+    try { prior = JSON.parse(read(xmp, "VideoAnalyzerReceipt") || "{}"); } catch (_) { /* unrecognized prior ownership: preserve all existing values */ }
+    if (!prior || typeof prior !== "object" || Array.isArray(prior)) prior = {};
+    const proposed = {}, labels = {}, preserved = [];
+    for (const field of mapping.fields) {
+      if (!field || !METADATA_COLUMNS.has(field.premiere) || typeof field.value !== "string" || !field.value) continue;
+      proposed[field.premiere] = field.value; labels[field.premiere] = "Video Analyzer · " + String(field.label || field.key);
+    }
+    const owned = {}, changes = {};
+    for (const key of new Set([...Object.keys(proposed), ...Object.keys(prior)])) {
+      if (!METADATA_COLUMNS.has(key)) continue;
+      const current = read(xmp, key);
+      if (current && (!Object.prototype.hasOwnProperty.call(prior, key) || current !== prior[key])) { preserved.push(key); continue; }
+      changes[key] = proposed[key] || ""; owned[key] = changes[key];
+    }
+    changes.VideoAnalyzerAnalysis = record;
+    changes.VideoAnalyzerReceipt = JSON.stringify(owned);
+    labels.VideoAnalyzerAnalysis = "Video Analyzer · Complete analysis JSON";
+    labels.VideoAnalyzerReceipt = "Video Analyzer · Sync record";
+    for (const key of Object.keys(changes)) {
+      if (key.startsWith("VideoAnalyzer")) {
+        if (!ppro.Constants || !ppro.Constants.MetadataType || ppro.Constants.MetadataType.TEXT === undefined) fail("UNSUPPORTED_API", "Premiere did not expose text metadata fields.");
+        // False may mean a schema property already exists. Readback below,
+        // rather than schema creation alone, confirms the actual write.
+        await metadata.addPropertyToProjectMetadataSchema(key, labels[key] || "Video Analyzer · " + key, ppro.Constants.MetadataType.TEXT);
+      }
+      xmp.setProperty(PROJECT_META_NS, key, changes[key]);
+    }
+    await resolveBinding(binding);
+    if (await metadata.getProjectMetadata(clip) !== packet) fail("METADATA_CHANGED", "Clip metadata changed during sync. Try again; your edits were preserved.");
+    let committed = false;
+    // Use project metadata, never the file-XMP writer. Premiere's own metadata
+    // linking preferences can mirror linked standard fields to file XMP.
+    project.lockedAccess(() => {
+      committed = project.executeTransaction(compound => {
+        compound.addAction(metadata.createSetProjectMetadataAction(clip, xmp.serialize(), Object.keys(changes)));
+      }, "Sync Video Analyzer metadata");
+    });
+    if (committed !== true) fail("METADATA_WRITE_FAILED", "Premiere did not confirm the metadata transaction.");
+    const after = new toolkit.XMPMeta(await metadata.getProjectMetadata(clip));
+    if (Object.entries(changes).some(([key, value]) => read(after, key) !== value)) fail("METADATA_VERIFY_FAILED", "Premiere did not confirm every metadata field. Inspect project metadata before retrying.");
+    await resolveBinding(binding);
+    return { updated: Object.keys(changes).length - 2, preserved: preserved.length, complete_record: true };
+  }
   async function bindingForId(id, expectedProjectId) {
     const selection = await getSelection();
     if (expectedProjectId && expectedProjectId !== selection.project_id) fail("PROJECT_CHANGED", "The active Premiere project changed. Refresh the selection.");
@@ -324,7 +387,7 @@ function createHost(injectedApi) {
     return { project_id: selection.project_id, ...clip };
   }
   return {
-    getProjectIdentity, getSelection, getSelectedMedia, openSource, addMarkers,
+    getProjectIdentity, getSelection, getSelectedMedia, openSource, addMarkers, syncMetadata,
     openSourceAt: async (id, seconds, projectId) => openSource(await bindingForId(id, projectId), seconds),
     addSourceMarkers: async (id, cues, projectId) => addMarkers(await bindingForId(id, projectId), cues),
   };
@@ -344,4 +407,5 @@ module.exports = {
   openSourceAt: (...args) => defaultCall("openSourceAt", args),
   addMarkers: (...args) => defaultCall("addMarkers", args),
   addSourceMarkers: (...args) => defaultCall("addSourceMarkers", args),
+  syncMetadata: (...args) => defaultCall("syncMetadata", args),
 };

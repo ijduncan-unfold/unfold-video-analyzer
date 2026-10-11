@@ -13,6 +13,7 @@ from app.services.editor_bridge import (
     register_source, require_editor, DesktopSettings, save_desktop_settings,
 )
 from app.services.library_export import export_library
+from app.services.editor_metadata import editor_metadata
 
 router = APIRouter(prefix='/api/editor/premiere', dependencies=[Depends(require_editor)])
 
@@ -75,3 +76,12 @@ async def subtitles(job_id: str):
     name = quote(f'{job.filename.rsplit(".", 1)[0]}.srt')
     return Response(content=content, media_type=media_type,
                     headers={'Content-Disposition': f"attachment; filename*=UTF-8''{name}"})
+
+
+@router.get('/assets/{job_id}/metadata')
+async def metadata_package(job_id: str, analysis_session: str = Query(default='', max_length=300)):
+    job = require_job(job_id)
+    ensure_source_unchanged(job)
+    if str(job.analysis_config.get('started_at') or '') != analysis_session:
+        raise HTTPException(409, 'Analysis changed. Refresh this clip before syncing metadata.')
+    return editor_metadata(job, include_record=True)

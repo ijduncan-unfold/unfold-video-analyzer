@@ -27,6 +27,7 @@
     const analyzing = state.asset && helpers.ACTIVE_STATUSES.includes(state.asset.status);
     el("analyze").disabled = busy || !state.asset || analyzing; el("mode").disabled = busy || analyzing;
     el("analyze").textContent = analyzing ? "Analyzing…" : state.asset && state.asset.shot_count ? "Analyze again" : "Analyze";
+    el("sync-metadata").disabled = busy || !state.asset || analyzing;
     el("add-markers").disabled = busy || !state.asset || !state.results.length;
     const markerCount = Math.min(shown, state.results.length);
     el("add-markers").textContent = "Add " + markerCount + " source marker" + (markerCount === 1 ? "" : "s");
@@ -125,6 +126,7 @@
   on("select-shown", "change", () => { for (const cue of state.results.slice(0, shown)) { const key = selectionKey(cue); if (!el("select-shown").checked) selected.delete(key); else if (selected.size < 50) selected.add(key); } renderResults(); shotControls(); });
   for (const [id, destination] of [["save-shots", "pool"], ["append-shots", "current"], ["selects-timeline", "new"]]) on(id, "click", () => action("exportShots", { revision: state.revision, indices: selectedIndices(), destination }));
   on("add-markers", "click", () => action("addMarkers", { revision: state.revision, count: Math.min(shown, state.results.length) }));
+    on("sync-metadata", "click", () => action("syncMetadata", { revision: state.revision }));
   on("export-subtitles", "click", () => action("exportSubtitles", { revision: state.revision }));
   on("open-analyzer", "click", () => action("openAnalyzer"));
   on("show-more", "click", () => { shown = Math.min(500, shown + 50); renderResults(); controls(); });

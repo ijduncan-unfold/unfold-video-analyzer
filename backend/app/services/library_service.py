@@ -153,6 +153,8 @@ def asset_view(job, detail=False):
         'analysis_progress': job.analysis_progress,
     }
     if detail:
+        from app.services.editor_metadata import editor_metadata
+        view['editor_metadata'] = editor_metadata(job)
         view.update(flash=job.flash_result, deep=job.deep_results, video_summary=job.summary,
                     custom_result=job.custom_result, shot_matches=job.shot_matches,
                     analysis_config=job.analysis_config, shot_annotations=job.shot_annotations,

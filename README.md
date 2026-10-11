@@ -41,6 +41,8 @@ Visible **slates/clapperboards** are read during analysis. Scene, take, the boar
 
 ## Read and search dialogue
 
+The **Metadata** tab also shows the editor field mapping for the whole clip or current shot, including slate readings, AI tags and dialogue. Both editor panels provide **Sync metadata**; Resolve's saved shots carry their own mapped fields. Native fields support search and sorting, while JSON and XMP retain the complete analysis. See [metadata mapping, preservation rules and transcript/After Effects limits](docs/EDITOR_METADATA.md).
+
 Open a video’s **Transcript** tab to read its saved spoken dialogue beside the player. Search the dialogue to highlight matching words, then click a line to play from that moment. The current timed line is highlighted during playback, and the search stays in place when you switch tabs.
 
 Use **Download SRT** in this tab to export all saved dialogue as subtitles. Search filters the displayed lines; it does not trim the subtitle export. Dialogue appears progressively during analysis. Gemini transcription uses approximate shot-level timing, so review the wording and subtitle timing before delivery.

@@ -96,6 +96,7 @@ def portable_document(job: Any) -> dict:
             "summary": data.get("summary"),
             "custom_result": data.get("custom_result"),
             "shot_matches": data.get("shot_matches") or [],
+            "rough_cut": data.get("rough_cut"),
         },
         "shot_annotations": data.get("shot_annotations") or {},
         "transcript": data.get("transcript") or [],
@@ -364,19 +365,24 @@ def _alt(parent, name: str, text: Any):
 
 
 def _xmp_document(data: dict) -> str:
+    from app.services.editor_metadata import map_fields
     meta, technical = data.get("metadata") or {}, data.get("technical") or {}
+    shots = [{**shot, 'human_tags': reviewed.get('tags', [])} for _, shot, reviewed in iter_shots(data)]
+    mapping = map_fields(meta, shots, data.get('transcript') or [], data.get('summary'))
+    mapped = {field['key']: field['value'] for field in mapping['fields']}
     root = ET.Element(f"{{{NS['x']}}}xmpmeta")
     rdf = _element(root, "rdf", "RDF")
     desc = _element(rdf, "rdf", "Description", **{f"{{{NS['rdf']}}}about": ""})
     _alt(desc, "title", meta.get("title") or source_filename(data.get("filename")))
-    summary = data.get("summary") or {}
-    _alt(desc, "description", meta.get("notes") or summary.get("executive_summary", ""))
+    _alt(desc, "description", mapped.get('description', ''))
     _element(desc, "dc", "identifier", data.get("job_id", ""))
     _element(desc, "dc", "source", source_filename(data.get("filename")))
     _element(desc, "dc", "format", data.get("mime_type", ""))
     subject = _element(desc, "dc", "subject")
     bag = _element(subject, "rdf", "Bag")
-    for tag in meta.get("tags") or []:
+    for tag in mapped.get('keywords', '').split(', '):
+        if not tag:
+            continue
         _element(bag, "rdf", "li", tag)
     _element(desc, "xmp", "CreatorTool", "Video Analyzer")
     _element(desc, "xmpDM", "client", meta.get("client", ""))
@@ -394,6 +400,21 @@ def _xmp_document(data: dict) -> str:
     _element(desc, "va", "sourceTimecode", technical.get("source_timecode", ""))
     _element(desc, "va", "timingStatus", "Asset-relative estimated analysis markers; not frame-verified")
     _element(desc, "va", "provenance", json.dumps(portable_document(data)["provenance"], ensure_ascii=False))
+    # Standard properties are only scalar when the slate readings agree. Keep
+    # nonnumeric take labels in our namespace, rather than invalid XMP integers.
+    for key, name in (('scene', 'scene'), ('shot', 'shotNumber'), ('camera_roll', 'tapeName'),
+                      ('camera', 'cameraLabel'), ('director', 'director'),
+                      ('cinematographer', 'directorPhotography'), ('shot_type', 'shotSize'),
+                      ('camera_movement', 'cameraMove')):
+        if mapped.get(key):
+            _element(desc, 'xmpDM', name, mapped[key])
+    if mapped.get('take', '').isdigit():
+        _element(desc, 'xmpDM', 'takeNumber', int(mapped['take']))
+    _element(desc, 'va', 'editorMapping', json.dumps(mapping, ensure_ascii=False))
+    _element(desc, 'va', 'analysisRecord', json.dumps(portable_document(data), ensure_ascii=False))
+    for field in mapping['fields']:
+        if field['xmp'].startswith('va:'):
+            _element(desc, 'va', field['xmp'].split(':', 1)[1], field['value'])
 
     tracks = _element(desc, "xmpDM", "Tracks")
     track_bag = _element(tracks, "rdf", "Bag")

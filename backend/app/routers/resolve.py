@@ -15,6 +15,7 @@ from app.services.editor_bridge import (
 )
 from app.services.library_export import export_library
 from app.services.library_service import shot_views
+from app.services.editor_metadata import map_fields, editor_metadata
 
 router = APIRouter(prefix='/api/editor/resolve', dependencies=[Depends(require_editor)])
 
@@ -112,6 +113,7 @@ async def shot_package(job_id: str, body: ShotPackageRequest):
             raise HTTPException(409, 'Shot timing changed. Refresh the shots before adding them to Resolve.')
         selected.append({key: value for key, value in shot.items()
                          if key not in {'preview_url', 'thumbnail_url', 'match_context', 'match_sources'}})
+        selected[-1]['editor_metadata'] = map_fields(shot.get('project_metadata') or {}, [shot], shot.get('transcript_segments') or [], shot_scope=True)
     return {'asset_id': job.job_id, 'filename': job.filename,
             'analysis_session': body.analysis_session, 'technical': job.technical,
             'shots': sorted(selected, key=lambda shot: (shot['start_seconds'], shot['shot_number']))}
@@ -127,3 +129,11 @@ async def subtitles(job_id: str):
     name = quote(f'{job.filename.rsplit(".", 1)[0]}.srt')
     return Response(content=content, media_type=media_type,
                     headers={'Content-Disposition': f"attachment; filename*=UTF-8''{name}"})
+
+
+@router.get('/assets/{job_id}/metadata')
+async def metadata_package(job_id: str, analysis_session: str = Query(default='', max_length=300)):
+    job = _resolve_job(job_id)
+    if str(job.analysis_config.get('started_at') or '') != analysis_session:
+        raise HTTPException(409, 'Analysis changed. Refresh this clip before syncing metadata.')
+    return editor_metadata(job, include_record=True)

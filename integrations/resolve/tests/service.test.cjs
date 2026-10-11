@@ -15,6 +15,7 @@ function fixture(options = {}) {
     async resolveBinding(binding) { await host.getProjectIdentity(binding.project_id); if (options.relinked) throw new Error("Media changed"); return {}; },
     async selectClip(binding) { native.push(["select", binding]); return { selected: true }; }, async addMarkers(binding, technical, cues) { native.push(["markers", binding, cues]); return { added: cues.length, duplicates: 0, collisions: 0 }; },
     async exportShots(binding, pack, destination) { native.push(["shots", binding, pack, destination]); if (options.exportShots) return options.exportShots(binding, pack, destination); return { created: pack.shots.length, reused: 0, added: destination === "pool" ? 0 : pack.shots.length }; },
+    async syncMetadata(binding, mapping) { native.push(['metadata', binding, mapping]); return { updated: 3, preserved: 1 }; },
   };
   const service = createService({ platform: options.platform || "win32", host,
     async readConnection() { discoveries.push(true); if (options.discoveryError) throw new Error(options.discoveryError); return connection; },
@@ -29,6 +30,7 @@ function fixture(options = {}) {
       else if (apiPath === "/assets/asset-1") value = asset;
       else if (apiPath === "/assets/asset-1/shots") value = { shots: [{ shot_number: 1, start: 0, end: 2, visual_description: "A centered circle", tags: ["circle"], match_context: "Centered composition" }], total: 1 };
       else if (apiPath === "/assets/asset-1/analyze") value = { status: "queued" };
+      else if (apiPath === '/assets/asset-1/metadata') value = { schema_version: '1.0', fields: [], record: { asset: { id: asset.job_id }, transcript: asset.transcript } };
       else if (apiPath === "/assets/asset-1/shot-package") value = { asset_id: asset.job_id, analysis_session: asset.analysis_config.started_at, technical: asset.technical,
         shots: JSON.parse(init.body).shots.map(cue => ({ shot_number: cue.shot_number, start_seconds: cue.start, end_seconds: cue.end, visual_description: "Authoritative public metadata", section_analysis: { composition: "Centered circle" } })) };
       else if (apiPath === "/assets/asset-1/subtitles") return { ok: true, status: 200, text: async () => "1\n00:00:01,000 --> 00:00:02,000\nHello world\n" };
@@ -69,6 +71,16 @@ test("shot export sends only current identities and ranges, and native writes us
   const request = m.requests.find(([url]) => url.endsWith("/shot-package")); assert.deepEqual(JSON.parse(request[1].body), { analysis_session: "session-1", shots: [{ shot_number: 1, start: 0, end: 2 }] });
   assert.equal(m.native[0][0], "shots"); assert.equal(m.native[0][3], "current"); assert.equal(m.native[0][2].shots[0].section_analysis.composition, "Centered circle");
   assert.match(m.service.view().message, /end of the current timeline/); assert.equal(m.requests.some(([url]) => url.endsWith("/analyze")), false);
+});
+test('metadata sync uses a fresh authenticated server record, not renderer metadata', async () => {
+  const m = fixture(), state = await m.connect();
+  await m.service.invoke('syncMetadata', { revision: state.revision });
+  assert.equal(m.native[0][0], 'metadata'); assert.equal(m.native[0][2].record.transcript[0].text, 'Hello world');
+  assert.ok(m.requests.some(([url]) => url.endsWith('/metadata?analysis_session=session-1')));
+  await assert.rejects(m.service.invoke('syncMetadata', { revision: state.revision, fields: [] }), /Unsupported.*field/);
+  m.updateAsset({ analysis_config: { started_at: 'new' } });
+  await assert.rejects(m.service.invoke('syncMetadata', { revision: state.revision }), /analysis changed/);
+  assert.equal(m.native.length, 1);
 });
 test("save shots and selects timeline use explicit destinations", async () => {
   for (const destination of ["pool", "new"]) { const m = fixture(); const state = await m.connect(); await m.service.invoke("exportShots", { revision: state.revision, indices: [0], destination }); assert.equal(m.native[0][3], destination); }

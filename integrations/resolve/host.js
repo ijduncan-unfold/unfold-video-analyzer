@@ -9,6 +9,8 @@ const NO_MARKER_RESPONSE = "GetMarkerCustomData: Error response (errorStr:No mar
 const SHOT_BIN = "Video Analyzer shots";
 const SHOT_NAMESPACE = "video-analyzer:shot:v1:";
 const RECORD_START = "[Video Analyzer shot]\n", RECORD_END = "\n[/Video Analyzer shot]";
+const NATIVE_SHOT_FIELDS = new Set(["Scene", "Shot", "Take", "Camera #", "Roll/Card", "Production Name", "Director", "DOP", "Shot Type", "Move", "Location"]);
+const ANALYSIS_START = "[Video Analyzer analysis]\n", ANALYSIS_END = "\n[/Video Analyzer analysis]";
 class HostError extends Error {
   constructor(code, message) { super(message); this.name = "HostError"; this.code = code; }
 }
@@ -126,11 +128,15 @@ function prepareShots(binding, pack, timing) {
     const keywords = [...new Set(keywordFields.flatMap(keywordValues).map(v => v.trim()).filter(Boolean))];
     // shot-package contains public shot facts plus explicitly scoped section,
     // asset and dialogue context, never provider credentials or raw API usage.
+    const nativeFields = {};
+    for (const field of shot.editor_metadata && shot.editor_metadata.fields || []) {
+      if (NATIVE_SHOT_FIELDS.has(field.resolve) && typeof field.value === "string" && field.value) nativeFields[field.resolve] = field.value;
+    }
     const record = { key, asset_id: pack.asset_id, analysis_session: pack.analysis_session, source_file: pack.filename,
       source_range: { start_seconds: start, end_seconds: end, start_frame: startFrame, end_frame_inclusive: endFrame, fps: timing.fps }, description, shot };
     const json = JSON.stringify(record);
     if (json.length > 200000) fail("METADATA_LIMIT", "This shot's metadata exceeds Resolve's preview export limit. Export its JSON from the full analyzer instead.");
-    return { key, name, description, keywords, record, json, startFrame, endFrame };
+    return { key, name, description, keywords, nativeFields, record, json, startFrame, endFrame };
   }).sort((a, b) => a.startFrame - b.startFrame || a.endFrame - b.endFrame);
 }
 function createHost(resolve) {
@@ -317,6 +323,17 @@ function createHost(resolve) {
         const keywords = [...new Set(String(before.Keywords || "").split(",").concat(plan.keywords).map(v => v.trim()).filter(Boolean))].join(", ");
         const metadata = { Keywords: keywords, Comments: (humanComments ? humanComments + "\n\n" : "") + RECORD_START + plan.json + RECORD_END,
           Description: !created && receipt && before.Description !== receipt.record.description ? String(before.Description || "") : plan.description };
+        const ownedFields = {};
+        const previousFields = receipt && receipt.record.native_fields || {};
+        for (const field of new Set([...Object.keys(plan.nativeFields), ...Object.keys(previousFields)])) {
+          if (!NATIVE_SHOT_FIELDS.has(field)) continue;
+          if (!before[field] || previousFields[field] !== undefined && before[field] === previousFields[field]) {
+            metadata[field] = plan.nativeFields[field] || "";
+            ownedFields[field] = metadata[field];
+          }
+        }
+        const json = JSON.stringify({ ...plan.record, native_fields: ownedFields });
+        metadata.Comments = (humanComments ? humanComments + "\n\n" : "") + RECORD_START + json + RECORD_END;
         if (created) {
           if (typeof item.SetName === "function") { if (await item.SetName(plan.name) !== true) fail("SHOT_NAME_FAILED", "Resolve could not name the saved shot."); }
           else { method(item, "SetClipProperty"); if (await item.SetClipProperty("Clip Name", plan.name) !== true) fail("SHOT_NAME_FAILED", "Resolve could not name the saved shot."); }
@@ -327,7 +344,7 @@ function createHost(resolve) {
         // Standard fields provide native text search. This optional newer SDK
         // field also retains a structured copy for third-party metadata tools.
         if (typeof item.SetThirdPartyMetadata === "function") {
-          if (await item.SetThirdPartyMetadata({ "VideoAnalyzer.Shot": plan.json }) !== true) fail("METADATA_WRITE_FAILED", "Searchable metadata was saved, but Resolve rejected the structured copy. Nothing was added to the timeline.");
+          if (await item.SetThirdPartyMetadata({ "VideoAnalyzer.Shot": json }) !== true) fail("METADATA_WRITE_FAILED", "Searchable metadata was saved, but Resolve rejected the structured copy. Nothing was added to the timeline.");
         }
         items.push(item); existing.set(plan.key, item);
       }
@@ -383,6 +400,46 @@ function createHost(resolve) {
         } catch (_) { /* Keep an unavailable/changed project untouched. */ }
       }
     }
+  }
+  async function syncMetadata(binding, mapping) {
+    const { item } = await resolveBinding(binding);
+    method(item, "GetMetadata"); method(item, "SetMetadata");
+    if (!mapping || mapping.schema_version !== "1.0" || !Array.isArray(mapping.fields) || !mapping.record || mapping.record.schema !== "video-analyzer.library") fail("INVALID_METADATA", "Refresh the analysis before syncing metadata.");
+    const before = await item.GetMetadata();
+    if (!before || typeof before !== "object" || Array.isArray(before)) fail("METADATA_READ_FAILED", "Resolve could not read clip metadata.");
+    const comments = String(before.Comments || ""), start = comments.indexOf(ANALYSIS_START), end = comments.indexOf(ANALYSIS_END, start + ANALYSIS_START.length);
+    let previous = {}, humanComments = comments;
+    if (start >= 0 && end >= 0) {
+      try {
+        const parsed = JSON.parse(comments.slice(start + ANALYSIS_START.length, end));
+        if (parsed && parsed.asset_id === mapping.record.asset.id && parsed.schema === "video-analyzer.editor-record") {
+          previous = parsed.native_fields || {}; humanComments = (comments.slice(0, start) + comments.slice(end + ANALYSIS_END.length)).trim();
+        }
+      } catch (_) { /* preserve unrecognized existing notes */ }
+    }
+    const proposed = {}, changes = {}, owned = {}; let preserved = 0;
+    for (const field of mapping.fields) {
+      if (!field || typeof field.value !== "string") continue;
+      if (field.resolve === "Description" || NATIVE_SHOT_FIELDS.has(field.resolve)) proposed[field.resolve] = field.value;
+      if (field.resolve === "Keywords") changes.Keywords = [...new Set(String(before.Keywords || "").split(",").concat(field.value.split(",")).map(value => value.trim()).filter(Boolean))].join(", ");
+    }
+    for (const field of new Set([...Object.keys(proposed), ...Object.keys(previous)])) {
+      if (field !== "Description" && !NATIVE_SHOT_FIELDS.has(field)) continue;
+      if (before[field] && (previous[field] === undefined || before[field] !== previous[field])) { preserved++; continue; }
+      changes[field] = proposed[field] || ""; owned[field] = changes[field];
+    }
+    const record = JSON.stringify({ schema: "video-analyzer.editor-record", asset_id: mapping.record.asset.id, native_fields: owned, record: mapping.record });
+    changes.Comments = (humanComments ? humanComments + "\n\n" : "") + ANALYSIS_START + record + ANALYSIS_END;
+    if (changes.Comments.length > 4000000) fail("METADATA_LIMIT", "This analysis exceeds the panel's 4 MB metadata limit. Export JSON and XMP instead; nothing was truncated.");
+    await resolveBinding(binding);
+    const current = await item.GetMetadata();
+    if (!current || Object.entries(changes).some(([key]) => current[key] !== before[key])) fail("METADATA_CHANGED", "Clip metadata changed during sync. Try again; your edits were preserved.");
+    if (await item.SetMetadata(changes) !== true) fail("METADATA_WRITE_FAILED", "Resolve did not confirm the clip metadata write. Inspect the clip before retrying.");
+    const after = await item.GetMetadata();
+    if (!after || Object.entries(changes).some(([key, value]) => after[key] !== value)) fail("METADATA_VERIFY_FAILED", "Resolve did not confirm every metadata field. Inspect the clip before retrying.");
+    if (typeof item.SetThirdPartyMetadata === "function" && await item.SetThirdPartyMetadata({ "VideoAnalyzer.Analysis": record }) !== true) fail("METADATA_WRITE_FAILED", "Searchable metadata was saved, but Resolve rejected its structured copy. Inspect the clip before retrying.");
+    await resolveBinding(binding);
+    return { updated: Object.keys(changes).length - 1, preserved, complete_record: true };
   }
   async function addMarkers(binding, technical, cues) {
     const { item, descriptor } = await resolveBinding(binding);
@@ -440,6 +497,6 @@ function createHost(resolve) {
     }
     return { added: added.length, duplicates, collisions };
   }
-  return { getProjectIdentity: projectIdentity, getSelection, resolveBinding, selectClip, addMarkers, exportShots };
+  return { getProjectIdentity: projectIdentity, getSelection, resolveBinding, selectClip, addMarkers, exportShots, syncMetadata };
 }
 module.exports = { createHost, HostError, MAX_MARKERS, MARKER_NAMESPACE, pathKey, timebase, prepareCues, markerMap, prepareShots, shotRecord, SHOT_BIN };
