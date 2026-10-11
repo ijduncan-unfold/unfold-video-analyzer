@@ -64,6 +64,8 @@ export function LibraryWorkspace() {
   const refreshLibrary = useCallback(() => setRefresh(value => value + 1), [])
   const reviewFilter = review
   const pageContext = JSON.stringify([query, project, reviewFilter, tag, rights, collection, searchMode, sort, searchMode === 'shots' ? shotProjectId : ''])
+  const currentLibraryContext = useRef(pageContext)
+  useEffect(() => { currentLibraryContext.current = pageContext }, [pageContext])
   const page = pagination.context === pageContext ? pagination.page : 0
   const pageSize = 60
   const selectedId = selection?.id
@@ -139,11 +141,12 @@ export function LibraryWorkspace() {
   }, [selectedId, refresh])
 
   const analyzing = (library?.active_jobs || 0) > 0 || library?.assets.some(asset => isActiveAnalysis(asset.status)) || (detail?.job_id === selectedId && isActiveAnalysis(detail?.status))
+  const importing = !!upload
   useEffect(() => {
-    if (!analyzing) return
+    if (!analyzing && !importing) return
     const interval = setInterval(refreshLibrary, 4000)
     return () => clearInterval(interval)
-  }, [analyzing, refreshLibrary])
+  }, [analyzing, importing, refreshLibrary])
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
@@ -169,6 +172,7 @@ export function LibraryWorkspace() {
       const discovered = await discoverNativeMedia([...new Set(paths)])
       const incoming = discovered.paths
       errors.push(...discovered.warnings)
+      if (errors.length) setUploadError(errors.join('\n'))
       if (!incoming.length) setUploadNotice('No video files found in this selection.')
       for (let index = 0; index < incoming.length; index++) {
         const path = incoming[index]
@@ -178,15 +182,31 @@ export function LibraryWorkspace() {
           const result = await importLocalMedia(path, '', false, progress => {
             setUpload(previous => previous ? { ...previous, progress } : previous)
           })
+          // Publish the finished clip before starting the next proxy. Keep a
+          // user-changed search/filter view intact; polling refreshes that view.
+          if (searchMode === 'assets' && !hasFilters && page === 0 && currentLibraryContext.current === pageContext) {
+            setLibrary(current => {
+              if (!current) return current
+              const ready = [result, ...current.assets.filter(asset => asset.job_id !== result.job_id)]
+              if (sort === 'name') ready.sort((a, b) => a.metadata.title.localeCompare(b.metadata.title))
+              else ready.sort((a, b) => b.created_at.localeCompare(a.created_at))
+              return { ...current, assets: ready.slice(0, pageSize), total: Math.max(current.total, ready.length) }
+            })
+          }
           imported++; refreshLibrary()
+          setUploadNotice(`${imported} of ${incoming.length} ${incoming.length === 1 ? 'clip' : 'clips'} ready.`)
           setShotProjectId(result.job_id)
           if (incoming.length === 1) openVideo({ id: result.job_id })
-        } catch (err) { errors.push(`${filename}: ${errorMessage(err)}`) }
+        } catch (err) {
+          errors.push(`${filename}: ${errorMessage(err)}`)
+          setUploadError(errors.join('\n'))
+          refreshLibrary()
+        }
       }
       if (imported) setUploadNotice(`${imported} ${imported === 1 ? 'project' : 'projects'} imported.`)
       if (errors.length) setUploadError(errors.join('\n'))
     } catch (err) { setUploadError(errorMessage(err))
-    } finally { setUpload(null); uploadLock.current = false }
+    } finally { setUpload(null); uploadLock.current = false; refreshLibrary() }
   }
 
   const receiveNativeFiles = useEffectEvent((paths: string[]) => { void importPaths(paths) })
@@ -358,7 +378,7 @@ function AssetCard({ asset, selected, onClick, checked, onToggle, onDelete, lock
   return <div className={`lw-project-card ${checked ? 'is-checked' : ''}`}>
     <div className="lw-project-card-actions"><input type="checkbox" aria-label={`Select project ${title}`} checked={checked} disabled={busy} title={busy ? 'This project is busy.' : 'Select project'} onChange={onToggle} /><button className="lw-icon-button" aria-label={`Delete project ${title}`} title={busy ? 'Finish or cancel analysis before deleting this project.' : 'Delete project'} disabled={busy} onClick={onDelete}><Icon name="trash" size={16} /></button></div>
     <button className={`lw-asset-card ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-pressed={selected}>
-    <div className="lw-card-image">{asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" loading="lazy" /> : <div className="lw-card-placeholder"><Icon name="film" size={32} /><span>{asset.mime_type?.split('/')[1]?.toUpperCase() || 'VIDEO'}</span></div>}<span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{duration(asset.technical.duration_seconds)}</span>{isAnalyzing ? <span className="lw-card-status analyzing"><Icon name="spark" size={11} />{asset.status === 'queued' ? 'Queued' : 'Analyzing'}</span> : analyzed ? <span className="lw-card-status complete"><Icon name="check" size={13} />Analyzed</span> : asset.status === 'error' ? <span className="lw-card-status error">Analysis failed</span> : <span className="lw-card-status pending">{asset.status === 'deleting' ? 'Removing�' : 'Not analyzed'}</span>}</div>
+    <div className="lw-card-image">{asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" loading="lazy" /> : <div className="lw-card-placeholder"><Icon name="film" size={32} /><span>{asset.mime_type?.split('/')[1]?.toUpperCase() || 'VIDEO'}</span></div>}<span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{duration(asset.technical.duration_seconds)}</span>{isAnalyzing ? <span className="lw-card-status analyzing"><Icon name="spark" size={11} />{asset.status === 'queued' ? 'Queued' : 'Analyzing'}</span> : analyzed ? <span className="lw-card-status complete"><Icon name="check" size={13} />Analyzed</span> : asset.status === 'error' ? <span className="lw-card-status error">Analysis failed</span> : <span className="lw-card-status pending">{asset.status === 'deleting' ? 'Removing…' : 'Not analyzed'}</span>}</div>
     <div className="lw-card-content"><div className="lw-card-title"><h3 title={asset.metadata.title || asset.filename}>{asset.metadata.title || asset.filename}</h3><span className={`lw-review-dot ${asset.metadata.review_status}`} title={reviewLabel(asset.metadata.review_status)} /></div><div className="lw-card-subtitle">{asset.metadata.project && <span>{asset.metadata.project}</span>}</div>{asset.match_context && asset.match_context !== 'Matched asset metadata' && <p className="lw-match-context">{asset.match_context}</p>}{asset.metadata.tags.length > 0 && <div className="lw-card-tags">{asset.metadata.tags.slice(0, 3).map(tag => <span key={tag}>{tag}</span>)}{asset.metadata.tags.length > 3 && <span>+{asset.metadata.tags.length - 3}</span>}</div>}{(isAnalyzing || asset.status === 'complete' || asset.status === 'error') && <div className="lw-card-analysis" aria-label={`Analysis progress for ${title}`}>{isAnalyzing ? <><strong>{analysisStageLabel(asset.analysis_progress?.stage || (asset.status === 'queued' ? 'queued' : undefined))}</strong>{asset.status !== 'queued' && <span>{facts.coverage || facts.summary}</span>}</> : asset.status === 'complete' ? <span>Analyzed · {asset.shot_count} {asset.shot_count === 1 ? 'shot' : 'shots'}</span> : <span>{asset.error || 'Analysis failed. Open this clip to retry.'}</span>}</div>}</div>
     <div className="lw-list-review"><span className={`lw-review-dot ${asset.metadata.review_status}`} />{reviewLabel(asset.metadata.review_status)}</div><Icon name="chevron" className="lw-list-chevron" size={16} />
   </button></div>
