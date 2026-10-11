@@ -35,6 +35,36 @@ The intended pipeline is: inspect recording format and installed decoder; decode
 
 Where bundling is allowed, installers can carry the runtime with its notices. Otherwise use a separately installed vendor component or a full-length editor-generated viewing proxy. Sony F55 RAW is the first native target because the existing network-share recording provides a real validation fixture; BRAW is a practical next target because its documented SDK is public. This prioritization is an engineering judgment, not a claim that the required SDKs have already been obtained.
 
+### Local decoder investigation (Windows, October 2026)
+
+The installed Sony runtime was loaded directly from its existing application directory in an isolated Python process. It created a decoder, recognized the F55 bitstream, initialized, and decoded the first, middle and last pictures of the network-share F55 fixture. Premiere and Media Encoder were not called. Only those picture payloads were read into memory; no full-size original or decoder binary was copied. Diagnostic previews are not color calibrated. These experiments do not establish SDK permission, portable compatibility, or production support: the native pipeline still needs verified ABI/layouts, active-image cropping, viewing transforms, timing, audio and full-clip validation.
+
+`scripts/inspect-camera-decoders.py` inventories existing Windows decoder installations, hashes their binaries, records PE versions, exports, direct/delayed dependencies and companion resources, and optionally tests DLL loading in separate processes. It does not copy binaries, invoke undocumented decoder methods, inspect originals, start editors or enable formats in the app. It requires `pefile`, which is included by the Windows desktop-build environment through PyInstaller.
+
+Run from the repository with the desktop-build Python environment:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\inspect-camera-decoders.py --probe-load
+```
+
+Use `--ffmpeg <absolute-path>` if FFmpeg is not on PATH and `--root <installed-directory>` for an additional installation. The default report is `build/camera-decoders/inventory.json`, an ignored local diagnostic file containing machine-specific paths. It is not an SDK bundle. A successful library load is explicitly distinct from a successful frame decode.
+
+The current machine has 15 main runtimes across Premiere Pro 2026, Media Encoder 2026 and Resolve; all 15 loaded in isolated processes. The Sony frame experiment above is separate from this generic load test.
+
+| Family | Located runtime | Current evidence |
+| --- | --- | --- |
+| Sony RAW / X-OCN | `SonyRawDev.dll` 5.3 and Sony SMDK companion | DLL loading; three F55 RAW frame decodes in a local experiment. Other Sony variants untested |
+| ARRI | `ArriImageSdk.9.dll` 9.0.1 plus four CPU/GPU transform modules | DLL loading only; headers, API initialization and camera fixtures still needed |
+| Canon Cinema RAW | `CrmSdk.dll` 2.11 in Adobe / 2.10 in Resolve, scaling library and runtime/resources | DLL loading only; CRM decoding still untested |
+| RED | `REDR3D-x64.dll` in the Adobe installations | DLL loading only; exported names require the matching documented SDK interface |
+| Blackmagic RAW | `BlackmagicRawAPI.dll` in Resolve | DLL loading only; use the public vendor SDK for documented integration |
+| ProRes RAW | `ProResRAW.dll` plus GPU runtimes | DLL loading only; installed FFmpeg also lists its own native `prores_raw` decoder |
+| Panasonic | No dedicated Panasonic RAW DLL identified in these roots | Installed FFmpeg lists H.264, HEVC, MPEG-2, DV and ProRes decoders. Actual Panasonic recordings and P2/spanned-clip assembly require validation |
+
+Panasonic support must route by the recording's codec and container. [Panasonic's P2/VariCam documentation](https://pro-av.panasonic.net/en/support/nle/avc-ultra/) lists AVC-Intra and AVC-LongG families; there is no basis here for treating every Panasonic recording as a single proprietary RAW codec. The app must retain card structures where separate audio, metadata or spanned recordings require them. Recognizing a native FFmpeg decoder does not certify that card workflow.
+
+For independent deployment, obtain the applicable runtime and interface from its vendor: [ARRI Image SDK](https://www.arri.com/en/company/the-arri-philosophy/arri-partner-program), [Blackmagic RAW SDK](https://www.blackmagicdesign.com/developer/products/braw/sdk-and-software), [RED R3D SDK](https://www.reddigitalcinema.com/download/r3d-sdk), and the Sony program above. Canon's Cinema RAW video interface still needs vendor confirmation. Installed editor runtimes are referenced locally for investigation, not bundled or uploaded to GitHub. Their presence and successful loading do not establish redistribution rights.
+
 ## Linking a viewing proxy
 
 The editor registration/local-media API can supply an existing viewing proxy with the original path; it is referenced too, never copied. This is an advanced decoder fallback rather than a step in normal drag-and-drop import. Confirm that it is the complete original clip: same frame rate, first frame, framing and content, without trimming, speed changes, or padding. Retain dialogue/audio and original start timecode. Preserve aspect ratio without cropping or letterboxing. A low-resolution H.264 MP4 works well for playback; use a viewing transform suitable for recognizing the image.
