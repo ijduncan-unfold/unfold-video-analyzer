@@ -62,6 +62,8 @@ class Shot(BaseModel):
     review_status: str = "unreviewed"
     timestamp_accuracy: str = "approximate"
     analysis_warnings: list[str] = Field(default_factory=list)
+    start_boundary: Literal['cut', 'continuation', 'unknown'] = 'unknown'
+    section_numbers: list[int] = Field(default_factory=list)
 
 
 class Scene(BaseModel):

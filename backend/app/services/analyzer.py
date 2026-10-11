@@ -20,6 +20,7 @@ from app.services.summary_pass import run_summary_pass
 from app.services.thumbnail_service import extract_thumbnails
 from app.services.notes_synthesis import synthesize_notes
 from app.services.proxy_policy import proxy_decision
+from app.services.shot_continuity import PENDING_CONTINUITY, previous_at_boundary, stitch_section, section_has_shots
 from app.services.camera_media import viewing_media
 from app.utils.video_formats import get_mime_type
 
@@ -150,6 +151,7 @@ async def run_analysis(
                        "schema_version": "2.0", "processing": "static",
                        "timestamp_accuracy": "approximate", "grouping": "processing_sections",
                        "section_duration_seconds": 30,
+                       "shot_boundaries": "contextual_continuity", "continuity_lookback_seconds": 2,
                        "started_at": datetime.now(timezone.utc).isoformat()})
         if media:
             config.update(upload_strategy='segmented_proxy', upload_part_seconds=600,
@@ -185,6 +187,8 @@ async def run_analysis(
         shot_counter = 1
         for outline in sections:
             start, end = time_to_seconds(outline.start_time), time_to_seconds(outline.end_time)
+            previous = previous_at_boundary(assembled_scenes, start)
+            changed_shots = []
             persist(current_scene=outline.scene_number,
                     progress=f"Indexing section {outline.scene_number} of {total_sections}")
             yield _event("shot_detection_progress", scene=outline.scene_number,
@@ -196,29 +200,28 @@ async def run_analysis(
                 shots, usage = await run_shot_detection(
                     uri, mime, outline, shot_counter, fps, api_key=api_key,
                     **({'source_offset': offset} if media else {}),
+                    **({'previous_shot': previous} if previous is not None else {}),
                 )
                 usage_records.append(usage)
                 shots = validate_shots(shots, start, end, shot_counter)
                 for shot in shots:
-                    if (start > 0 and time_to_seconds(shot.start_time) == start) or (
-                        outline.scene_number < total_sections and time_to_seconds(shot.end_time) == end
-                    ):
-                        shot.analysis_warnings.append(
-                            "This shot touches a processing boundary and may continue in another section; "
-                            "the boundary is not a detected editorial cut."
-                        )
+                    shot.section_numbers = [outline.scene_number]
+                    if outline.scene_number < total_sections and time_to_seconds(shot.end_time) == end:
+                        shot.analysis_warnings.append(PENDING_CONTINUITY)
                     if job.technical.get("has_audio") is False:
                         if shot.transcript or any(e.modality in {"audio", "both"} for e in shot.evidence):
                             shot.analysis_warnings.append("Audio claims removed: source has no audio stream.")
                         shot.transcript = ""
                         shot.audio_notes = "No audio stream in source."
                         shot.evidence = [e for e in shot.evidence if e.modality == "visual"]
+                fragments = list(shots)
+                shots, changed_shots = stitch_section(previous, shots)
+                for shot in fragments:
                     if shot.transcript.strip():
                         transcript.append({"shot_number": shot.shot_number,
                                            "start_time": shot.start_time, "end_time": shot.end_time,
                                            "text": shot.transcript, "source": "model_transcription",
                                            "review_status": "unreviewed", "timestamp_accuracy": "approximate"})
-                    warnings.extend(f"Shot {shot.shot_number}: {w}" for w in shot.analysis_warnings)
                 analysis_progress["completed_sections"] += 1
                 analysis_progress["processed_seconds"] = round(
                     analysis_progress["processed_seconds"] + end - start, 3,
@@ -234,7 +237,9 @@ async def run_analysis(
                 scene_description=outline.scene_description, start_time=outline.start_time,
                 end_time=outline.end_time, shots=shots,
             ))
-            shot_counter += len(shots)
+            shot_counter = 1 + sum(len(scene.shots) for scene in assembled_scenes)
+            warnings = [w for w in warnings if not w.startswith('Shot ')] + [
+                f'Shot {shot.shot_number}: {w}' for scene in assembled_scenes for shot in scene.shots for w in shot.analysis_warnings]
             analysis_progress["completed_shots"] = shot_counter - 1
             flash_result = FlashAnalysis(
                 total_duration=format_time(duration), total_scenes=len(assembled_scenes),
@@ -251,14 +256,14 @@ async def run_analysis(
             else:
                 persist()
             yield _event("section_complete", section=outline.scene_number,
-                         successful=bool(shots), result=flash_dict,
+                         successful=bool(changed_shots), result=flash_dict,
                          analysis_progress=dict(analysis_progress))
-            if shots and job.local_path:
+            if changed_shots and job.local_path:
                 # Publish the durable shot snapshot before any thumbnail work.
                 # Finish this section's thumbnails before processing another one.
                 try:
                     await asyncio.wait_for(extract_thumbnails(
-                        viewing_media(job), job.job_id, [assembled_scenes[-1].model_dump()], settings.upload_dir,
+                        viewing_media(job), job.job_id, [{'shots': [shot.model_dump() for shot in changed_shots]}], settings.upload_dir,
                     ), timeout=45)
                     persist()
                     yield _event("thumbnails_ready", job_id=job.job_id, section=outline.scene_number)
@@ -275,7 +280,7 @@ async def run_analysis(
             persist(current_pass=2, progress="Adding detailed notes to indexed sections")
             yield _event("pass_start", **{"pass": 2, "name": "Detailed section analysis"})
             for scene in flash_result.scenes:
-                if not scene.shots:
+                if not section_has_shots(scene, flash_result.scenes):
                     continue
                 persist(current_scene=scene.scene_number,
                         progress=f"Detailed notes for section {scene.scene_number} of {total_sections}")

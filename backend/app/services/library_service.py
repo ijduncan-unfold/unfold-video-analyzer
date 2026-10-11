@@ -206,6 +206,35 @@ def match_shot(query: str, shot: dict) -> tuple[int, dict]:
     }
 
 
+def _shot_sections(job, owner, shot):
+    """A continuous shot can overlap several independently analyzed sections."""
+    numbers = shot.get('section_numbers') or [owner.get('scene_number')]
+    sections = [scene for scene in (job.flash_result or {}).get('scenes', [])
+                if scene.get('scene_number') in numbers]
+    context = {key: owner.get(key, '') for key in
+               ('scene_number', 'scene_title', 'scene_description', 'start_time', 'end_time')}
+    details = []
+    for section in sections:
+        detail = next((public_search_metadata(item) for item in reversed(job.deep_results)
+                       if item.get('scene_number') == section.get('scene_number')), None)
+        if detail:
+            details.append(detail)
+    if len(sections) > 1:
+        context.update(scene_title=' / '.join(s.get('scene_title', '') for s in sections),
+                       scene_description='\n'.join(s.get('scene_description', '') for s in sections),
+                       start_time=sections[0]['start_time'], end_time=sections[-1]['end_time'])
+    if len(details) <= 1:
+        return context, details[0] if details else None
+    combined = dict(details[0])
+    for group in ('visual_analysis', 'motion_editing', 'audio_analysis', 'narrative_context'):
+        keys = dict.fromkeys(key for detail in details for key in detail.get(group, {}))
+        combined[group] = {key: '\n'.join(
+            f"Section {detail['scene_number']}: {detail[group][key]}"
+            for detail in details if detail.get(group, {}).get(key)) for key in keys}
+    combined['evidence'] = [e for detail in details for e in detail.get('evidence', [])]
+    return context, combined
+
+
 def shot_views(job):
     metadata = AssetMetadata(**job.metadata).model_dump()
     if not metadata['title']:
@@ -215,12 +244,8 @@ def shot_views(job):
     duration = _source_duration(job)
     transcript = list(_timed_transcript(job, duration))
     for scene in (job.flash_result or {}).get('scenes', []):
-        section_context = {key: scene.get(key, '') for key in
-                           ('scene_number', 'scene_title', 'scene_description', 'start_time', 'end_time')}
-        section_analysis = next((public_search_metadata(detail) for detail in reversed(job.deep_results)
-                                 if scene.get('scene_number') is not None
-                                 and detail.get('scene_number') == scene.get('scene_number')), None)
         for shot in scene.get('shots', []):
+            section_context, section_analysis = _shot_sections(job, scene, shot)
             number = shot.get('shot_number', 0)
             annotation = job.shot_annotations.get(str(number), {})
             try:

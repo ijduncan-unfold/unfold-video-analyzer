@@ -5,6 +5,10 @@ Use source timestamps within that range; do not reset the time origin to zero.
 Identify visible camera cuts and transitions. A shot is a continuous view between edits; a change in subject
 within one continuous recording does not create another shot. For dissolves, estimate the transition midpoint.
 Sampling limits what can be seen. Do not invent cuts or claim that boundaries are frame accurate.
+A person entering/leaving, a new action, dialogue, a flashlight sweep, lighting change,
+camera movement or a change of framing during the SAME take is not an edit. Describe
+the development of the entire continuous take in one shot description. Create a new
+shot only for a visible edit/transition to another camera view.
 
 For each shot, beginning with shot number {shot_number_offset}, return:
 - start_time/end_time: source-relative MM:SS.mmm or HH:MM:SS.mmm, end strictly after start.
@@ -23,6 +27,9 @@ For each shot, beginning with shot number {shot_number_offset}, return:
   description, start_time and end_time within the shot. These are observations, not reasoning.
 - confidence: an optional 0-1 uncalibrated estimate; null when unsure.
 - analysis_warnings: ambiguous details, unexamined intervals or uncertain cuts.
+- start_boundary: "cut" only for an observed editorial cut/transition, "continuation"
+  when the provided look-back footage confirms the same continuous take, otherwise "unknown".
+- section_numbers: leave empty; the application assigns processing-section membership.
 
 Keep shots in chronological order without overlap. Do not manufacture observations to fill a coverage gap.
 Empty values are appropriate for absent or unknown attributes. All generated metadata remains unreviewed.

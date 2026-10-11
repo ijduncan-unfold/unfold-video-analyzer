@@ -201,6 +201,13 @@ def _selected_data(data: dict, shot_numbers: list[int] | None) -> dict:
             warnings.append("A transcript cue with invalid timing was omitted because its selection overlap is unknown.")
 
     scene_numbers = {scene.get("scene_number") for scene in kept_scenes}
+    scene_numbers.update(number for scene in kept_scenes for shot in scene['shots']
+                         for number in shot.get('section_numbers', []))
+    owners = {scene.get('scene_number') for scene in kept_scenes}
+    kept_scenes.extend({**scene, 'shots': []}
+                       for scene in (data.get('flash_result') or {}).get('scenes', [])
+                       if scene.get('scene_number') in scene_numbers - owners)
+    kept_scenes.sort(key=lambda scene: parse_seconds(scene.get('start_time', '0')))
     deep_results = []
     for deep in data.get("deep_results") or []:
         if deep.get("scene_number") not in scene_numbers:

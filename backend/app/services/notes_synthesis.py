@@ -11,6 +11,7 @@ from app.prompts.summary_prompt import SUMMARY_PROMPT
 from app.services.analysis_support import EVIDENCE_INSTRUCTION, extract_usage, response_text
 from app.services.gemini_client import get_client
 from app.services.gemini_schema import provider_schema
+from app.services.shot_continuity import section_has_shots
 
 NOTE_BUDGET = 48000
 
@@ -45,7 +46,7 @@ def evidence_blocks(flash_result, deep_results):
     for scene in flash_result.scenes:
         yield json.dumps({'section': scene.scene_number, 'start': scene.start_time,
                           'end': scene.end_time, 'notes': deep.get(scene.scene_number),
-                          'coverage': 'analyzed' if scene.shots else 'missing'}, ensure_ascii=False)
+                          'coverage': 'analyzed' if section_has_shots(scene, flash_result.scenes) else 'missing'}, ensure_ascii=False)
         for shot in scene.shots:
             yield json.dumps(shot.model_dump(), ensure_ascii=False)
 

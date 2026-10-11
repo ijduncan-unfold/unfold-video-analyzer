@@ -15,6 +15,7 @@ from app.utils.media_process import hidden_process_kwargs
 
 logger = logging.getLogger(__name__)
 SEGMENT_SECONDS = 600
+CONTINUITY_LOOKBACK_SECONDS = 2
 LONG_VIDEO_SECONDS = 1800
 MAX_SEGMENT_BYTES = 512 * 1024 * 1024
 
@@ -85,7 +86,7 @@ class SegmentedVideo:
             if index in self.failed_parts:
                 raise RuntimeError('This upload part failed; retry analysis to fill its missing coverage')
             try:
-                await self.prepare(index, offset, stop)
+                await self.prepare(index, max(0, offset - CONTINUITY_LOOKBACK_SECONDS), stop)
             except Exception:
                 self.failed_parts.add(index)
                 raise

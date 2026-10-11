@@ -57,12 +57,12 @@ class LongVideoTests(unittest.IsolatedAsyncioTestCase):
     async def test_fractional_final_part_ends_at_measured_film_duration(self):
         self.job.technical['duration_seconds'] = 1801.375
         async def encode(source, path, start, end):
-            self.assertEqual((start, end), (1800, 1801.375))
+            self.assertEqual((start, end), (1798, 1801.375))
             path.write_bytes(b'proxy')
         client = self.provider()
         with patch.object(video_segments, 'get_client', return_value=client), patch.object(video_segments, 'extract_segment', encode), patch.object(video_segments, 'poll_until_active', AsyncMock(return_value=SimpleNamespace(uri='tail'))):
             media = video_segments.SegmentedVideo(self.job)
-            self.assertEqual(await media.get(1800, 1801.375), ('tail', 'video/mp4', 1800))
+            self.assertEqual(await media.get(1800, 1801.375), ('tail', 'video/mp4', 1798))
             self.assertEqual(get_job(self.job.job_id).analysis_progress['total_upload_parts'], 4)
             await media.close()
 
@@ -87,7 +87,7 @@ class LongVideoTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(client.aio.files.upload.await_count, 0)
             self.assertEqual(await media.get(0, 30), ('uri-part1', 'video/mp4', 0))
             self.assertEqual(await media.get(570, 600), ('uri-part1', 'video/mp4', 0))
-            self.assertEqual(await media.get(600, 630), ('uri-part2', 'video/mp4', 600))
+            self.assertEqual(await media.get(600, 630), ('uri-part2', 'video/mp4', 598))
             self.assertEqual(client.aio.files.upload.await_count, 2)
             self.assertTrue(all(not p.exists() for p in paths))
             await media.close()
