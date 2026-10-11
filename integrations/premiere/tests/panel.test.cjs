@@ -314,7 +314,8 @@ test('HTML script without a CommonJS module global keeps lifecycle callbacks syn
   const vm = require('node:vm');
   const h = harness();
   let hooks;
-  h.stored.storage.localFileSystem.getDataFolder = async () => { throw new Error('Production startup must not access the UXP preference folder'); };
+  let preferenceFolderReads = 0;
+  h.stored.storage.localFileSystem.getDataFolder = async () => { preferenceFolderReads += 1; throw new Error('Production startup must not access the UXP preference folder'); };
   let nativeSelectionReads = 0;
   const readSelection = h.host.getSelection;
   h.host.getSelection = async (...args) => { nativeSelectionReads += 1; return readSelection(...args); };
@@ -353,6 +354,7 @@ test('HTML script without a CommonJS module global keeps lifecycle callbacks syn
   assert.equal(nativeSelectionReads, 0, 'show must not read native selection during workspace restoration');
   await h.el('load-selection').fire('click');
   assert.ok(nativeSelectionReads > 0, 'an explicit user load reads the ready project');
+  assert.equal(preferenceFolderReads, 0, 'production session preferences must never enter the native preference folder');
 });
 
 test("connects only to the authenticated local service and never analyzes while loading clips", async t => {
