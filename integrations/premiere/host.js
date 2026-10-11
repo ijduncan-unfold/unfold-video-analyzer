@@ -508,7 +508,7 @@ function createHost(injectedApi, injectedXmp) {
     return { inserted: true, name: result.name, position: position.seconds, start: result.start, end: result.end };
   }
   return {
-    getProjectIdentity, getSelection, getSelectedMedia, openSource, addMarkers, syncMetadata, makeSubclip, insertClip,
+    getProjectIdentity, getSelection, getSelectedMedia, resolveBinding, openSource, addMarkers, syncMetadata, makeSubclip, insertClip,
     openSourceAt: async (id, seconds, projectId) => openSource(await bindingForId(id, projectId), seconds),
     addSourceMarkers: async (id, cues, projectId) => addMarkers(await bindingForId(id, projectId), cues),
   };
@@ -524,6 +524,7 @@ module.exports = {
   getProjectIdentity: (...args) => defaultCall("getProjectIdentity", args),
   getSelection: (...args) => defaultCall("getSelection", args),
   getSelectedMedia: (...args) => defaultCall("getSelectedMedia", args),
+  resolveBinding: (...args) => defaultCall("resolveBinding", args),
   openSource: (...args) => defaultCall("openSource", args),
   openSourceAt: (...args) => defaultCall("openSourceAt", args),
   addMarkers: (...args) => defaultCall("addMarkers", args),

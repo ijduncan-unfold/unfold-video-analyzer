@@ -3,6 +3,21 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHost, MAX_MARKERS } = require("../host.js");
+const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
+
+test("every panel host call exists on the real exported host module", () => {
+  const host = require("../host.js"), source = fs.readFileSync(path.join(__dirname, "../panel.js"), "utf8");
+  for (const [, name] of source.matchAll(/\bhost\.(\w+)\s*\(/g)) assert.equal(typeof host[name], "function", "Missing exported host method: " + name);
+});
+
+test("the default production adapter validates source identity before analysis without native writes", async () => {
+  const f = fixture(), module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../host.js"), "utf8"), { module, require(name) { assert.equal(name, "premierepro"); return f.api; } });
+  const validated = await module.exports.resolveBinding(f.binding);
+  assert.equal(validated.descriptor.item_id, f.binding.item_id); assert.equal(validated.descriptor.media_path, f.binding.media_path); assert.deepEqual(f.calls, []);
+  f.clip.getMediaFilePath = async () => "C:\\Footage\\different.mp4";
+  await assert.rejects(module.exports.resolveBinding(f.binding), error => error.code === "MEDIA_CHANGED");
+});
 
 function fixture() {
   const calls = [];

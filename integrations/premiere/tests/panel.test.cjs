@@ -292,7 +292,7 @@ test('explicit source load activates the current version instead of falling back
   assert.equal(h.requests.some(request => request.pathname.endsWith('/analyze')), false);
 });
 test('analyzing older saved results registers and analyzes the current source, keeping the older record intact', async () => {
-  const { h, fresh, old } = changedSourceHarness(); await h.start(); h.el('mode').value = 'flash_pro';
+  const { h, fresh, old } = changedSourceHarness(); await h.start(); h.el('mode').selectedIndex = 1; h.el('mode').value = 'flash_pro';
   assert.equal(h.el('analyze').disabled, false); await h.el('analyze').fire('click');
   const posts = h.requests.filter(request => request.pathname.endsWith('/analyze'));
   assert.equal(posts.length, 1); assert.ok(posts[0].pathname.endsWith('/assets/' + fresh.job_id + '/analyze'));
@@ -314,6 +314,10 @@ test('HTML script without a CommonJS module global keeps lifecycle callbacks syn
   const vm = require('node:vm');
   const h = harness();
   let hooks;
+  h.stored.storage.localFileSystem.getDataFolder = async () => { throw new Error('Production startup must not access the UXP preference folder'); };
+  let nativeSelectionReads = 0;
+  const readSelection = h.host.getSelection;
+  h.host.getSelection = async (...args) => { nativeSelectionReads += 1; return readSelection(...args); };
   const timers = new Set();
   const modules = {
     uxp: { storage: h.stored.storage, entrypoints: { setup(value) {
@@ -334,12 +338,21 @@ test('HTML script without a CommonJS module global keeps lifecycle callbacks syn
   assert.ok(hooks);
   assert.equal(hooks.panels.videoAnalyzerPanel.create(), undefined);
   await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(h.requests.length, 0, 'restoring a dock must not discover the companion or access native clips');
+  assert.equal(hooks.panels.videoAnalyzerPanel.show(), undefined);
+  assert.equal(h.requests.length, 0);
+  await h.el('connect').fire('click');
+  await new Promise(resolve => setTimeout(resolve, 10));
   assert.match(h.el('message').textContent, /Connected automatically/);
   assert.equal(h.el('workspace').className.includes('hidden'), false);
   assert.equal(h.requests.filter(request => request.pathname.endsWith('/health')).length, 1);
+  assert.equal(nativeSelectionReads, 0, 'startup must not enter native selection APIs while a project opens');
   assert.equal(hooks.panels.videoAnalyzerPanel.show(), undefined);
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(h.requests.filter(request => request.pathname.endsWith('/health')).length, 1);
+  assert.equal(nativeSelectionReads, 0, 'show must not read native selection during workspace restoration');
+  await h.el('load-selection').fire('click');
+  assert.ok(nativeSelectionReads > 0, 'an explicit user load reads the ready project');
 });
 
 test("connects only to the authenticated local service and never analyzes while loading clips", async t => {
@@ -363,7 +376,7 @@ test("connects only to the authenticated local service and never analyzes while 
   }
   const serialized = Array.from(h.stored.files.values()).join("");
   assert.equal(serialized.includes(TOKEN), false);
-  assert.equal(h.stored.secrets.size, 0);
+  assert.equal(h.stored.secrets.size, 1, 'obsolete credentials remain unused; startup must not enter the native credential vault');
   assert.equal(h.document.elements.token, undefined);
 });
 
@@ -438,7 +451,7 @@ test("starts the explicitly chosen full analysis and receives incremental result
   const h = harness();
   t.after(() => h.panel.destroy());
   await h.start();
-  h.el("mode").value = "flash_pro";
+  h.el("mode").selectedIndex = 1; h.el("mode").value = "flash_pro";
   await h.panel.analyze();
   const request = h.requests.find(request => request.pathname.endsWith("/analyze"));
   assert.deepEqual(request.body, { mode: "flash_pro" });
@@ -595,7 +608,7 @@ test("reopening restores project clip, analysis mode, tab, and dialogue search w
   const first = harness({ stored });
   t.after(() => first.panel.destroy());
   await first.start();
-  first.el("mode").value = "flash_pro";
+  first.el("mode").selectedIndex = 1; first.el("mode").value = "flash_pro";
   await first.panel.setTab("transcript");
   await first.panel.search("center");
   first.panel.destroy();

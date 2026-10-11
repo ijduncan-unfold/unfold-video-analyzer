@@ -30,10 +30,12 @@
           <div id="asset-list" class="asset-list" role="list" aria-label="Clips in this Premiere project"></div>
         </div>
         <div id="analysis-actions" class="row">
-          <select id="mode" aria-label="Analysis type">
-            <option value="flash_only">Shots and tags</option>
-            <option value="flash_pro">Full analysis</option>
-          </select>
+          <sp-dropdown id="mode" aria-label="Analysis type" placeholder="Analysis type">
+            <sp-menu slot="options">
+              <sp-menu-item selected>Shots and tags</sp-menu-item>
+              <sp-menu-item>Full analysis</sp-menu-item>
+            </sp-menu>
+          </sp-dropdown>
           <sp-button id="analyze" type="button" class="primary" disabled variant="primary">Analyze</sp-button>
         </div>
         <p id="progress" class="progress" role="status" aria-live="polite"></p>

@@ -198,6 +198,13 @@ function createPanel(dependencies) {
     el("progress").textContent = state.asset && state.asset.source_available === false ? "Older saved results. Analyze current source to update them; timeline actions require results for the current file." : progressText(state.asset);
   }
 
+  function selectedMode() {
+    const index = el("mode").selectedIndex;
+    if (index === 0) return "flash_only";
+    if (index === 1) return "flash_pro";
+    return el("mode").value;
+  }
+
   function remember() {
     if (state.project) {
       state.preferences.projects[state.project.id] = {
@@ -207,7 +214,8 @@ function createPanel(dependencies) {
       if (ids.length > 50) delete state.preferences.projects[ids[0]];
     }
     state.preferences.server = state.server;
-    state.preferences.mode = el("mode").value;
+    state.preferences.mode = selectedMode();
+    if (dependencies.persistPreferences === false) return Promise.resolve();
     const serialized = JSON.stringify(state.preferences);
     preferenceWrites = preferenceWrites.then(async () => {
       const folder = await uxp.storage.localFileSystem.getDataFolder();
@@ -635,8 +643,12 @@ function createPanel(dependencies) {
       message("Connected automatically." +
         (health.google_configured === false ? " Configure Gemini in the local service before analyzing." : ""));
       await remember();
-      try { await refreshProject(); }
-      catch (error) { message("Connected. " + error.message, true); }
+      if (dependencies.deferHostUntilUser) {
+        message("Connected automatically. Load Premiere selection or reload saved results when your project is ready.");
+      } else {
+        try { await refreshProject(); }
+        catch (error) { message("Connected. " + error.message, true); }
+      }
     } catch (error) {
       state.connected = false;
       state.token = "";
@@ -713,7 +725,7 @@ function createPanel(dependencies) {
     controls();
     const scope = state.scope;
     try {
-      const mode = el("mode").value;
+      const mode = selectedMode();
       if (mode !== "flash_only" && mode !== "flash_pro") throw new Error("Choose Shots and tags or Full analysis.");
       ++assetRevision;
       ++state.resultRevision;
@@ -908,6 +920,7 @@ function createPanel(dependencies) {
         el("connection-hint").textContent = "Mac uses local HTTPS on port 8443. Complete certificate setup and start Video Analyzer. This panel connects automatically.";
       }
       try {
+        if (dependencies.persistPreferences === false) throw new Error("Session preferences only");
         const folder = await uxp.storage.localFileSystem.getDataFolder();
         const file = await folder.getEntry(PREFS_FILE);
         const preferences = JSON.parse(await file.read());
@@ -915,13 +928,13 @@ function createPanel(dependencies) {
           state.preferences = { server: normalizeServer(preferences.server || defaultServer), mode: preferences.mode === "flash_pro" ? "flash_pro" : "flash_only", projects: preferences.projects && typeof preferences.projects === "object" ? preferences.projects : {} };
           state.server = state.preferences.server;
           el("server").value = state.server;
-          el("mode").value = state.preferences.mode;
-          el("mode").setAttribute("value", state.preferences.mode);
         }
       } catch (error) { /* Missing or obsolete preferences should use defaults. */ }
-      if (uxp.storage.secureStorage) {
-        await uxp.storage.secureStorage.removeItem("video-analyzer-premiere-token").catch(() => {});
-      }
+      el("mode").selectedIndex = state.preferences.mode === "flash_pro" ? 1 : 0;
+      // Keep injected/non-Spectrum adapters consistent with the native picker.
+      el("mode").value = state.preferences.mode;
+      // Old pairing credentials are never read. Do not touch the native
+      // credential vault during initialization; this connection uses discovery.
       state.initialized = true;
       controls();
       await run(connect);
@@ -951,23 +964,25 @@ if (typeof document !== "undefined") {
   let platform;
   try { platform = require("os").platform(); }
   catch (error) { /* Discovery will report unavailable if host OS detection fails. */ }
-  const panel = createPanel({ document, uxp, host, fetch, platform });
+  // Premiere can restore a docked panel while its project is still opening.
+  // Calling ProjectUtils.getSelection at that point can block the native UI.
+  // Connect to the companion now; read native clips only on an explicit action.
+  const panel = createPanel({ document, uxp, host, fetch, platform, deferHostUntilUser: true, persistPreferences: false });
   function startupError(error) { document.getElementById("message").textContent = "Panel startup failed: " + error.message; }
+  // UXP can create/show a restored dock while Premiere is still opening its
+  // project. Even filesystem discovery during that phase can stall the host.
+  // A deliberate Connect click starts discovery after the workspace is ready.
+  document.getElementById("message").textContent = "Open your project, then click Connect. No pairing code is needed.";
+  document.getElementById("connection-hint").textContent = "Start Video Analyzer, then connect to its local service. No pairing code is needed.";
+  document.getElementById("connect").addEventListener("click", () => {
+    setTimeout(() => panel.init().catch(startupError), 0);
+  });
   uxp.entrypoints.setup({
     plugin: { create() {}, destroy() { panel.destroy(); } },
     panels: {
       videoAnalyzerPanel: {
-        create() { setTimeout(() => { panel.init().catch(startupError); }, 0); },
-        show() {
-          setTimeout(() => {
-            panel.init().then(() => {
-              if (panel.getState().connected) return panel.refreshProject().catch(error => {
-                // An absent project is normal on Premiere's home screen.
-                document.getElementById("message").textContent = "Connected. " + error.message;
-              });
-            }).catch(startupError);
-          }, 0);
-        },
+        create() {},
+        show() {},
       },
     },
   });
