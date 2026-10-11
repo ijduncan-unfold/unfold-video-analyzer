@@ -135,7 +135,7 @@ function createPanel(dependencies) {
     connected: false, token: "", server: defaultServer, project: null, assets: [], asset: null,
     tab: "shots", queries: { shots: "", transcript: "" }, shots: [], shotTotal: 0, shown: PAGE_SIZE,
     scope: 0, resultRevision: 0, resultsPending: false, nativeBlocked: true, polling: false, timer: null, searchTimer: null, initialized: false,
-    busy: {}, preferences: { projects: {}, mode: "flash_only", server: defaultServer },
+    busy: {}, resultActions: [], preferences: { projects: {}, mode: "flash_only", server: defaultServer },
   };
   let initialization;
   let connectionTimer = null;
@@ -164,10 +164,12 @@ function createPanel(dependencies) {
   function binding() { return sourceBinding(state.asset, state.project && state.project.id); }
   function controls() {
     const active = !!state.asset;
-    const mutation = !!(state.busy.selection || state.busy.analyze || state.busy.markers || state.busy.metadata);
+    const mutation = !!(state.busy.selection || state.busy.analyze || state.busy.markers || state.busy.metadata || state.busy.timeline);
     el("connect").disabled = !!state.busy.connect;
     el("disconnect").disabled = !state.connected || !!state.busy.connect;
     el("load-selection").disabled = !state.connected || mutation;
+    el("refresh-analysis").disabled = !state.connected || !active || mutation;
+    for (const button of state.resultActions) button.disabled = !state.connected || !binding() || mutation || state.resultsPending || state.nativeBlocked;
     el("analyze").disabled = !state.connected || !active || mutation || !!isAnalyzing();
     el("mode").disabled = mutation || !!isAnalyzing();
     el("analyze").textContent = isAnalyzing() ? "Analyzing…" : active && (state.asset.shot_count || state.asset.flash) ? "Analyze again" : "Analyze";
@@ -256,6 +258,7 @@ function createPanel(dependencies) {
   }
   async function poll() {
     state.timer = null;
+    if (state.busy.timeline) { startPoll(); return; }
     if (!state.connected || !state.asset || state.polling) return;
     const scope = state.scope;
     const id = state.asset.job_id;
@@ -364,7 +367,8 @@ function createPanel(dependencies) {
       if (!range) return null;
       const tags = Array.isArray(shot.tags) ? shot.tags.filter(tag => typeof tag === "string") : [];
       return {
-        start: range.start, end: range.end, name: "Shot " + String(shot.shot_number || "").padStart(2, "0"),
+        start: range.start, end: range.end, name: "Clip " + String(shot.shot_number || "").padStart(2, "0"),
+        thumbnail: shot.thumbnail_url, number: shot.shot_number,
         text: String(shot.visual_description || ""),
         detail: [shot.shot_type, shot.camera_movement, shot.mood, tags.join(", ")].filter(Boolean).join(" · "),
         context: typeof shot.match_context === "string" ? shot.match_context : "",
@@ -375,6 +379,7 @@ function createPanel(dependencies) {
   function renderResults() {
     const list = el("results");
     list.textContent = "";
+    state.resultActions = [];
     const tab = state.tab;
     const q = state.queries[tab];
     const results = visibleResults();
@@ -387,11 +392,21 @@ function createPanel(dependencies) {
     el("search").setAttribute("placeholder", tab === "shots" ? "Search shots, tags, composition…" : "Search dialogue…");
     const bound = binding();
     results.forEach(result => {
-      const button = document.createElement("button");
-      button.type = "button";
+      const button = document.createElement("div");
+      button.setAttribute("role", "button");
+      button.setAttribute("tabindex", "0");
       button.className = "result";
       button.disabled = !bound || state.nativeBlocked;
       button.setAttribute("aria-label", "Open " + result.name + " at " + cueTime(result.start) + " in the Source Monitor");
+      const prefix = "/api/thumbnails/" + encodeURIComponent(state.asset.job_id) + "/" + result.number + "?v=";
+      if (tab === "shots" && typeof result.thumbnail === "string" && result.thumbnail.startsWith(prefix) && !/[\r\n]/.test(result.thumbnail)) {
+        const image = document.createElement("img");
+        image.className = "result-thumbnail";
+        image.setAttribute("src", state.server + result.thumbnail);
+        image.setAttribute("alt", "");
+        image.addEventListener("error", () => { image.classList.toggle("hidden", true); });
+        button.appendChild(image);
+      }
       const time = document.createElement("span");
       time.className = "result-time";
       time.textContent = cueTime(result.start) + " – " + cueTime(result.end);
@@ -413,7 +428,7 @@ function createPanel(dependencies) {
       }
       const source = bound && Object.assign({}, bound);
       const context = source && nativeContext(source);
-      button.addEventListener("click", () => run(async () => {
+      const navigate = () => run(async () => {
         if (!source || state.busy.navigate || state.nativeBlocked) return;
         state.busy.navigate = true;
         try {
@@ -422,7 +437,41 @@ function createPanel(dependencies) {
           if (contextIsCurrent(context)) message("Opened " + cueTime(result.start) + " in Premiere’s Source Monitor.");
         }
         finally { state.busy.navigate = false; }
-      }));
+      });
+      button.addEventListener("click", event => {
+        if (event.target && event.target.className === "clip-action") return;
+        navigate();
+      });
+      button.addEventListener("keydown", event => {
+        if ((event.key === "Enter" || event.key === " ") && event.target === button) { event.preventDefault(); navigate(); }
+      });
+      if (tab === "shots") {
+        const actions = document.createElement("div"); actions.className = "row clip-actions";
+        for (const operation of ["insertClip", "makeSubclip"]) {
+          const action = document.createElement("button");
+          action.type = "button"; action.className = "clip-action";
+          action.textContent = operation === "insertClip" ? "Insert at playhead" : "Make draggable subclip";
+          action.disabled = button.disabled || typeof host[operation] !== "function" || !!state.busy.timeline || state.resultsPending;
+          if (typeof host[operation] === "function") state.resultActions.push(action);
+          action.addEventListener("click", event => {
+            if (event.stopPropagation) event.stopPropagation();
+            run(async () => {
+              if (state.busy.timeline || state.busy.selection || state.busy.markers || state.busy.metadata || state.busy.analyze || !source || state.resultsPending || state.nativeBlocked) return;
+              state.busy.timeline = true; controls();
+              try {
+                const verified = await verifyNativeContext(context);
+                const output = await host[operation](verified, { start: result.start, end: result.end,
+                  name: result.name, duration: state.asset.technical.duration_seconds, session: context.session });
+                if (contextIsCurrent(context)) message(operation === "insertClip" ?
+                  "Inserted " + result.name + " at " + cueTime(output.position) + " on V1/A1. Undo in Premiere to remove the edit." :
+                  "Opened “" + output.name + "”. Drag this subclip from Premiere’s Project panel or Source Monitor to the timeline.");
+              } finally { state.busy.timeline = false; controls(); }
+            });
+          });
+          actions.appendChild(action);
+        }
+        button.appendChild(actions);
+      }
       list.appendChild(button);
     });
     if (!results.length) {
@@ -497,7 +546,7 @@ function createPanel(dependencies) {
   }
 
   async function selectAsset(id) {
-    if (!state.connected || state.busy.analyze || state.busy.markers || state.busy.metadata) return;
+    if (!state.connected || state.busy.analyze || state.busy.markers || state.busy.metadata || state.busy.timeline) return;
     const scope = state.scope;
     const revision = ++assetRevision;
     ++state.resultRevision;
@@ -616,7 +665,7 @@ function createPanel(dependencies) {
       await refreshProject(selection);
       if (firstId) await selectAsset(firstId);
       const warnings = Array.isArray(selection.warnings) ? selection.warnings : [];
-      message((selection.clips.length - failed) + " clips loaded. Choose an analysis type and click Analyze." +
+      message((selection.clips.length - failed) + " clips loaded. " + (state.asset && state.asset.shot_count ? "Saved analysis restored. Click a result to preview or insert it." : "Choose an analysis type and click Analyze.") +
         (failed ? " " + failed + " could not be loaded: " + errors[0] : "") + (warnings.length ? " " + warnings.join(" ") : ""), failed > 0);
     } finally { state.busy.selection = false; controls(); }
   }
@@ -732,6 +781,11 @@ function createPanel(dependencies) {
         el("connection-toggle").setAttribute("aria-expanded", String(expanded));
       });
       on("load-selection", "click", loadSelection);
+      on("refresh-analysis", "click", async () => {
+        if (!state.asset || state.busy.timeline) return;
+        await selectAsset(state.asset.job_id);
+        message("Saved analysis refreshed. No new analysis was started.");
+      });
       on("analyze", "click", analyze);
       on("asset-toggle", "click", () => {
         const expanded = el("asset-toggle").getAttribute("aria-expanded") !== "true";

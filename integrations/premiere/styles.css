@@ -48,6 +48,10 @@ input, select { display: block; width: 100%; min-height: 34px; color: #e2ebf5; b
 .result .result-title { font-weight: 600; margin-bottom: 5px; }
 .result .result-description { line-height: 1.5; }
 .result .result-detail { line-height: 1.5; color: #9baec3; font-size: 11px; margin-top: 5px; }
+.result-thumbnail { display: block; width: 100%; height: 130px; object-fit: contain; background: #101316; margin-bottom: 10px; }
+.clip-actions { flex-wrap: wrap; margin-top: 10px; }
+.clip-action { margin-top: 4px; padding: 6px 8px; font-size: 11px; }
+#refresh-analysis { margin-top: 6px; }
 .highlight { color: #ffffff; background: #365a84; font-weight: 600; border-radius: 2px; }
 .result-title span, .result-description span, .result-detail span, .asset-option span span { display: inline; }
 .empty { padding: 20px 6px; color: #9baec3; line-height: 1.5; }

@@ -23,6 +23,7 @@
       <div id="workspace" class="workspace hidden">
         <p id="project-name" class="project-name"></p>
         <button id="load-selection" type="button" class="full-width">Load selected Premiere clips</button>
+        <button id="refresh-analysis" type="button" class="full-width" disabled>Refresh saved analysis</button>
         <button id="asset-toggle" type="button" class="asset-toggle" aria-expanded="false">Choose a clip</button>
         <div id="asset-picker" class="asset-picker hidden">
           <input id="asset-search" type="text" aria-label="Search clips in this Premiere project" placeholder="Search clips" />
@@ -46,7 +47,7 @@
           <p id="result-count" class="hint"></p>
           <button id="add-markers" type="button" disabled>Add markers</button>
         </div>
-        <p id="timing-note" class="hint">Results use source-media time. AI timing is approximate; verify cuts in Premiere.</p>
+        <p id="timing-note" class="hint">Insert places a trimmed clip at the playhead on V1/A1 and shifts later footage. Make subclip opens a native clip you can drag from Premiere’s Project panel or Source Monitor. AI timing is approximate; review cuts.</p>
         <div id="results" class="results" role="tabpanel" aria-labelledby="shots-tab"></div>
         <button id="show-more" type="button" class="full-width hidden">Show more</button>
         <div class="footer row">

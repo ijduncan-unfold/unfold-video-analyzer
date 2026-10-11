@@ -87,6 +87,22 @@ def test_register_deduplicates_file_across_items_and_projects(editor, source):
     assert editor.get('/api/editor/premiere/assets', params={'project_id': 'unrelated'}).json()['assets'] == []
 
 
+def test_load_desktop_analysis_without_editor_binding(editor, source, monkeypatch):
+    fingerprint, original, size = editor_bridge.source_fingerprint(source['media_path'])
+    job = create_job(Job(job_id='desktop-import', file_id='', file_uri='', filename=original.name,
+        mime_type='video/mp4', size_bytes=size, local_path=str(original), media_origin='external',
+        source_fingerprint=fingerprint, technical={'duration_seconds': 8, 'frame_rate': 25},
+        status='complete', metadata={'title': 'Logged take', 'tags': ['keep']},
+        flash_result={'scenes': []}, transcript=[{'start_seconds': 1, 'end_seconds': 2, 'text': 'Saved dialogue'}]))
+    monkeypatch.setattr(editor_bridge, 'probe_media', AsyncMock(side_effect=AssertionError('Do not reprobe saved media')))
+    loaded = register(editor, source)
+    assert loaded['job_id'] == job.job_id
+    assert loaded['transcript'] == job.transcript
+    assert get_job(job.job_id).metadata == job.metadata
+    assert len(list_jobs()) == 1
+    assert editor_bridge.editor_sources(job.job_id)[0]['item_id'] == source['item_id']
+
+
 def test_relinked_item_gets_new_asset_and_preserves_old_analysis(editor, source, tmp_path):
     first = register(editor, source)
     update_job(first['job_id'], transcript=[{'start_seconds': 0, 'end_seconds': 2, 'text': 'Old dialogue'}])

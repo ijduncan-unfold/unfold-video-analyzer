@@ -1,6 +1,6 @@
 "use strict";
 
-// Public Adobe UXP contracts (no CEP/QE or timeline mutation):
+// Public Adobe UXP contracts (no CEP/QE):
 // https://developer.adobe.com/premiere-pro/uxp/ppro-reference/classes/projectutils
 // https://developer.adobe.com/premiere-pro/uxp/ppro-reference/classes/sourcemonitor
 // https://developer.adobe.com/premiere-pro/uxp/ppro-reference/classes/markers
@@ -386,8 +386,108 @@ function createHost(injectedApi, injectedXmp) {
     if (!clip) fail("SOURCE_UNAVAILABLE", "Select this original clip in the Project panel before opening it or adding markers.");
     return { project_id: selection.project_id, ...clip };
   }
+  function commit(project, label, build) {
+    requiredMethod(project, "lockedAccess"); requiredMethod(project, "executeTransaction");
+    let committed = false;
+    project.lockedAccess(() => { committed = project.executeTransaction(compound => {
+      const action = build();
+      if (!action || compound.addAction(action) === false) fail("EDIT_ACTION_FAILED", "Premiere rejected the edit action.");
+    }, label); });
+    if (committed !== true) fail("EDIT_TRANSACTION_FAILED", "Premiere did not confirm this edit. Inspect the Project panel and timeline before retrying.");
+  }
+  async function prepareSubclip(binding, range) {
+    const { project, clip, descriptor } = await resolveBinding(binding);
+    const ppro = getApi();
+    const start = finiteSeconds(range && range.start, "Clip start");
+    const end = finiteSeconds(range && range.end, "Clip end");
+    const duration = finiteSeconds(range && range.duration, "Source duration");
+    if (end <= start || end > duration) fail("INVALID_TIME", "The clip must fit inside the original recording.");
+    requiredMethod(clip, "createSubClipAction");
+    // Source seconds are relative to the recording, not its embedded timecode.
+    const fps = descriptor.source_fps;
+    const frameStart = fps ? Math.round(start * fps) / fps : start;
+    const frameEnd = fps ? Math.round(end * fps) / fps : end;
+    if (frameEnd <= frameStart) fail("INVALID_TIME", "This result is shorter than one source frame.");
+    const key = JSON.stringify([binding.item_id, binding.media_path, frameStart, frameEnd, String(range.session || "")]);
+    let hash = 2166136261;
+    for (let i = 0; i < key.length; i++) hash = Math.imul(hash ^ key.charCodeAt(i), 16777619) >>> 0;
+    const name = String(descriptor.name || "Source").slice(0, 70) + " · " + String(range.name || "Clip").slice(0, 35) + " · VA " + hash.toString(16);
+    const find = async () => {
+      let found;
+      const root = await project.getRootItem();
+      await walkItems(await root.getItems(), async item => {
+        if (item.name !== name) return false;
+        const candidate = asClip(item);
+        if (!candidate || await candidate.isOffline() || await candidate.isSequence()) return false;
+        if (normalizedPath(await candidate.getMediaFilePath()) !== normalizedPath(binding.media_path)) return false;
+        requiredMethod(candidate, "getInPoint"); requiredMethod(candidate, "getOutPoint");
+        const mediaType = ppro.Constants.MediaType.VIDEO;
+        const a = await candidate.getInPoint(mediaType), b = await candidate.getOutPoint(mediaType);
+        if (Math.abs(a.seconds - frameStart) > 0.00001 || Math.abs(b.seconds - frameEnd) > 0.00001) return false;
+        found = candidate; return true;
+      });
+      return found;
+    };
+    let subclip = await find();
+    let created = false;
+    await resolveBinding(binding);
+    if (!subclip) {
+      commit(project, "Create Video Analyzer subclip", () => clip.createSubClipAction(name,
+        ppro.TickTime.createWithSeconds(frameStart), ppro.TickTime.createWithSeconds(frameEnd), true,
+        { takeVideo: true, takeAudio: true }));
+      created = true;
+      subclip = await find();
+      if (!subclip) fail("SUBCLIP_VERIFY_FAILED", "Premiere did not confirm the new subclip's source range. Inspect the Project panel before retrying.");
+    }
+    await activeProject(binding.project_id);
+    return { project, subclip, name, created, start: frameStart, end: frameEnd };
+  }
+  async function makeSubclip(binding, range) {
+    const result = await prepareSubclip(binding, range);
+    requiredMethod(getApi().SourceMonitor, "openProjectItem");
+    if (await getApi().SourceMonitor.openProjectItem(result.subclip) === false) fail("SOURCE_OPEN_FAILED", "The subclip was created but Premiere could not open it. Find it in the Project panel.");
+    return { name: result.name, created: result.created };
+  }
+  async function insertClip(binding, range) {
+    const project = await activeProject(binding.project_id);
+    requiredMethod(project, "getActiveSequence");
+    const sequence = await project.getActiveSequence();
+    if (!sequence) fail("NO_SEQUENCE", "Open a timeline in Premiere before inserting this clip.");
+    const sequenceId = guidString(sequence.guid);
+    requiredMethod(sequence, "getPlayerPosition");
+    const position = await sequence.getPlayerPosition();
+    finiteSeconds(position.seconds, "Timeline playhead");
+    requiredMethod(getApi().SequenceEditor, "getEditor");
+    const editor = getApi().SequenceEditor.getEditor(sequence);
+    requiredMethod(editor, "createInsertProjectItemAction");
+    requiredMethod(sequence, "getVideoTrack");
+    // Require readback support before editing so a rejected/partial native
+    // action cannot be reported as an inserted clip.
+    const videoTrack = await sequence.getVideoTrack(0);
+    requiredMethod(videoTrack, "getTrackItems");
+    const result = await prepareSubclip(binding, range);
+    await resolveBinding(binding);
+    const current = await project.getActiveSequence();
+    if (!current || guidString(current.guid) !== sequenceId || Math.abs((await current.getPlayerPosition()).seconds - position.seconds) > 0.00001) {
+      fail("TIMELINE_CHANGED", "The active timeline or playhead moved. Try inserting again at the new position.");
+    }
+    commit(project, "Insert Video Analyzer clip", () => editor.createInsertProjectItemAction(result.subclip, position, 0, 0, false));
+    const subclipId = await itemId(result.subclip);
+    const items = await videoTrack.getTrackItems(getApi().Constants.TrackItemType.CLIP, false);
+    const tolerance = 1 / (binding.source_fps || 24) + 0.00001;
+    let confirmed = false;
+    for (const item of items) {
+      if (await itemId(await item.getProjectItem()) !== subclipId) continue;
+      const start = await item.getStartTime(), duration = await item.getDuration();
+      if (Math.abs(start.seconds - position.seconds) <= tolerance && Math.abs(duration.seconds - (result.end - result.start)) <= tolerance) {
+        confirmed = true; break;
+      }
+    }
+    if (!confirmed) fail("TIMELINE_VERIFY_FAILED", "Premiere did not confirm the inserted clip's position and duration. Inspect the timeline or Undo before retrying.");
+    return { inserted: true, name: result.name, position: position.seconds, start: result.start, end: result.end };
+  }
   return {
-    getProjectIdentity, getSelection, getSelectedMedia, openSource, addMarkers, syncMetadata,
+    getProjectIdentity, getSelection, getSelectedMedia, openSource, addMarkers, syncMetadata, makeSubclip, insertClip,
     openSourceAt: async (id, seconds, projectId) => openSource(await bindingForId(id, projectId), seconds),
     addSourceMarkers: async (id, cues, projectId) => addMarkers(await bindingForId(id, projectId), cues),
   };
@@ -408,4 +508,6 @@ module.exports = {
   addMarkers: (...args) => defaultCall("addMarkers", args),
   addSourceMarkers: (...args) => defaultCall("addSourceMarkers", args),
   syncMetadata: (...args) => defaultCall("syncMetadata", args),
+  makeSubclip: (...args) => defaultCall("makeSubclip", args),
+  insertClip: (...args) => defaultCall("insertClip", args),
 };

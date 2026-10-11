@@ -77,6 +77,78 @@ function fixture() {
 }
 function errorCode(code) { return error => error && error.code === code; }
 
+function editFixture() {
+  const f = fixture();
+  const items = [f.clip], edits = [];
+  f.root.getItems = async () => items;
+  f.api.Constants.MediaType = { VIDEO: 1 };
+  f.api.Constants.TrackItemType = { CLIP: 1 };
+  const sequence = { guid: 'sequence-1', getPlayerPosition: async () => ({ seconds: 7 }) };
+  sequence.getVideoTrack = async () => ({ getTrackItems: () => edits.filter(edit => edit.kind === 'insert').map(edit => ({
+    getProjectItem: async () => edit.item, getStartTime: async () => edit.time,
+    getDuration: async () => ({ seconds: 2 }),
+  })) });
+  f.project.getActiveSequence = async () => sequence;
+  f.clip.createSubClipAction = (name, start, end, hard, options) => ({ kind: 'subclip', name, start, end, hard, options });
+  f.api.SequenceEditor = { getEditor: value => {
+    assert.equal(value, sequence);
+    return { createInsertProjectItemAction: (item, time, v, a, limit) => ({ kind: 'insert', item, time, v, a, limit }) };
+  } };
+  f.project.executeTransaction = (build, label) => {
+    const pending = []; build({ addAction: action => { pending.push(action); return true; } });
+    for (const action of pending) {
+      if (action.kind === 'subclip') items.push({ ...f.clip, name: action.name,
+        getId: () => 'sub-' + items.length,
+        getInPoint: async () => action.start, getOutPoint: async () => action.end });
+      edits.push({ label, ...action });
+    }
+    return true;
+  };
+  return { ...f, items, edits, sequence, range: { start: 1.012, end: 3.013, duration: 10, name: 'Clip 01', session: 'run-1' } };
+}
+
+test('inserts frame-aligned native subclip with audio at playhead without changing master marks', async () => {
+  const f = editFixture();
+  f.clip.createSetInOutPointsAction = () => assert.fail('Do not change master in/out points');
+  const result = await f.host.insertClip(f.binding, f.range);
+  assert.equal(result.inserted, true);
+  assert.equal(result.start, 1);
+  assert.equal(result.end, 3);
+  assert.equal(f.edits[0].hard, true);
+  assert.deepEqual(f.edits[0].options, { takeVideo: true, takeAudio: true });
+  assert.equal(f.edits[1].time.seconds, 7);
+  assert.equal(f.edits[1].v, 0); assert.equal(f.edits[1].a, 0);
+  assert.equal(f.edits[1].limit, false);
+  assert.equal(f.edits[1].item, f.items[1]);
+  await f.host.makeSubclip(f.binding, f.range);
+  assert.equal(f.items.length, 2, 'Repeated requests reuse the verified subclip');
+  assert.equal(f.calls.at(-1)[0], 'open');
+});
+
+test('missing timeline and invalid ranges reject before creating subclips', async () => {
+  const f = editFixture();
+  f.project.getActiveSequence = async () => null;
+  await assert.rejects(f.host.insertClip(f.binding, f.range), errorCode('NO_SEQUENCE'));
+  for (const range of [{ ...f.range, end: 11 }, { ...f.range, start: 4 }, { ...f.range, end: Infinity }]) {
+    await assert.rejects(f.host.makeSubclip(f.binding, range), errorCode('INVALID_TIME'));
+  }
+  assert.deepEqual(f.edits, []);
+});
+
+test('changing timeline during subclip preparation never edits the replacement sequence', async () => {
+  const f = editFixture();
+  let reads = 0;
+  f.project.getActiveSequence = async () => ++reads === 1 ? f.sequence : { ...f.sequence, guid: 'replacement' };
+  await assert.rejects(f.host.insertClip(f.binding, f.range), errorCode('TIMELINE_CHANGED'));
+  assert.equal(f.edits.filter(edit => edit.kind === 'insert').length, 0);
+});
+
+test('a native transaction without timeline readback cannot report a successful insert', async () => {
+  const f = editFixture();
+  f.sequence.getVideoTrack = async () => ({ getTrackItems: () => [] });
+  await assert.rejects(f.host.insertClip(f.binding, f.range), errorCode('TIMELINE_VERIFY_FAILED'));
+});
+
 test("Project selection returns stable identities and original path, without copying or touching timelines", async () => {
   const f = fixture();
   const result = await f.host.getSelection();

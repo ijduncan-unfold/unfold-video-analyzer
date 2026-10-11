@@ -204,6 +204,39 @@ function descendants(element, predicate) {
   return element.children.flatMap(child => (predicate(child) ? [child] : []).concat(descendants(child, predicate)));
 }
 
+test('saved analysis refresh is free of analyze requests and uses full-app thumbnail URLs', async () => {
+  const h = harness();
+  h.service.shots[0].thumbnail_url = '/api/thumbnails/clip-a/1?v=run%3A1';
+  h.service.shots[1].thumbnail_url = 'https://untrusted.example/thumbnail.jpg';
+  await h.start();
+  const images = descendants(h.el('results'), item => item.tagName === 'img');
+  assert.equal(images.length, 1);
+  assert.equal(images[0].getAttribute('src'), h.panel.getState().server + h.service.shots[0].thumbnail_url);
+  h.service.shots[0].visual_description = 'Fresh saved description';
+  await h.el('refresh-analysis').fire('click');
+  assert.match(h.el('results').textContent, /Fresh saved description/);
+  assert.equal(h.requests.filter(request => request.pathname.endsWith('/analyze')).length, 0);
+});
+
+test('timeline insertion preflights saved source and analysis; stale analysis blocks the host', async () => {
+  const h = harness();
+  const edits = [];
+  h.host.insertClip = async (source, range) => { edits.push({ source, range }); return { position: 7 }; };
+  h.host.makeSubclip = async () => ({ name: 'Native clip' });
+  await h.start();
+  const insert = () => descendants(h.el('results'), item => item.textContent === 'Insert at playhead')[0];
+  assert.equal(insert().disabled, false);
+  await insert().fire('click');
+  assert.equal(edits.length, 1);
+  assert.equal(edits[0].source.item_id, 'item-a');
+  assert.equal(edits[0].range.duration, 1000);
+  assert.match(h.el('message').textContent, /Inserted/);
+  h.service.assets[0].analysis_config = { started_at: 'changed-run' };
+  await insert().fire('click');
+  assert.equal(edits.length, 1);
+  assert.match(h.el('message').textContent, /analysis changed/);
+});
+
 test('HTML script without a CommonJS module global keeps lifecycle callbacks synchronous', async t => {
   const vm = require('node:vm');
   const h = harness();

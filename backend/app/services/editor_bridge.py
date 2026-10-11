@@ -13,7 +13,7 @@ from fastapi import Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.config import settings
-from app.services.job_store import Job, _save, connection, get_job
+from app.services.job_store import Job, _save, connection, get_job, list_jobs
 from app.services.library_service import asset_view
 from app.services.media_probe import create_poster, probe_media
 from app.utils.video_formats import get_mime_type
@@ -190,6 +190,19 @@ async def register_source(body, host='premiere'):
         fingerprint, path, size = source_fingerprint(requested)
     except (OSError, ValueError):
         raise HTTPException(422, 'The selected source is offline, inaccessible, or empty. Relink it in your editor first.')
+    # Desktop imports need not have any editor binding yet. Reuse their saved
+    # analysis, including partial results, instead of creating an empty copy.
+    if not body.viewing_path:
+        async with _registration_lock:
+            candidates = [job for job in list_jobs() if job.media_origin == 'external'
+                          and job.source_fingerprint == fingerprint and job.status != 'deleting']
+            candidates.sort(key=lambda job: bool(job.flash_result or job.transcript), reverse=True)
+            if candidates:
+                existing = candidates[0]
+                ensure_source_unchanged(existing)
+                _check_interpreted_rate(body.source_fps, existing.technical)
+                _bind(existing, body, path, fingerprint, host=host)
+                return editor_view(existing, host=host)
     from app.utils.video_formats import CAMERA_EXTENSIONS
     if body.viewing_path or path.suffix.lower() in CAMERA_EXTENSIONS:
         from app.services.camera_media import register_camera_source
