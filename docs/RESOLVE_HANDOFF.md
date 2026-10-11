@@ -14,9 +14,9 @@ Use the verified [Windows preview artifact](https://github.com/ijduncan/video-an
 
 1. Get the updated **Video Analyzer companion** and public integration ZIP from the [verified Windows artifact](https://github.com/ijduncan/video-analyzer/actions/runs/38091404424/artifacts/11684261687), a newer successful [Windows build workflow run](https://github.com/ijduncan/video-analyzer/actions/workflows/windows-build.yml), or build them from source. Workflow artifacts require signing into GitHub. Install the companion and its FFmpeg prerequisite. Start Video Analyzer and configure your own Gemini key in browser **Settings**.
 2. Install Resolve Studio 20.1+ and **close Resolve** before installing or updating the integration.
-3. Use **Install Resolve integration** from the Video Analyzer Start menu or tray. For the standalone `VideoAnalyzer-Resolve-0.1.0.zip`, extract the entire ZIP and double-click **Install Resolve on Windows.cmd**. Keep the `VideoAnalyzer` folder beside the helper scripts. Administrator approval may be needed for Resolve's shared plugin folder.
+3. Use **Install Resolve integration** from the Video Analyzer Start menu or tray. For the standalone `VideoAnalyzer-Resolve-0.1.1.zip`, extract the entire ZIP and double-click **Install Resolve on Windows.cmd**. Keep the `VideoAnalyzer` folder beside the helper scripts. Administrator approval may be needed for Resolve's shared plugin folder.
 4. Restart Resolve Studio and choose **Workspace → Workflow Integrations → Video Analyzer**.
-5. The integration connects automatically to the running companion on this computer. Select original local clips in the Media Pool and click **Load selected Media Pool clips**. Loading makes no Gemini analysis call. Choose **Shots and tags** or **Full analysis**, then click **Analyze** for the active clip.
+5. The integration connects automatically to the running companion on this computer. Select original local clips in the Media Pool and click **Load Media Pool selection**. Loading makes no Gemini analysis call. Choose **Shots and tags** or **Full analysis**, then click **Analyze** for the active clip.
 
 The installer copies these eleven public files into the plugin folder: `manifest.xml`, `package.json`, `main.js`, `preload.js`, `host.js`, `service.js`, `connection.js`, `controller.js`, `panel.js`, `index.html`, and `styles.css`. It copies `WorkflowIntegration.node` separately from **your own installed Resolve SDK**. The vendor bridge is excluded from the public ZIP and companion bundle.
 
@@ -44,7 +44,7 @@ Use the SDK belonging to the Resolve installation that will run the integration.
 
 The searchable clip picker contains clips registered for the active Resolve project. Project and Media Pool identities are stored separately from Premiere identities. An unchanged original registered in both editors can reuse the same saved analysis.
 
-Shots and transcript cues populate as the companion completes analysis sections. Use the **Shots** or **Transcript** tab to search; matching words are highlighted. **Select clip in Resolve** selects the original Media Pool clip. **Copy times** copies an in/out range measured from the beginning of the original file, such as `00:12.500 – 00:15.250`. It does not convert that range into embedded source timecode or timeline timecode. Exact source-viewer seeking is not available in this preview.
+Shots and transcript cues populate as the companion completes analysis sections. Use the **Clips** or **Transcript** tab to search; matching words are highlighted. **Show source in Media Pool** reveals its bin and selects the original item. **Go to timeline** prefers the matching analyzed subclip, or positions the playhead at the first source occurrence covering its range. **Load clip under playhead** loads the complete source recording for the current timeline video; it does not read arbitrary highlighted timeline selections. **Copy times** copies an in/out range measured from the beginning of the original file, such as `00:12.500 – 00:15.250`. It does not convert that range into embedded source timecode or timeline timecode. Exact source-viewer seeking is not available in this preview.
 
 ### Shots into your edit
 
@@ -66,7 +66,7 @@ Resolve does not expose a documented marker transaction/undo API for this previe
 
 Analysis continues in the companion while its process runs, even when the plugin closes. Saved analysis and nonsecret clip/search preferences persist. The panel reconnects automatically after reopening or a companion restart. If the companion is closed, start Video Analyzer; the panel retries automatically.
 
-Local API authentication still runs behind the scenes. The companion publishes a private `editor-service.json` only after its authenticated endpoint is ready. Windows uses `%USERPROFILE%\.video-analyzer`; Mac uses `~/Library/Application Support/VideoAnalyzer`. The Windows profile location keeps discovery accessible across packaged development apps and the native editor. The plugin's native main process reads that file and verifies the running instance. Credentials never enter the interface or saved preferences, and credential changes invalidate old results rather than replaying actions. Keep this file and Gemini keys out of Git, screenshots, and support logs. Premiere still uses its existing manual pairing flow.
+Local API authentication still runs behind the scenes. The companion publishes a private `editor-service.json` only after its authenticated endpoint is ready. Windows uses `%USERPROFILE%\.video-analyzer`; Mac uses `~/Library/Application Support/VideoAnalyzer`. The Windows profile location keeps discovery accessible across packaged development apps and the native editor. The plugin's native main process reads that file and verifies the running instance. Credentials never enter the interface or saved preferences, and credential changes invalidate old results rather than replaying actions. Keep this file and Gemini keys out of Git, screenshots, and support logs. Premiere also connects automatically through this private discovery file.
 
 Original media is referenced without creating a full import copy. The companion can create thumbnails and derived analysis caches; it does not rename or delete original files. Removing a library project deletes its saved records and app-owned cache files. Uninstalling the companion preserves its user data folder.
 
@@ -109,9 +109,15 @@ On a Mac, use the Python environment from the native companion setup:
 build/desktop/venv-arm64/bin/python scripts/package-resolve.py
 ```
 
-The output is `dist/installers/VideoAnalyzer-Resolve-0.1.0.zip`. Packaging uses an explicit public resource allowlist, excludes local media/keys/vendor binaries, validates entry points and version agreement, and replaces the deliverable only after ZIP verification. See [companion build instructions](../packaging/README.md) for the Windows installer and native Mac app/DMG.
+The output is `dist/installers/VideoAnalyzer-Resolve-0.1.1.zip`. Packaging uses an explicit public resource allowlist, excludes local media/keys/vendor binaries, validates entry points and version agreement, and replaces the deliverable only after ZIP verification. See [companion build instructions](../packaging/README.md) for the Windows installer and native Mac app/DMG.
 
 ## Native acceptance
+
+### Selection and timeline controls in 0.1.1
+
+Windows testing on October 11 in Resolve Studio 21.0.1 used the saved **Video Analyzer Native QA 2026-10-10** project and the already analyzed network original `C0002.MP4`. Creating a selects timeline produced a native video clip on V1 and its audio on A1. Appending the same analyzed clip reused its saved Media Pool subclip and added a second video/audio edit. **Load clip under playhead** restored the original's saved analysis from a timeline using that subclip, and **Reload saved results** restored the same result without another Gemini call. **Go to timeline** moved the playhead from the end of the edit back to the first source occurrence at `01:00:00:00`. After switching to the shots bin, **Show source in Media Pool** opened Master and visibly selected the original `C0002.MP4`.
+
+The panel exposes the open timeline, disables append when none is open, keeps action feedback visible while scrolling, and preserves unchanged result cards during background refresh. Timeline loading targets the video under the playhead, not arbitrary highlighted timeline selections; navigation positions the playhead rather than highlighting a timeline item. No paid analysis was started. Original media was referenced in place. Mac native acceptance remains pending.
 
 ### Initial source workflow at `d355f09`
 

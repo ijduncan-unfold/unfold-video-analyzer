@@ -2,8 +2,8 @@
 const helpers = require("./controller");
 const DEFAULT_SERVER = "http://127.0.0.1:8000";
 const MAC_SERVER = "https://localhost:8443";
-const ACTIONS = Object.freeze(["bootstrap", "connect", "disconnect", "refresh", "loadSelection", "selectAsset", "setView", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "syncMetadata", "exportSubtitles", "openAnalyzer"]);
-const PAYLOAD_FIELDS = Object.freeze({ selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportShots: ["revision", "indices", "destination"], syncMetadata: ["revision"], exportSubtitles: ["revision"] });
+const ACTIONS = Object.freeze(["bootstrap", "connect", "disconnect", "refresh", "reloadSaved", "loadSelection", "selectAsset", "setView", "analyze", "selectClip", "showTimelineClip", "copyTimes", "addMarkers", "exportShots", "syncMetadata", "exportSubtitles", "openAnalyzer"]);
+const PAYLOAD_FIELDS = Object.freeze({ loadSelection: ["source"], selectAsset: ["id"], setView: ["tab", "mode", "query"], analyze: ["revision"], selectClip: ["revision", "index"], showTimelineClip: ["revision", "index"], copyTimes: ["revision", "index"], addMarkers: ["revision", "count"], exportShots: ["revision", "indices", "destination"], syncMetadata: ["revision"], exportSubtitles: ["revision"] });
 const OFFLINE = "Start Video Analyzer. This panel connects automatically.";
 function normalizeServer(value) {
   const match = /^(http|https):\/\/(127\.0\.0\.1|localhost):(8000|8443)\/?$/i.exec(String(value || "").trim());
@@ -110,7 +110,9 @@ function createService(dependencies) {
     const query = state.queries.shots, projectId = state.project.id;
     const data = await request("/assets/" + encodeURIComponent(id) + "/shots?q=" + encodeURIComponent(query) + "&limit=500");
     if (!fresh(epoch, projectId, id) || query !== state.queries.shots) return;
-    state.shots = Array.isArray(data.shots) ? data.shots : []; state.total = Number.isFinite(data.total) ? data.total : state.shots.length; invalidate();
+    const shots = Array.isArray(data.shots) ? data.shots : [], total = Number.isFinite(data.total) ? data.total : shots.length;
+    if (JSON.stringify(shots) !== JSON.stringify(state.shots) || total !== state.total) invalidate();
+    state.shots = shots; state.total = total;
   }
   async function selectAsset(id) {
     assertConnected();
@@ -146,8 +148,9 @@ function createService(dependencies) {
       await host.getProjectIdentity(projectId);
       if (fresh(epoch, projectId, id)) {
         if (!sourceBinding(asset, projectId)) throw new Error("This asset no longer belongs to the active Resolve project.");
+        if (session(asset) !== session(state.asset) || JSON.stringify(asset.editor_sources) !== JSON.stringify(state.asset.editor_sources) || JSON.stringify(asset.technical) !== JSON.stringify(state.asset.technical) || JSON.stringify(asset.transcript) !== JSON.stringify(state.asset.transcript)) invalidate();
         state.asset = asset; const index = state.assets.findIndex(item => item.job_id === id); if (index >= 0) state.assets[index] = asset;
-        invalidate(); await readShots(epoch, id);
+        await readShots(epoch, id);
       }
     }
     return view();
@@ -175,21 +178,26 @@ function createService(dependencies) {
     })();
     try { return await connecting; } finally { connecting = null; }
   }
-  async function loadSelection() {
-    await validateConnection(); const selection = await host.getSelection();
+  async function loadSelection(payload = {}) {
+    const source = payload.source || "pool";
+    if (!["pool", "timeline"].includes(source)) throw new Error("Choose the Media Pool or the clip under the timeline playhead.");
+    await validateConnection(); const selection = await host.getSelection(source);
     if (!state.project || state.project.id !== selection.project_id) clearProject({ id: selection.project_id, name: selection.project_name });
     const epoch = selectionEpoch, projectId = selection.project_id, warnings = selection.warnings.slice();
-    let loaded = 0;
+    let loaded = 0, preferredId = null;
     for (const clip of selection.clips) {
       await validateConnection();
       await host.getProjectIdentity(projectId);
       if (!fresh(epoch, projectId)) throw new Error("The project changed while loading clips. Load the current selection again.");
-      try { await request("/register", { method: "POST", body: JSON.stringify({ project_id: projectId, item_id: clip.item_id, name: clip.name, media_path: clip.media_path, source_fps: clip.source_fps,
-        ...(clip.viewing_path ? { viewing_path: clip.viewing_path, proxy_alignment_confirmed: clip.proxy_alignment_confirmed === true } : {}) }) }); loaded++; }
+      try { const registered = await request("/register", { method: "POST", body: JSON.stringify({ project_id: projectId, item_id: clip.item_id, name: clip.name, media_path: clip.media_path, source_fps: clip.source_fps,
+        ...(clip.viewing_path ? { viewing_path: clip.viewing_path, proxy_alignment_confirmed: clip.proxy_alignment_confirmed === true } : {}) }) }); loaded++; if (!preferredId) preferredId = registered.job_id; }
       catch (error) { if (error.status === 401 || error.status === 403 || !fresh(epoch, projectId)) throw error; warnings.push(clip.name + ": " + error.message); }
     }
     if (!fresh(epoch, projectId)) throw new Error("The project changed while loading clips.");
-    await projectAssets(); state.message = loaded + " clips loaded. Choose an analysis type and click Analyze." + (warnings.length ? " " + warnings.join(" ") : "");
+    await projectAssets();
+    if (preferredId && state.assets.some(asset => asset.job_id === preferredId) && (!state.asset || state.asset.job_id !== preferredId)) await selectAsset(preferredId);
+    state.message = loaded ? loaded + " source shot" + (loaded === 1 ? "" : "s") + " loaded" + (state.asset && state.asset.shot_count ? "; saved analysis restored." : ". Choose an analysis type and click Analyze.") : source === "timeline" ? "Place the timeline playhead over a video clip, then load it here." : "Select original video shots in Resolve's Media Pool, then load them here.";
+    if (warnings.length) state.message += " " + warnings.join(" ");
     return view();
   }
   async function nativeContext(payload) {
@@ -214,6 +222,11 @@ function createService(dependencies) {
     connect,
     async disconnect() { offline(); return view(); },
     refresh, loadSelection,
+    async reloadSaved() {
+      await validateConnection(); await verifyProject(); await projectAssets();
+      state.message = state.asset && state.asset.shot_count ? "Saved analysis restored: " + state.asset.shot_count + (state.asset.shot_count === 1 ? " clip." : " clips.") : "No saved clips for this source yet. Load a source shot and analyze it.";
+      return view();
+    },
     async selectAsset(payload) { await verifyProject(state.project && state.project.id); await selectAsset(payload && payload.id); return view(); },
     async setView(payload) {
       assertConnected(); if (!plain(payload)) throw new Error("Invalid view settings.");
@@ -229,7 +242,8 @@ function createService(dependencies) {
       await request("/assets/" + encodeURIComponent(asset.job_id) + "/analyze", { method: "POST", body: JSON.stringify({ mode: state.mode }) });
       state.asset = { ...asset, status: "analyzing", analysis_progress: { stage: "preparing" } }; invalidate(); state.message = "Analysis started. Shots and dialogue appear as sections finish."; return view();
     },
-    async selectClip(payload) { const { binding } = await nativeContext(payload); await host.selectClip(binding); state.message = "Selected the source clip in Resolve's Media Pool. Use copied times for precise positioning."; return view(); },
+    async selectClip(payload) { const { binding } = await nativeContext(payload); await host.selectClip(binding); state.message = "Opened the source bin and selected this shot in Resolve's Media Pool."; return view(); },
+    async showTimelineClip(payload) { const { binding } = await nativeContext(payload); const result = await host.showTimelineClip(binding, currentCue(payload)); state.message = "Timeline playhead moved to " + (result.range_matched ? "this analyzed clip" : "the first source occurrence covering this range") + " at " + result.timecode + "."; return view(); },
     async copyTimes(payload) { await nativeContext(payload); const cue = currentCue(payload); clipboard.writeText(helpers.cueTime(cue.start) + " – " + helpers.cueTime(cue.end)); state.message = "Copied source-media times."; return view(); },
     async addMarkers(payload) {
       const { binding, asset } = await nativeContext(payload); const results = helpers.cues(asset, state.shots, state.tab, state.queries[state.tab]);
@@ -250,7 +264,8 @@ function createService(dependencies) {
       if (revision !== state.revision || pack.asset_id !== asset.job_id || pack.analysis_session !== session(asset)) throw new Error("The selected analysis changed. Refresh the shots before exporting.");
       await validateConnection();
       const summary = await host.exportShots(binding, pack, payload.destination);
-      state.message = summary.created + " shots saved; " + summary.reused + " existing shots reused in Video Analyzer shots." +
+      await verifyProject(binding.project_id);
+      state.message = summary.created + " clips saved; " + summary.reused + " existing clips reused in Video Analyzer shots." +
         (summary.added ? " " + summary.added + " added to " + (payload.destination === "new" ? "a new selects timeline." : "the end of the current timeline.") : " Drag them from the Media Pool into your edit.") + " Metadata saved in Keywords, Description, and Comments.";
       return view();
     },
@@ -272,9 +287,9 @@ function createService(dependencies) {
     if (payload !== undefined && (!plain(payload) || JSON.stringify(payload).length > 8192)) throw new Error("Invalid plugin action payload.");
     const allowed = PAYLOAD_FIELDS[action] || [];
     if (payload && Object.keys(payload).some(key => !allowed.includes(key))) throw new Error("Unsupported plugin action field.");
-    if (PAYLOAD_FIELDS[action] && payload === undefined) throw new Error("This plugin action requires its current context.");
+    if (PAYLOAD_FIELDS[action] && action !== "loadSelection" && payload === undefined) throw new Error("This plugin action requires its current context.");
     if (nativeBusy && !["refresh", "bootstrap"].includes(action)) throw new Error("Wait for the current native action to finish.");
-    const locked = ["connect", "disconnect", "loadSelection", "selectAsset", "analyze", "selectClip", "copyTimes", "addMarkers", "exportShots", "syncMetadata", "exportSubtitles"].includes(action);
+    const locked = ["connect", "disconnect", "reloadSaved", "loadSelection", "selectAsset", "analyze", "selectClip", "showTimelineClip", "copyTimes", "addMarkers", "exportShots", "syncMetadata", "exportSubtitles"].includes(action);
     if (locked) nativeBusy = true;
     try { return await actions[action](payload); } finally { if (locked) nativeBusy = false; }
   }

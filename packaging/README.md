@@ -111,7 +111,7 @@ signing configuration is supported without storing signing credentials in the re
 ## Public Resolve integration ZIP
 
 Run `python scripts/package-resolve.py` from the repository root to create
-`dist/installers/VideoAnalyzer-Resolve-0.1.0.zip`. Extract the entire ZIP before using
+`dist/installers/VideoAnalyzer-Resolve-0.1.1.zip`. Extract the entire ZIP before using
 **Install Resolve on Windows.cmd**, its `install-resolve.ps1` helper, or
 **Install Resolve on Mac.command**. The `VideoAnalyzer` folder must stay beside the
 helpers. The package has an explicit public allowlist, validates identity/version/

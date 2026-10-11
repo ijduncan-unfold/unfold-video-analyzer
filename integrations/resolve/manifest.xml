@@ -3,8 +3,8 @@
   <Plugin>
     <Id>com.ijduncan.videoanalyzer</Id>
     <Name>Video Analyzer</Name>
-    <Version>0.1.0</Version>
-    <Description>Search shots and dialogue, analyze original footage, and add source markers.</Description>
+    <Version>0.1.1</Version>
+    <Description>Load Media Pool or timeline footage, search analyzed clips and dialogue, and add clips to an edit.</Description>
     <FilePath>main.js</FilePath>
   </Plugin>
 </BlackmagicDesign>

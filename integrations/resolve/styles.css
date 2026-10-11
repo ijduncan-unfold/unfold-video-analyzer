@@ -19,6 +19,13 @@ label { display: block; color: #b7c9dd; margin: 12px 0 6px; }
 .hint { color: #a1b3c6; font-size: 12px; line-height: 1.5; }
 #message { line-height: 1.6; overflow-wrap: anywhere; }
 #message.error { color: #ffb8a0; }
+.panel-status { position: sticky; top: 0; z-index: 2; background: #111820; padding: 8px 0; border-bottom: 1px solid #354557; }
+.panel-status header { margin-bottom: 8px; }
+.panel-status #message { margin: 0; }
+.load-actions { flex-wrap: wrap; }
+.load-actions button { flex: 1; }
+.action-status { display: block; color: #b4d8fc; }
+.action-status.error { color: #ffb8a0; }
 .project { color: #b4d8fc; margin-top: 14px; }
 .asset-toggle { margin-top: 10px; text-align: left; }
 #asset-picker { border: 1px solid #354557; border-radius: 5px; padding: 10px; margin-top: 6px; }

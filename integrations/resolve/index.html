@@ -9,12 +9,14 @@
 </head>
 <body>
   <main>
-    <header><h1>Video Analyzer</h1><div class="connection-status"><span id="connection-status" class="hint">Connecting…</span><button id="retry" class="quiet" type="button" hidden>Retry</button></div></header>
-    <p id="message" role="status" aria-live="polite">Start Video Analyzer. This panel connects automatically.</p>
+    <div class="panel-status"><header><h1>Video Analyzer</h1><div class="connection-status"><span id="connection-status" class="hint">Connecting…</span><button id="retry" class="quiet" type="button" hidden>Retry</button></div></header>
+    <p id="message" role="status" aria-live="polite">Start Video Analyzer. This panel connects automatically.</p></div>
     <section id="workspace" hidden>
       <p id="project-name" class="project"></p>
-      <button id="load-selection" class="full" type="button">Load selected Media Pool clips</button>
-      <button id="asset-toggle" class="full asset-toggle" type="button" aria-expanded="false">Choose a clip</button>
+      <div class="row load-actions"><button id="load-selection" type="button">Load Media Pool selection</button><button id="load-timeline" type="button">Load clip under playhead</button></div>
+      <p class="hint">Load selected source shots, or the video under the timeline playhead.</p>
+      <button id="reload-saved" class="full" type="button">Reload saved results</button>
+      <button id="asset-toggle" class="full asset-toggle" type="button" aria-expanded="false">Choose a source shot</button>
       <section id="asset-picker" hidden aria-label="Clips in this Resolve project">
         <input id="asset-search" type="search" placeholder="Search clips" aria-label="Search clips in this Resolve project" />
         <div id="asset-list" role="list"></div>
@@ -22,15 +24,18 @@
       <div class="row analysis"><select id="mode" aria-label="Analysis type"><option value="flash_only">Shots and tags</option><option value="flash_pro">Full analysis</option></select><button id="analyze" type="button" class="primary" disabled>Analyze</button></div>
       <p id="progress" class="hint" role="status" aria-live="polite"></p>
       <button id="sync-metadata" class="full" type="button" disabled>Sync metadata to Resolve</button>
-      <div class="tabs" role="tablist" aria-label="Analysis results"><button id="shots-tab" role="tab" type="button" aria-selected="true" aria-controls="results">Shots</button><button id="transcript-tab" role="tab" type="button" aria-selected="false" aria-controls="results">Transcript</button></div>
-      <input id="search" type="search" aria-label="Search shots" placeholder="Search shots, tags, composition…" maxlength="500" />
+      <div class="tabs" role="tablist" aria-label="Analysis results"><button id="shots-tab" role="tab" type="button" aria-selected="true" aria-controls="results">Clips</button><button id="transcript-tab" role="tab" type="button" aria-selected="false" aria-controls="results">Transcript</button></div>
+      <label id="search-label" for="search">Search clips</label>
+      <input id="search" type="search" aria-label="Search clips" placeholder="Descriptions, tags, composition" maxlength="500" />
       <div class="row tools"><p id="result-count" class="hint"></p><button id="add-markers" type="button" disabled>Add source markers</button></div>
-      <section id="shot-tools" aria-label="Selected shots">
+      <p class="hint marker-help">Source markers label moments on the original recording; they do not add footage to the timeline.</p>
+      <section id="shot-tools" aria-label="Selected clips">
         <div class="row"><label class="select-shots"><input id="select-shown" type="checkbox" /> Select shown</label><span id="selection-count" class="hint">0 selected</span></div>
         <div class="row shot-actions"><button id="save-shots" type="button" disabled>Save to Media Pool</button><button id="append-shots" type="button" class="primary" disabled>Add to timeline</button><button id="selects-timeline" type="button" disabled>New selects timeline</button></div>
-        <p class="hint">Up to 50 shots at a time. Adds to the end of the current timeline. Saved shots keep their own searchable metadata and reference the original media.</p>
+        <p id="timeline-status" class="hint"></p>
+        <p class="hint">Appends selected clips to the open timeline. Save to Media Pool to drag them into your edit.</p>
       </section>
-      <p class="hint timing">Times start at the beginning of the original media. Exact source-viewer seeking is not available.</p>
+      <p class="hint timing">Show source reveals its bin. Go to timeline locates a matching clip in your edit. Times are relative to the original recording.</p>
       <div id="results" role="tabpanel" aria-labelledby="shots-tab"></div>
       <button id="show-more" type="button" class="full" hidden>Show more</button>
       <footer class="row"><button id="export-subtitles" type="button" hidden>Export SRT</button><button id="open-analyzer" type="button" class="quiet">Open full analyzer</button></footer>

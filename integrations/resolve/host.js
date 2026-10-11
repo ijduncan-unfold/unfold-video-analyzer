@@ -173,7 +173,11 @@ function createHost(resolve) {
   async function projectIdentity(expected) {
     const { project, id } = await active(expected);
     method(project, "GetName");
-    return { id, name: String(await project.GetName() || "Resolve project") };
+    const timeline = typeof project.GetCurrentTimeline === "function" ? await project.GetCurrentTimeline() : null;
+    return { id, name: String(await project.GetName() || "Resolve project"), timeline: timeline ? {
+      id: identity(await timeline.GetUniqueId(), "timeline"),
+      name: typeof timeline.GetName === "function" ? String(await timeline.GetName() || "Timeline") : "Timeline",
+    } : null };
   }
   async function pool(project) { method(project, "GetMediaPool"); const result = await project.GetMediaPool(); if (!result) fail("NO_MEDIA_POOL", "Open the Media Pool in Resolve."); return result; }
   async function describe(item) {
@@ -190,17 +194,55 @@ function createHost(resolve) {
     return { item, descriptor: { item_id: id, name, media_path: path, source_fps: fps && fps <= 1000 ? fps : null, source_frames: Number.isInteger(frames) && frames > 0 ? frames : null, source_start: number(properties.Start),
       ...(absolutePath(proxy) ? { viewing_path: proxy, proxy_alignment_confirmed: true } : {}) } };
   }
-  async function getSelection() {
+  async function getSelection(source = "pool") {
+    if (!["pool", "timeline"].includes(source)) fail("INVALID_SELECTION", "Choose the Media Pool or the clip under the timeline playhead.");
     const { project, id } = await active();
     const media = await pool(project);
-    method(media, "GetSelectedClips");
-    const selected = list(await media.GetSelectedClips(), "the Media Pool selection");
+    let selected;
+    if (source === "timeline") {
+      method(project, "GetCurrentTimeline");
+      const timeline = await project.GetCurrentTimeline();
+      if (!timeline) fail("NO_TIMELINE", "Open a timeline and place its playhead over a video clip.");
+      method(timeline, "GetCurrentVideoItem");
+      const current = await timeline.GetCurrentVideoItem();
+      if (!current) fail("NO_TIMELINE_CLIP", "Place the timeline playhead over a video clip, then load it again.");
+      method(current, "GetMediaPoolItem");
+      const item = await current.GetMediaPoolItem();
+      if (!item) fail("SOURCE_UNAVAILABLE", "This timeline item has no original Media Pool clip. Choose original video footage.");
+      const sourceClip = await describe(item);
+      if (!sourceClip.descriptor) fail("SOURCE_UNAVAILABLE", sourceClip.warning);
+      // A timeline may use one of our trimmed subclips. Analyze the complete
+      // recording by finding its original Media Pool reference, not its trim.
+      method(media, "GetRootFolder");
+      const queue = [{ folder: await media.GetRootFolder(), depth: 0 }], seen = new Set();
+      let original = null, largest = 0, count = 0;
+      for (let index = 0; index < queue.length; index++) {
+        const { folder, depth } = queue[index];
+        if (!folder || seen.has(folder)) continue;
+        if (++count > MAX_ITEMS || depth > 64) fail("PROJECT_LIMIT", "This Media Pool is too large for the integration.");
+        seen.add(folder); method(folder, "GetClipList"); method(folder, "GetSubFolderList");
+        for (const candidate of list(await folder.GetClipList(), "Media Pool clips")) {
+          if (++count > MAX_ITEMS) fail("PROJECT_LIMIT", "This Media Pool is too large for the integration.");
+          const described = await describe(candidate), descriptor = described.descriptor;
+          if (descriptor && pathKey(descriptor.media_path) === pathKey(sourceClip.descriptor.media_path) && descriptor.source_start === 0 &&
+              descriptor.source_frames > largest && descriptor.source_fps && sourceClip.descriptor.source_fps && Math.abs(descriptor.source_fps - sourceClip.descriptor.source_fps) <= 0.001) {
+            original = candidate; largest = descriptor.source_frames;
+          }
+        }
+        for (const child of list(await folder.GetSubFolderList(), "Media Pool bins")) queue.push({ folder: child, depth: depth + 1 });
+      }
+      if (!original) fail("SOURCE_UNAVAILABLE", "Load this recording's full original into the Media Pool before analyzing its timeline clip.");
+      selected = [original];
+    } else {
+      method(media, "GetSelectedClips");
+      selected = list(await media.GetSelectedClips(), "the Media Pool selection");
+    }
     if (selected.length > 500) fail("SELECTION_LIMIT", "Select at most 500 original clips at a time.");
     const clips = [], warnings = [];
     for (const item of selected) { const result = await describe(item); if (result.warning) warnings.push(result.warning); else clips.push(result.descriptor); }
     await active(id);
     method(project, "GetName");
-    return { project_id: id, project_name: String(await project.GetName() || "Resolve project"), clips, warnings,
+    return { project_id: id, project_name: String(await project.GetName() || "Resolve project"), clips, warnings, selection_source: source,
       capabilities: { source_select: typeof media.SetSelectedClip === "function", source_seek: false, source_markers: true, max_marker_batch: MAX_MARKERS } };
   }
   async function locate(media, id) {
@@ -216,7 +258,7 @@ function createHost(resolve) {
       for (const item of list(await folder.GetClipList(), "Media Pool clips")) {
         if (++count > MAX_ITEMS) fail("PROJECT_LIMIT", "This Media Pool is too large for the preview integration.");
         method(item, "GetUniqueId");
-        if (await item.GetUniqueId() === id) return describe(item);
+        if (await item.GetUniqueId() === id) return { ...await describe(item), folder };
       }
       for (const child of list(await folder.GetSubFolderList(), "Media Pool bins")) queue.push({ folder: child, depth: depth + 1 });
     }
@@ -233,10 +275,13 @@ function createHost(resolve) {
     const sourceRate = number(binding.source_fps);
     if (!sourceRate || !result.descriptor.source_fps || Math.abs(sourceRate - result.descriptor.source_fps) > 0.001) fail("SOURCE_TIMEBASE_CHANGED", "Resolve's clip frame rate differs from the analyzed original, or could not be verified. Load the full original clip at its original frame rate.");
     await active(binding.project_id);
-    return { project, media, item: result.item, descriptor: result.descriptor };
+    return { project, media, item: result.item, descriptor: result.descriptor, folder: result.folder };
   }
   async function selectClip(binding) {
-    const { media, item } = await resolveBinding(binding);
+    const { media, item, folder } = await resolveBinding(binding);
+    // SetSelectedClip does not reveal a clip hidden in another bin.
+    method(media, "SetCurrentFolder");
+    if (await media.SetCurrentFolder(folder) !== true) fail("BIN_SELECT_FAILED", "Resolve could not open the source clip's Media Pool bin.");
     method(media, "SetSelectedClip");
     if (await media.SetSelectedClip(item) !== true) fail("SELECT_FAILED", "Resolve could not select this clip in the Media Pool.");
     method(media, "GetSelectedClips");
@@ -248,6 +293,54 @@ function createHost(resolve) {
     if (!confirmed) fail("SELECT_VERIFY_FAILED", "Resolve did not confirm the requested Media Pool selection.");
     await active(binding.project_id);
     return { selected: true, source_seek: false };
+  }
+  async function showTimelineClip(binding, cue) {
+    const { project, descriptor } = await resolveBinding(binding);
+    const range = cue ? { start: Math.round(seconds(cue.start, "Clip start") * descriptor.source_fps), end: Math.round(seconds(cue.end, "Clip end") * descriptor.source_fps) - 1 } : null;
+    if (range && (range.end < range.start || range.end >= descriptor.source_frames)) fail("INVALID_CUE", "This clip range falls outside the original recording.");
+    method(project, "GetCurrentTimeline");
+    const timeline = await project.GetCurrentTimeline();
+    if (!timeline) fail("NO_TIMELINE", "Open a timeline containing this source clip, or create a selects timeline first.");
+    method(timeline, "GetTrackCount"); method(timeline, "GetItemListInTrack"); method(timeline, "SetCurrentTimecode");
+    const tracks = number(await timeline.GetTrackCount("video"));
+    if (!Number.isInteger(tracks) || tracks < 0 || tracks > 1000) fail("INVALID_TIMELINE", "Resolve could not read this timeline's video tracks.");
+    let match = null, count = 0;
+    for (let track = 1; track <= tracks; track++) {
+      for (const item of list(await timeline.GetItemListInTrack("video", track), "timeline clips")) {
+        if (++count > MAX_ITEMS) fail("PROJECT_LIMIT", "This timeline is too large for the integration.");
+        method(item, "GetMediaPoolItem");
+        const source = await item.GetMediaPoolItem();
+        if (!source) continue;
+        method(source, "GetClipProperty");
+        const properties = await source.GetClipProperty();
+        if (properties && pathKey(properties["File Path"]) === pathKey(binding.media_path)) {
+          const sourceStart = number(properties.Start), sourceFrames = number(properties.Frames);
+          const sourceEnd = number(properties.End) ?? (sourceStart !== null && sourceFrames !== null ? sourceStart + sourceFrames - 1 : null);
+          if (range && (sourceStart === null || sourceEnd === null || sourceStart > range.start || sourceEnd < range.end)) continue;
+          const priority = range && sourceStart === range.start && sourceEnd === range.end ? 0 : 1;
+          method(item, "GetStart");
+          const start = number(await item.GetStart());
+          if (Number.isInteger(start) && (!match || priority < match.priority || priority === match.priority && start < match.start)) match = { start, priority };
+        }
+      }
+    }
+    if (!match) fail("CLIP_NOT_IN_TIMELINE", "This source is not in the open timeline. Add a clip or create a selects timeline first.");
+    method(timeline, "GetSetting");
+    const frameRateSetting = String(await timeline.GetSetting("timelineFrameRate"));
+    const rateMatch = /^(\d+(?:\.\d+)?)(?: DF)?$/.exec(frameRateSetting.trim());
+    const fps = rateMatch && number(rateMatch[1]);
+    if (!fps || fps > 1000) fail("INVALID_TIMELINE", "Resolve could not read the timeline frame rate.");
+    // Locate the clip, not an AI cue within a possibly retimed occurrence.
+    // Resolve's SDK cannot highlight arbitrary timeline selections.
+    const rate = Math.round(fps), drop = frameRateSetting.endsWith(" DF") || typeof timeline.GetStartTimecode === "function" && String(await timeline.GetStartTimecode()).includes(";");
+    const timecode = frameTimecode(match.start, rate, drop);
+    await active(binding.project_id);
+    const current = await project.GetCurrentTimeline();
+    if (!current || await current.GetUniqueId() !== await timeline.GetUniqueId()) fail("TIMELINE_CHANGED", "The current timeline changed. Try again.");
+    if (await timeline.SetCurrentTimecode(timecode) !== true) fail("SEEK_FAILED", "Resolve could not move the timeline playhead to this clip.");
+    method(timeline, "GetCurrentTimecode");
+    if (String(await timeline.GetCurrentTimecode()).replace(";", ":") !== timecode.replace(";", ":")) fail("SEEK_VERIFY_FAILED", "Resolve did not confirm the timeline playhead position.");
+    return { timecode, selected: false, ...(range ? { range_matched: match.priority === 0 } : {}) };
   }
   async function exportShots(binding, pack, destination = "pool") {
     if (!["pool", "current", "new"].includes(destination)) fail("INVALID_DESTINATION", "Choose Media Pool, current timeline, or a new selects timeline.");
@@ -497,6 +590,17 @@ function createHost(resolve) {
     }
     return { added: added.length, duplicates, collisions };
   }
-  return { getProjectIdentity: projectIdentity, getSelection, resolveBinding, selectClip, addMarkers, exportShots, syncMetadata };
+  return { getProjectIdentity: projectIdentity, getSelection, resolveBinding, selectClip, showTimelineClip, addMarkers, exportShots, syncMetadata };
 }
-module.exports = { createHost, HostError, MAX_MARKERS, MARKER_NAMESPACE, pathKey, timebase, prepareCues, markerMap, prepareShots, shotRecord, SHOT_BIN };
+function frameTimecode(frame, rate, drop) {
+  let value = frame;
+  if (drop) {
+    if (![30, 60].includes(rate)) fail("INVALID_TIMELINE", "Unsupported drop-frame timeline rate.");
+    const skipped = rate === 60 ? 4 : 2, tenMinutes = rate * 600 - skipped * 9, minute = rate * 60 - skipped;
+    const blocks = Math.floor(value / tenMinutes), remainder = value % tenMinutes;
+    value += skipped * 9 * blocks + (remainder >= skipped ? skipped * Math.floor((remainder - skipped) / minute) : 0);
+  }
+  return [Math.floor(value / (rate * 3600)), Math.floor(value / (rate * 60)) % 60, Math.floor(value / rate) % 60, value % rate]
+    .map(n => String(n).padStart(2, "0")).join(":").replace(/:(\d+)$/, (drop ? ";" : ":") + "$1");
+}
+module.exports = { createHost, HostError, MAX_MARKERS, MARKER_NAMESPACE, pathKey, timebase, prepareCues, markerMap, prepareShots, shotRecord, SHOT_BIN, frameTimecode };

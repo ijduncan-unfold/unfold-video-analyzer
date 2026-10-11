@@ -5,13 +5,16 @@
   let state = { connected: false, assets: [], results: [], queries: { shots: "", transcript: "" }, tab: "shots", mode: "flash_only", revision: 0 };
   let busy = false, shown = 50, pollTimer = null, searchTimer = null, requestNumber = 0, appliedNumber = 0, disposed = false;
   const selected = new Set();
+  const actionFeedback = new Map(), feedbackElements = new Map();
+  let resultsSignature = "", pickerSignature = "";
   function selectionKey(cue) { return JSON.stringify([cue.shot_number, cue.start, cue.end]); }
   function selectedIndices() { return state.results.map((cue, index) => selected.has(selectionKey(cue)) ? index : -1).filter(index => index >= 0); }
   function shotControls() {
     el("shot-tools").hidden = state.tab !== "shots";
     const count = selectedIndices().length;
     el("selection-count").textContent = count + " selected";
-    for (const id of ["save-shots", "append-shots", "selects-timeline"]) el(id).disabled = busy || !state.asset || !count || count > 50;
+    for (const id of ["save-shots", "append-shots", "selects-timeline"]) el(id).disabled = busy || !state.asset || !count || count > 50 || id === "append-shots" && state.project && state.project.timeline === null;
+    el("timeline-status").textContent = state.project && state.project.timeline ? "Open timeline: " + state.project.timeline.name : "No timeline is open. Choose New selects timeline to start an edit.";
     const visible = state.results.slice(0, shown);
     el("select-shown").checked = visible.length > 0 && visible.every(cue => selected.has(selectionKey(cue)));
     el("select-shown").disabled = busy || !visible.length || visible.length > 50;
@@ -23,7 +26,8 @@
     el("workspace").hidden = !state.connected;
     el("retry").hidden = state.connected; el("retry").disabled = busy;
     el("connection-status").textContent = state.connected ? "Connected" : "Waiting for app";
-    for (const id of ["load-selection", "asset-toggle", "mode", "shots-tab", "transcript-tab", "search"]) el(id).disabled = busy;
+    for (const id of ["load-selection", "load-timeline", "reload-saved", "asset-toggle", "mode", "shots-tab", "transcript-tab", "search"]) el(id).disabled = busy;
+    el("load-timeline").disabled = busy || state.project && state.project.timeline === null;
     const analyzing = state.asset && helpers.ACTIVE_STATUSES.includes(state.asset.status);
     el("analyze").disabled = busy || !state.asset || analyzing; el("mode").disabled = busy || analyzing;
     el("analyze").textContent = analyzing ? "Analyzing…" : state.asset && state.asset.shot_count ? "Analyze again" : "Analyze";
@@ -34,31 +38,38 @@
     el("export-subtitles").hidden = state.tab !== "transcript";
     el("export-subtitles").disabled = busy || !state.asset || !helpers.cues(state.asset, [], "transcript", "").length;
     el("open-analyzer").disabled = busy;
-    for (const button of document.querySelectorAll(".result button,.asset-option")) button.disabled = busy;
+    for (const button of document.querySelectorAll(".result button,.asset-option")) button.disabled = busy || button.requiresTimeline && state.project && state.project.timeline === null;
     shotControls();
   }
   function renderPicker() {
     el("project-name").textContent = state.project ? state.project.name : "";
     const title = asset => asset.metadata && asset.metadata.title || asset.filename || "Untitled clip";
-    el("asset-toggle").textContent = state.asset ? title(state.asset) : "Choose a clip";
+    el("asset-toggle").textContent = state.asset ? title(state.asset) : "Choose a source shot";
+    const signature = JSON.stringify([state.asset && state.asset.job_id, state.assets, el("asset-search").value]);
+    if (signature === pickerSignature) return;
+    pickerSignature = signature;
     const list = el("asset-list"); list.textContent = "";
     const query = el("asset-search").value;
     const assets = state.assets.filter(asset => helpers.includesQuery(title(asset), query));
     for (const asset of assets) {
       const button = document.createElement("button"); button.type = "button"; button.className = "asset-option" + (state.asset && state.asset.job_id === asset.job_id ? " selected" : ""); button.setAttribute("role", "listitem");
       const name = document.createElement("span"); helpers.appendHighlight(document, name, title(asset), query); button.appendChild(name);
-      const status = document.createElement("span"); status.className = "asset-status"; status.textContent = (asset.shot_count || 0) + " shots · " + (asset.status || "imported"); button.appendChild(status);
+      const status = document.createElement("span"); status.className = "asset-status"; status.textContent = (asset.shot_count || 0) + " clips · " + (asset.status || "imported"); button.appendChild(status);
       button.addEventListener("click", () => action("selectAsset", { id: asset.job_id }).then(() => { el("asset-picker").hidden = true; el("asset-toggle").setAttribute("aria-expanded", "false"); })); list.appendChild(button);
     }
     if (!assets.length) { const empty = document.createElement("p"); empty.className = "hint"; empty.textContent = query ? "No matching clips." : "Select original footage in Resolve's Media Pool, then load it here."; list.appendChild(empty); }
   }
   function renderResults() {
+    const signature = JSON.stringify([state.asset && state.asset.job_id, state.tab, state.queries[state.tab], state.results, state.total, state.revision, shown]);
+    if (signature === resultsSignature) return;
+    resultsSignature = signature; feedbackElements.clear();
     const list = el("results"); list.textContent = "";
     const query = state.queries[state.tab], results = state.results.slice(0, shown), revision = state.revision;
-    el("result-count").textContent = results.length + (state.tab === "shots" && state.total > results.length ? " of " + state.total : state.results.length > results.length ? " of " + state.results.length : "") + (state.tab === "shots" ? " shots" : results.length === 1 ? " line" : " lines");
+    el("result-count").textContent = results.length + (state.tab === "shots" && state.total > results.length ? " of " + state.total : state.results.length > results.length ? " of " + state.results.length : "") + (state.tab === "shots" ? results.length === 1 && state.total <= 1 ? " clip" : " clips" : results.length === 1 ? " line" : " lines");
     el("shots-tab").setAttribute("aria-selected", String(state.tab === "shots")); el("transcript-tab").setAttribute("aria-selected", String(state.tab === "transcript"));
     list.setAttribute("aria-labelledby", state.tab + "-tab");
-    el("search").setAttribute("placeholder", state.tab === "shots" ? "Search shots, tags, composition…" : "Search dialogue…"); el("search").setAttribute("aria-label", state.tab === "shots" ? "Search shots" : "Search dialogue");
+    el("search-label").textContent = state.tab === "shots" ? "Search clips" : "Search dialogue";
+    el("search").setAttribute("placeholder", state.tab === "shots" ? "Descriptions, tags, composition" : "Words or speaker"); el("search").setAttribute("aria-label", state.tab === "shots" ? "Search clips" : "Search dialogue");
     for (let index = 0; index < results.length; index++) {
       const result = results[index], article = document.createElement("article"); article.className = "result";
       const time = document.createElement("span"); time.className = "result-time"; time.textContent = helpers.cueTime(result.start) + " – " + helpers.cueTime(result.end); article.appendChild(time);
@@ -71,12 +82,17 @@
       const description = document.createElement("p"); helpers.appendHighlight(document, description, result.text, query); article.appendChild(description);
       for (const text of [result.detail, query && result.context]) if (text) { const detail = document.createElement("p"); detail.className = "result-detail"; helpers.appendHighlight(document, detail, text, query); article.appendChild(detail); }
       const tools = document.createElement("div"); tools.className = "row";
-      for (const [label, name] of [["Select clip in Resolve", "selectClip"], ["Copy times", "copyTimes"]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.addEventListener("click", () => action(name, { revision, index })); tools.appendChild(button); }
-      if (state.tab === "shots") for (const [label, destination] of [["Add to timeline", "current"], ["Save shot", "pool"]]) {
+      const feedbackKey = state.asset.job_id + ":" + selectionKey(result);
+      for (const [label, name] of [["Show source in Media Pool", "selectClip"], ["Go to timeline", "showTimelineClip"], ["Copy times", "copyTimes"]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.requiresTimeline = name === "showTimelineClip"; button.addEventListener("click", () => action(name, { revision, index }, feedbackKey)); tools.appendChild(button); }
+      if (state.tab === "shots") for (const [label, destination] of [["Add to timeline", "current"], ["Prepare to drag", "pool"]]) {
         const button = document.createElement("button"); button.type = "button"; button.textContent = label; if (destination === "current") button.className = "primary";
-        button.addEventListener("click", () => action("exportShots", { revision, indices: [index], destination })); tools.appendChild(button);
+        button.requiresTimeline = destination === "current";
+        button.addEventListener("click", () => action("exportShots", { revision, indices: [index], destination }, feedbackKey)); tools.appendChild(button);
       }
-      article.appendChild(tools); list.appendChild(article);
+      article.appendChild(tools);
+      const status = document.createElement("p"); status.className = "action-status"; status.setAttribute("role", "status");
+      const feedback = actionFeedback.get(feedbackKey); if (feedback) { status.textContent = feedback.text; if (feedback.error) status.className += " error"; }
+      feedbackElements.set(feedbackKey, status); article.appendChild(status); list.appendChild(article);
     }
     if (!results.length) { const empty = document.createElement("p"); empty.className = "hint"; empty.textContent = !state.asset ? "Load a clip to begin." : query ? "No matches. Try another search." : state.tab === "transcript" ? "No timed dialogue yet. Analyze footage with audio to populate this tab." : helpers.ACTIVE_STATUSES.includes(state.asset.status) ? "Shots appear as sections finish." : "Analyze this clip to discover shots."; list.appendChild(empty); }
     el("show-more").hidden = shown >= state.results.length;
@@ -85,7 +101,7 @@
     const projectChanged = !previous || (previous.project && previous.project.id) !== (state.project && state.project.id);
     const contextChanged = projectChanged || (previous.asset && previous.asset.job_id) !== (state.asset && state.asset.job_id) || previous.tab !== state.tab || previous.queries[previous.tab] !== state.queries[state.tab] ||
       (previous.asset && previous.asset.analysis_config && previous.asset.analysis_config.started_at) !== (state.asset && state.asset.analysis_config && state.asset.analysis_config.started_at);
-    if (contextChanged) { shown = 50; selected.clear(); }
+    if (contextChanged) { shown = 50; selected.clear(); actionFeedback.clear(); resultsSignature = ""; }
     const valid = new Set(state.results.map(selectionKey)); for (const key of selected) if (!valid.has(key)) selected.delete(key);
     if (projectChanged || previous.tab !== state.tab) el("search").value = state.queries[state.tab];
     el("mode").value = state.mode; el("progress").textContent = helpers.progressText(state.asset);
@@ -100,11 +116,17 @@
     if (!reply || !reply.ok) throw new Error(reply && reply.error && reply.error.message || "The plugin action failed.");
     return reply.state;
   }
-  async function action(name, payload) {
+  function feedback(key, text, error = false) {
+    if (!key) return;
+    actionFeedback.set(key, { text, error }); const status = feedbackElements.get(key);
+    if (status) { status.textContent = text; status.className = "action-status" + (error ? " error" : ""); }
+  }
+  async function action(name, payload, feedbackKey) {
     if (busy || disposed) return;
     busy = true; stopPoll(); controls();
-    try { const result = await call(name, payload); if (result.message) message(result.message); return result; }
-    catch (error) { message(error.message, true); }
+    feedback(feedbackKey, "Working…");
+    try { const result = await call(name, payload); if (result.message) { message(result.message); feedback(feedbackKey, result.message); } return result; }
+    catch (error) { message(error.message, true); feedback(feedbackKey, error.message, true); }
     finally { busy = false; controls(); schedulePoll(); }
   }
   async function poll() {
@@ -115,7 +137,9 @@
   }
   function on(id, event, callback) { el(id).addEventListener(event, callback); }
   on("retry", "click", () => action("connect"));
-  on("load-selection", "click", () => action("loadSelection"));
+  on("load-selection", "click", () => action("loadSelection", { source: "pool" }));
+  on("load-timeline", "click", () => action("loadSelection", { source: "timeline" }));
+  on("reload-saved", "click", () => action("reloadSaved"));
   on("asset-toggle", "click", () => { el("asset-picker").hidden = !el("asset-picker").hidden; el("asset-toggle").setAttribute("aria-expanded", String(!el("asset-picker").hidden)); if (!el("asset-picker").hidden) el("asset-search").focus(); });
   on("asset-search", "input", renderPicker);
   on("analyze", "click", () => action("analyze", { revision: state.revision }));
@@ -123,7 +147,7 @@
   on("shots-tab", "click", async () => { await action("setView", { tab: "shots" }); el("search").value = state.queries.shots; });
   on("transcript-tab", "click", async () => { await action("setView", { tab: "transcript" }); el("search").value = state.queries.transcript; });
   on("search", "input", () => { if (searchTimer !== null) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; shown = 50; action("setView", { query: el("search").value }); }, 250); });
-  on("select-shown", "change", () => { for (const cue of state.results.slice(0, shown)) { const key = selectionKey(cue); if (!el("select-shown").checked) selected.delete(key); else if (selected.size < 50) selected.add(key); } renderResults(); shotControls(); });
+  on("select-shown", "change", () => { for (const cue of state.results.slice(0, shown)) { const key = selectionKey(cue); if (!el("select-shown").checked) selected.delete(key); else if (selected.size < 50) selected.add(key); } resultsSignature = ""; renderResults(); shotControls(); });
   for (const [id, destination] of [["save-shots", "pool"], ["append-shots", "current"], ["selects-timeline", "new"]]) on(id, "click", () => action("exportShots", { revision: state.revision, indices: selectedIndices(), destination }));
   on("add-markers", "click", () => action("addMarkers", { revision: state.revision, count: Math.min(shown, state.results.length) }));
     on("sync-metadata", "click", () => action("syncMetadata", { revision: state.revision }));

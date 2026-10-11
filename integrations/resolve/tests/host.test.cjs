@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createHost, timebase, prepareCues, pathKey, MARKER_NAMESPACE, markerMap } = require("../host");
+const { createHost, timebase, prepareCues, pathKey, MARKER_NAMESPACE, markerMap, frameTimecode } = require("../host");
 const technical = { frame_rate: 24, nominal_frame_rate_fraction: "24/1", nominal_frame_rate_verified: true, frame_rate_verified_frames: 240, duration_seconds: 10 };
 const binding = { host: "resolve", project_id: "project-1", item_id: "clip-1", media_path: "C:\\Media\\original.mp4", source_fps: 24 };
 const cues = [{ start: 1, end: 2, name: "Shot 01", text: "A centered circle" }, { start: 3, end: 4, name: "Shot 02", text: "A person at right" }];
@@ -43,10 +43,15 @@ function mock(options = {}) {
   };
   const nested = { async GetClipList() { return [item]; }, async GetSubFolderList() { return []; } };
   const root = { async GetClipList() { return []; }, async GetSubFolderList() { return [nested]; } };
-  const pool = { async GetSelectedClips() { return selected; }, async SetSelectedClip(value) { if (!options.selectionFailure) selected = [value]; return true; }, async GetRootFolder() { return root; } };
-  const project = { async GetUniqueId() { return currentProject; }, async GetName() { return "Film"; }, async GetMediaPool() { return pool; } };
+  let currentFolder = root, currentTimecode = "01:00:10:00";
+  const pool = { async GetSelectedClips() { return selected; }, async SetCurrentFolder(value) { if (options.folderFailure) return false; currentFolder = value; return true; }, async SetSelectedClip(value) { if (!options.selectionFailure) selected = [value]; return true; }, async GetRootFolder() { return root; } };
+  const timelineItem = { GetMediaPoolItem: async () => options.generator ? null : options.timelineSource || item, GetStart: async () => 86424 };
+  const timeline = { GetUniqueId: async () => "timeline-1", GetName: async () => "Edit", GetCurrentVideoItem: async () => options.gap ? null : timelineItem,
+    GetTrackCount: async () => 1, GetItemListInTrack: async () => options.notInTimeline ? [] : options.timelineItems || [timelineItem], GetSetting: async () => "24", GetStartTimecode: async () => "01:00:00:00",
+    SetCurrentTimecode: async value => { if (options.seekFailure) return false; if (!options.falseSeekSuccess) currentTimecode = value; return true; }, GetCurrentTimecode: async () => currentTimecode };
+  const project = { async GetUniqueId() { return currentProject; }, async GetName() { return "Film"; }, async GetMediaPool() { return pool; }, GetCurrentTimeline: async () => options.noTimeline ? null : timeline };
   const resolve = { async GetProjectManager() { return { async GetCurrentProject() { return options.noProject ? null : project; } }; } };
-  return { host: createHost(resolve), markers, properties, events, item, pool, select() { selected = [item]; }, setProject(id) { currentProject = id; } };
+  return { host: createHost(resolve), markers, properties, events, item, pool, nested, getFolder: () => currentFolder, select() { selected = [item]; }, setProject(id) { currentProject = id; } };
 }
 test("Promise host returns stable project and original Media Pool selection", async () => {
   const m = mock(); m.select(); const result = await m.host.getSelection();
@@ -64,6 +69,19 @@ test("missing current project returns an actionable error", async () => { await 
 test("missing stable project API never substitutes project name", async () => { const host = createHost({ GetProjectManager: async () => ({ GetCurrentProject: async () => ({ GetName: async () => "Film" }) }) }); await assert.rejects(host.getSelection(), { code: "UNSUPPORTED_API" }); });
 test("timeline, generator and unavailable paths are warnings rather than imports", async () => { const m = mock({ properties: { "File Path": "" } }); m.select(); const result = await m.host.getSelection(); assert.equal(result.clips.length, 0); assert.match(result.warnings[0], /original video/); });
 test("source selection is confirmed and never claims viewer positioning", async () => { const m = mock(); assert.deepEqual(await m.host.selectClip(binding), { selected: true, source_seek: false }); });
+test("showing a nested source reveals its bin before selecting the clip", async () => { const m = mock(); await m.host.selectClip(binding); assert.equal(m.getFolder(), m.nested); });
+test("failure to reveal a bin prevents a false selection success", async () => { await assert.rejects(mock({ folderFailure: true }).host.selectClip(binding), { code: "BIN_SELECT_FAILED" }); });
+test("timeline loading reads the underlying original without relying on Media Pool selection", async () => { const m = mock(); const selection = await m.host.getSelection("timeline"); assert.equal(selection.clips[0].item_id, binding.item_id); assert.equal(selection.selection_source, "timeline"); });
+test("timeline subclips load the full original rather than registering their trims", async () => { const m = mock({ timelineSource: { GetUniqueId: async () => "trimmed", GetClipProperty: async () => ({ "File Path": binding.media_path, FPS: 24, Start: 24, Frames: 24 }) } }); const selection = await m.host.getSelection("timeline"); assert.equal(selection.clips[0].item_id, binding.item_id); assert.equal(selection.clips[0].source_frames, 240); });
+test("timeline loading reports absent timeline, gaps, and generators", async () => { for (const [options, code] of [[{ noTimeline: true }, "NO_TIMELINE"], [{ gap: true }, "NO_TIMELINE_CLIP"], [{ generator: true }, "SOURCE_UNAVAILABLE"]]) await assert.rejects(mock(options).host.getSelection("timeline"), { code }); });
+test("timeline navigation seeks and verifies the first matching source occurrence", async () => { const m = mock(); assert.deepEqual(await m.host.showTimelineClip(binding), { timecode: "01:00:01:00", selected: false }); });
+test("timeline navigation prefers the matching analyzed subclip over an earlier full-source occurrence", async () => {
+  const poolItem = (start, end) => ({ GetClipProperty: async () => ({ "File Path": binding.media_path, Start: start, End: end, Frames: end - start + 1 }) });
+  const m = mock({ timelineItems: [{ GetMediaPoolItem: async () => poolItem(0, 239), GetStart: async () => 86424 }, { GetMediaPoolItem: async () => poolItem(24, 47), GetStart: async () => 86700 }] });
+  assert.deepEqual(await m.host.showTimelineClip(binding, cues[0]), { timecode: "01:00:12:12", selected: false, range_matched: true });
+});
+test("timeline navigation reports no matching occurrence and false native seek success", async () => { for (const [options, code] of [[{ noTimeline: true }, "NO_TIMELINE"], [{ notInTimeline: true }, "CLIP_NOT_IN_TIMELINE"], [{ seekFailure: true }, "SEEK_FAILED"], [{ falseSeekSuccess: true }, "SEEK_VERIFY_FAILED"]]) await assert.rejects(mock(options).host.showTimelineClip(binding), { code }); });
+test("frame navigation handles standard and drop-frame timecode boundaries", () => { assert.equal(frameTimecode(86424, 24, false), "01:00:01:00"); assert.equal(frameTimecode(1800, 30, true), "00:01:00;02"); assert.equal(frameTimecode(17982, 30, true), "00:10:00;00"); assert.equal(frameTimecode(215784, 60, true), "01:00:00;00"); });
 test("unconfirmed native selection is reported", async () => { await assert.rejects(mock({ selectionFailure: true }).host.selectClip(binding), { code: "SELECT_VERIFY_FAILED" }); });
 test("a switched project cannot receive selection or marker actions", async () => { const m = mock(); m.setProject("other"); await assert.rejects(m.host.selectClip(binding), { code: "PROJECT_CHANGED" }); await assert.rejects(m.host.addMarkers(binding, technical, cues), { code: "PROJECT_CHANGED" }); assert.equal(m.events.length, 0); });
 test("relinked clip path blocks native actions", async () => { const m = mock({ properties: { "File Path": "C:\\Media\\different.mp4" } }); await assert.rejects(m.host.selectClip(binding), { code: "MEDIA_CHANGED" }); });
