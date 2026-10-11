@@ -65,6 +65,8 @@ async def run_analysis(
     """
     usage_records: list[dict] = []
     warnings = ["AI-generated timestamps are approximate; review metadata before editorial use."]
+    if job.technical.get('viewing_proxy', {}).get('decoder') == 'sony_f55_raw':
+        warnings.append('Sony RAW analysis uses an SDK-developed viewing proxy with an approximate display transform; color results describe the proxy, not calibrated RAW color.')
     flash_dict = None
     deep_results = []
     summary_dict = custom_result_dict = None
@@ -139,7 +141,8 @@ async def run_analysis(
         for key in ('upload_part_seconds', 'proxy_max_resolution', 'summary_input'):
             config.pop(key, None)
         if media is None:
-            config['upload_strategy'] = 'youtube_url' if job.youtube_url else 'original'
+            config['upload_strategy'] = ('youtube_url' if job.youtube_url else
+                                         'viewing_proxy' if job.viewing_path else 'original')
         config.update({"provider": "gemini", "analysis_model": settings.gemini_analysis_model,
                        "deep_model": settings.gemini_deep_model, "fps": fps, "mode": mode,
                        "schema_version": "2.0", "processing": "static",

@@ -1,0 +1,214 @@
+import asyncio
+import io
+import json
+import struct
+import uuid
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.services import camera_media, native_camera, sony_raw_worker as worker
+from app.services.job_store import list_jobs
+from app.services.media_cleanup import cleanup
+
+FACTS = {'duration_seconds': 10., 'frame_rate': 24., 'frame_rate_fraction': '24/1',
+         'width': 4096, 'height': 2160, 'codec': 'F55RAWSQ_4096_2160', 'has_audio': True,
+         'source_timecode': '01:00:00:00', 'audio_stream_count': 4}
+
+
+def picture(index=0, width=4128, height=2192):
+    return b'SBRa' + struct.pack('>IHH', index, width, height//2) + b'\x00'*8
+
+
+def klv(payload, picture_key=True):
+    key = bytes.fromhex('060e2b34010201060e067f0315017f00') if picture_key else bytes.fromhex('060e2b34010101020301021001000000')
+    return key + b'\x83' + len(payload).to_bytes(3, 'big') + payload
+
+
+def test_mxf_walk_uses_actual_klv_lengths_not_fixture_stride():
+    frames = [picture(0), picture(1)+b'variable bytes', picture(2)]
+    data = klv(b'SBRa in non-picture metadata', False) + klv(frames[0]) + klv(b'pad', False) + klv(frames[1]) + klv(frames[2])
+    assert list(worker.pictures(io.BytesIO(data), len(data))) == frames
+
+
+@pytest.mark.parametrize('data', [b'bad header', klv(picture())[:-1], bytes.fromhex('060e2b34010201060e067f0315017f00') + b'\x80'])
+def test_malformed_mxf_stops_without_resyncing_or_decoding(data):
+    with pytest.raises(ValueError):
+        list(worker.pictures(io.BytesIO(data), len(data)))
+
+
+def test_picture_geometry_is_bounded_and_not_guessed():
+    assert worker.picture_header(picture(7)) == (7, 4128, 2192)
+    with pytest.raises(ValueError):
+        worker.picture_header(picture(width=65534, height=65534))
+    with pytest.raises(ValueError):
+        worker.picture_header(picture(width=3))
+
+
+def test_coded_plane_strides_and_active_crop_preserve_image_and_bgr_channels():
+    decoder = worker.Decoder.__new__(worker.Decoder)
+    decoder.dev, decoder.output = None, worker.RawBuffer()
+    decoder.develop = lambda *args: 0
+    decoder.r, decoder.b = np.full((6, 8), 1000, dtype=np.uint16), np.full((6, 8), 4000, dtype=np.uint16)
+    decoder.g = np.full((6, 16), 2000, dtype=np.uint16)
+    decoder.mosaic = np.empty((12, 16), dtype=np.uint16)
+    decoder.crop = (2, 2, 12, 8)
+    lut = (np.arange(65536) // 256).astype(np.uint8)
+    image = np.frombuffer(decoder.decode(picture(), (12, 8), lut), dtype=np.uint8).reshape(8, 12, 3)
+    assert (image == [15, 7, 3]).all()  # BGR, not RGB, and no diagonal stride corruption.
+
+
+def test_viewing_transform_has_fixed_levels_for_the_entire_clip():
+    lut = worker.viewing_lut(512, 5472)
+    assert lut[0] == lut[512] == 0 and lut[5472] == lut[65535] == 255
+    assert (np.diff(lut.astype(int)) >= 0).all()
+    with pytest.raises(ValueError):
+        worker.viewing_lut(512, 511)
+
+
+def test_only_f55_mxf_routes_to_the_experimental_native_adapter():
+    assert native_camera.supports_sony_f55('camera.mxf', FACTS)
+    assert not native_camera.supports_sony_f55('camera.mxf', {**FACTS, 'codec':'XOCN'})
+    assert not native_camera.supports_sony_f55('camera.braw', FACTS)
+
+
+def test_unverified_dll_is_rejected_before_any_native_call(tmp_path):
+    dll = tmp_path/'SonyRawDev.dll'
+    dll.write_bytes(b'wrong version')
+    if worker.sys.platform == 'win32':
+        with pytest.raises(ValueError, match='version'):
+            worker.Decoder(dll, tmp_path, picture(), 4096, 2160)
+
+
+def test_f55_import_automatically_generates_viewing_copy_and_reuses_it(client, tmp_path):
+    original = tmp_path/'sony.mxf'
+    original.write_bytes(b'camera original')
+    progress = []
+    async def develop(source, folder, technical, on_progress):
+        assert source == original.resolve() and technical['codec'] == FACTS['codec']
+        folder.mkdir(parents=True)
+        proxy = folder/'sony-viewing.mp4'
+        proxy.write_bytes(b'generated video')
+        on_progress({'message':'Preparing Sony RAW proxy', 'percent':50})
+        return proxy, {'generated':True, 'codec':'h264', 'decoder':'sony_f55_raw', 'color_calibrated':False}
+    with patch.object(camera_media, 'probe_media', AsyncMock(return_value=FACTS)), \
+         patch.object(camera_media, 'decode_check', AsyncMock(return_value=False)), \
+         patch.object(camera_media, 'create_poster', AsyncMock()) as poster, \
+         patch.object(native_camera, 'prepare_sony_viewing', AsyncMock(side_effect=develop)) as convert:
+        job = asyncio.run(camera_media.register_camera_source(str(original), on_progress=progress.append))
+        repeated = asyncio.run(camera_media.register_camera_source(str(original)))
+    assert len(list_jobs()) == 1 and repeated.job_id == job.job_id
+    convert.assert_awaited_once()
+    assert poster.call_args.args[0] == job.viewing_path
+    assert job.local_path == str(original.resolve()) and job.size_bytes == len(b'camera original')
+    assert job.technical['codec'] == FACTS['codec'] and job.technical['viewing_proxy']['generated']
+    assert progress[-1]['percent'] == 50 and 'approximate' in job.warnings[0]
+    assert cleanup(job) and not Path(job.viewing_path).exists()
+    assert original.read_bytes() == b'camera original'
+
+
+def test_failed_native_import_creates_no_project_and_keeps_original(client, tmp_path):
+    source = tmp_path/'sony.mxf'; source.write_bytes(b'original')
+    with patch.object(camera_media, 'probe_media', AsyncMock(return_value=FACTS)), \
+         patch.object(camera_media, 'decode_check', AsyncMock(return_value=False)), \
+         patch.object(native_camera, 'prepare_sony_viewing', AsyncMock(side_effect=ValueError('Unsupported bitstream'))):
+        with pytest.raises(HTTPException, match='Unsupported bitstream'):
+            asyncio.run(camera_media.register_camera_source(str(source)))
+    assert not list_jobs() and source.read_bytes() == b'original'
+
+
+def test_proxy_corruption_is_caught_before_repeat_import(client, tmp_path):
+    source = tmp_path/'sony.mxf'; source.write_bytes(b'original')
+    async def develop(original, folder, *args):
+        folder.mkdir(parents=True)
+        proxy=folder/'sony-viewing.mp4';proxy.write_bytes(b'proxy')
+        return proxy, {'generated':True,'codec':'h264'}
+    with patch.object(camera_media,'probe_media',AsyncMock(return_value=FACTS)), \
+         patch.object(camera_media,'decode_check',AsyncMock(return_value=False)), \
+         patch.object(camera_media,'create_poster',AsyncMock()), \
+         patch.object(native_camera,'prepare_sony_viewing',AsyncMock(side_effect=develop)):
+        job=asyncio.run(camera_media.register_camera_source(str(source)))
+        Path(job.viewing_path).write_bytes(b'changed')
+        with pytest.raises(HTTPException, match='changed'):
+            asyncio.run(camera_media.register_camera_source(str(source)))
+
+
+def test_import_progress_is_loopback_same_origin_and_contains_no_media_path(client, tmp_path):
+    from app.routers import local_media
+    ident=uuid.uuid4()
+    local_media._import_progress[str(ident)]={'message':'Preparing Sony RAW proxy','stage':'decoding','percent':27,'updated_at':0}
+    with TestClient(app,base_url='http://127.0.0.1:8000',client=('127.0.0.1',50000)) as local:
+        response=local.get(f'/api/local-media/import-progress/{ident}')
+        assert response.status_code==200 and response.json()['percent']==27
+        assert 'updated_at' not in response.json()
+        assert local.get(f'/api/local-media/import-progress/{ident}',headers={'Origin':'https://evil.invalid'}).status_code==403
+    with TestClient(app,base_url='http://127.0.0.1:8000',client=('192.0.2.1',50000)) as remote:
+        assert remote.get(f'/api/local-media/import-progress/{ident}').status_code==403
+    local_media._import_progress.pop(str(ident))
+
+
+def test_interpreted_frame_rate_rejected_before_native_decode(client,tmp_path):
+    source=tmp_path/'sony.mxf';source.write_bytes(b'original')
+    with patch.object(camera_media,'probe_media',AsyncMock(return_value=FACTS)), \
+         patch.object(camera_media,'decode_check',AsyncMock(return_value=False)), \
+         patch.object(native_camera,'prepare_sony_viewing',AsyncMock()) as decoder:
+        with pytest.raises(HTTPException,match='interpreted'):
+            asyncio.run(camera_media.register_camera_source(str(source),source_fps=25))
+        decoder.assert_not_awaited()
+
+
+@pytest.mark.parametrize('changed', [
+    {'frame_rate_verified_frames': 239}, {'audio_stream_count': 3},
+    {'duration_seconds': 9}, {'frame_rate_fraction': '25/1'},
+    {'codec': 'hevc'}, {'has_audio': False},
+])
+def test_incomplete_or_misaligned_worker_output_is_removed_before_publication(client, tmp_path, changed):
+    source = tmp_path/'original.mxf'; source.write_bytes(b'original')
+    folder = Path(camera_media.settings.upload_dir)/str(uuid.uuid4()); folder.mkdir(parents=True)
+    target = folder/'sony-viewing.mp4'; target.write_bytes(b'partial or bad proxy')
+    (folder/'sony-progress.json').write_text(json.dumps({'stage':'complete','frames':240}))
+    proc = SimpleNamespace(returncode=0, wait=AsyncMock(return_value=0))
+    facts = {**FACTS, 'codec':'h264','width':1280,'height':676,'frame_rate_verified_frames':240, **changed}
+    with patch.object(native_camera,'sony_runtime',return_value=(tmp_path/'SonyRawDev.dll',tmp_path)), \
+         patch.object(native_camera.shutil,'which',return_value='ffmpeg'), \
+         patch.object(native_camera.asyncio,'create_subprocess_exec',AsyncMock(return_value=proc)), \
+         patch.object(native_camera,'probe_media',AsyncMock(return_value=facts)):
+        with pytest.raises(ValueError,match='checks'):
+            asyncio.run(native_camera._prepare_sony_viewing(source,folder,FACTS,None))
+    assert not target.exists() and not (folder/'sony-progress.json').exists()
+    assert source.read_bytes()==b'original'
+
+
+def test_frozen_worker_dispatch_never_starts_the_desktop_server_or_window():
+    from app import desktop
+    with patch.object(worker,'main',return_value=7) as run, \
+         patch.object(desktop,'configure_environment') as configure:
+        assert desktop.main(['--sony-raw-worker','--source','camera.mxf'])==7
+        run.assert_called_once_with(['--source','camera.mxf'])
+        configure.assert_not_called()
+
+
+def test_gemini_upload_uses_generated_viewing_proxy_and_mp4_mime(asset,tmp_path):
+    from app.services import file_manager
+    from app.services.job_store import update_job
+    source=tmp_path/'original.mxf';source.write_bytes(b'original')
+    proxy=tmp_path/'sony-viewing.mp4';proxy.write_bytes(b'proxy')
+    original_fp,_,_=camera_media.source_fingerprint(source)
+    proxy_fp,_,_=camera_media.source_fingerprint(proxy)
+    job=update_job(asset.job_id,local_path=str(source),viewing_path=str(proxy),
+                   media_origin='external',source_fingerprint=original_fp,viewing_fingerprint=proxy_fp,
+                   file_id='',file_uri='',mime_type='application/mxf',
+                   technical={**FACTS,'viewing_proxy':{'generated':True}})
+    with patch.object(file_manager,'get_client'), \
+         patch.object(file_manager,'upload_video',AsyncMock(return_value=SimpleNamespace(name='owned-proxy'))) as upload, \
+         patch.object(file_manager,'poll_until_active',AsyncMock(return_value=SimpleNamespace(name='owned-proxy',uri='proxy-uri'))):
+        result=asyncio.run(file_manager.ensure_remote_file(job))
+        upload.assert_awaited_once_with(str(proxy),'video/mp4',api_key=None)
+        assert result.file_uri=='proxy-uri'
+    assert source.read_bytes()==b'original'

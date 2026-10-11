@@ -17,6 +17,13 @@ def proxy_decision(job, mode='auto'):
         raise ValueError('Proxy mode must be Auto, Always, or Off')
     decision = {'proxy_mode': mode, 'proxy_used': False, 'proxy_reason': '',
                 'upload_strategy': 'youtube_url' if job.youtube_url else 'original'}
+    duration = time_to_seconds(job.technical.get('duration_seconds') or 0)
+    prepared = bool(job.technical.get('viewing_proxy', {}).get('generated')) and bool(getattr(job, 'viewing_path', None))
+    if prepared and not job.youtube_url and (mode == 'off' or mode == 'auto' and 0 < duration < 1800):
+        decision.update(upload_strategy='viewing_proxy', proxy_reason=(
+            'Extra analysis proxying is off; using the prepared camera viewing proxy' if mode == 'off'
+            else 'Using the prepared camera viewing proxy'))
+        return decision
     if mode == 'off':
         decision['proxy_reason'] = 'Proxying is off; using the original source'
         return decision
@@ -25,7 +32,6 @@ def proxy_decision(job, mode='auto'):
             raise ValueError('Always proxy requires a local source video')
         decision['proxy_reason'] = 'No local source to proxy'
         return decision
-    duration = time_to_seconds(job.technical.get('duration_seconds') or 0)
     codec = str(job.technical.get('codec') or '').lower()
     reason = ''
     if mode == 'always':

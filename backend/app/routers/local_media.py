@@ -1,6 +1,8 @@
 """Same-origin, loopback-only registration; no originals are uploaded or copied."""
 from urllib.parse import urlsplit
 import os
+import time
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -25,11 +27,12 @@ def require_local_import(request: Request):
     if request.headers.get('sec-fetch-site') not in {None, 'same-origin', 'none'} and not (
             origin in settings.allowed_origins and urlsplit(origin).hostname in {'127.0.0.1', 'localhost', '::1'}):
         raise HTTPException(403, 'Linked media import requires the local app origin.')
-    if request.headers.get('content-type', '').split(';')[0].strip() != 'application/json':
+    if request.method not in {'GET', 'HEAD'} and request.headers.get('content-type', '').split(';')[0].strip() != 'application/json':
         raise HTTPException(415, 'Use the local app import form.')
 
 
 router = APIRouter(prefix='/api/local-media', dependencies=[Depends(require_local_import)])
+_import_progress = {}
 
 
 class LocalMediaRequest(BaseModel):
@@ -37,6 +40,7 @@ class LocalMediaRequest(BaseModel):
     media_path: str = Field(min_length=1, max_length=4096)
     viewing_path: str = Field(default='', max_length=4096)
     proxy_alignment_confirmed: bool = False
+    import_id: UUID | None = None
 
     @field_validator('media_path', 'viewing_path')
     @classmethod
@@ -49,8 +53,39 @@ class LocalMediaRequest(BaseModel):
 
 @router.post('/import', status_code=201)
 async def import_original(body: LocalMediaRequest):
-    job = await register_camera_source(body.media_path, body.viewing_path, body.proxy_alignment_confirmed)
-    return asset_view(job, detail=True)
+    ident = str(body.import_id) if body.import_id else None
+    now = time.monotonic()
+    for key, value in list(_import_progress.items()):
+        if value.get('stage') in {'complete', 'error'} and now - value['updated_at'] > 3600:
+            _import_progress.pop(key, None)
+    if ident and ident in _import_progress:
+        raise HTTPException(409, 'This import is already running or completed. Use a new import identifier.')
+    if len(_import_progress) >= 100:
+        oldest = next((key for key, value in _import_progress.items() if value.get('stage') in {'complete', 'error'}), None)
+        if oldest:
+            _import_progress.pop(oldest, None)
+    if len(_import_progress) >= 100:
+        raise HTTPException(429, 'Too many imports; wait before importing more media.')
+    def progress(state):
+        if ident:
+            _import_progress[ident] = {**state, 'updated_at': time.monotonic()}
+    progress({'stage': 'inspecting', 'message': 'Reading original media'})
+    try:
+        kwargs = {'on_progress': progress} if ident else {}
+        job = await register_camera_source(body.media_path, body.viewing_path, body.proxy_alignment_confirmed, **kwargs)
+        progress({'stage': 'complete', 'message': 'Import complete', 'percent': 100})
+        return asset_view(job, detail=True)
+    except BaseException:
+        progress({'stage': 'error', 'message': 'Import could not complete'})
+        raise
+
+
+@router.get('/import-progress/{import_id}')
+def import_progress(import_id: UUID):
+    state = _import_progress.get(str(import_id))
+    if not state:
+        return {'stage': 'pending', 'message': 'Reading original media'}
+    return {key: value for key, value in state.items() if key != 'updated_at'}
 
 
 class OpenDesktopRequest(BaseModel):

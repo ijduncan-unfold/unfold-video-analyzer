@@ -160,9 +160,11 @@ def main():
         "Video Analyzer personal transfer bundle - Windows x64\n\n"
         "Extract the entire ZIP. Double-click Run Video Analyzer.cmd. Keep its folders together.\n"
         "The included frozen app and FFmpeg need no separate Python/Node/Adobe/Resolve installation.\n"
-        "This is an experimental decoder collection, not a finished RAW import integration.\n"
-        "Native camera adapters have not been wired into this app build. Only Sony F55 frames\n"
-        "have passed a separate decode experiment; other camera families have only load tests.\n"
+        "Drop a Sony F55 RAW MXF into the desktop window, keeping its adjacent M01.xml.\n"
+        "The app references the original in place and automatically prepares a small\n"
+        "viewing proxy with progress. A complete F55 clip passed frame/timing/audio checks.\n"
+        "Viewing colors are approximate, not a calibrated RAW grade. Other bundled\n"
+        "camera families have load tests only; their native adapters are not enabled.\n"
         "Bundled camera-decoders contain selected runtimes and their companion resources.\n"
         "Manifest hashes record exact components. GPU modules still need the appropriate\n"
         "hardware drivers (OpenCL/CUDA); Windows system libraries are supplied by Windows.\n"
@@ -174,7 +176,7 @@ def main():
         encoding="utf8")
     manifest = {"created_at": datetime.now(timezone.utc).isoformat(), "platform": "windows-x64",
                 "personal_transfer_bundle": True, "vendor_permissions_verified": False,
-                "decoder_adapters_enabled": False, "app_included": bool(args.app),
+                "decoder_adapters_enabled": ["sony_f55_raw"] if args.app else [], "app_included": bool(args.app),
                 "families": families, "load_probes": probes,
                 "files": [{**entry, "path": str(entry["path"].relative_to(staging))} for entry in records]}
     (staging / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf8")

@@ -96,8 +96,13 @@ def sony_sidecar(path, technical):
         if rate > 0:
             result['frame_rate'], result['frame_rate_fraction'] = float(rate), str(rate)
         capture = {item.get('name'): item.get('value') for item in root.findall('.//{*}AcquisitionRecord/{*}Group/{*}Item')
-                   if item.get('name') in {'ISOSensitivity', 'WhiteBalance', 'CaptureGammaEquation', 'MonitoringBaseCurve', 'ExposureIndexOfPhotoMeter', 'LensAttributes'}}
+                   if item.get('name') in {'ISOSensitivity', 'WhiteBalance', 'CaptureGammaEquation', 'MonitoringBaseCurve', 'ExposureIndexOfPhotoMeter', 'LensAttributes', 'RawBlackCodeValue', 'RawGrayCodeValue', 'RawWhiteCodeValue'}}
         result['camera_metadata']['capture'] = capture
+        duration = root.find('.//{*}Duration')
+        if duration is not None:
+            count = int(duration.get('value', '0'))
+            if 0 < count <= 1_000_000:
+                result['camera_frame_count'] = count
         return result
     except (OSError, ValueError, TypeError, ET.ParseError, ZeroDivisionError):
         return technical
@@ -134,12 +139,12 @@ def decoder_guidance(filename, codec=''):
             'start timecode, framing and audio; do not trim or retime it. The original will remain the edit source.')
 
 
-async def register_camera_source(media_path, proxy_path='', aligned=False, source_fps=None):
+async def register_camera_source(media_path, proxy_path='', aligned=False, source_fps=None, on_progress=None):
     async with _link_lock:
-        return await _register_camera_source(media_path, proxy_path, aligned, source_fps)
+        return await _register_camera_source(media_path, proxy_path, aligned, source_fps, on_progress)
 
 
-async def _register_camera_source(media_path, proxy_path, aligned, source_fps):
+async def _register_camera_source(media_path, proxy_path, aligned, source_fps, on_progress=None):
     original = Path(media_path)
     if not original.is_absolute() or not get_mime_type(original.name):
         raise HTTPException(422, 'Choose an absolute path to recognized video or camera media.')
@@ -152,6 +157,18 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps):
         raise HTTPException(422, 'Choose an absolute path to the full-length viewing proxy.')
     if proxy and not aligned:
         raise HTTPException(422, 'Confirm that the viewing proxy is the same complete clip without trimming or retiming.')
+    # Generated media is reused across imports and restarts after both identity
+    # checks. The original is never copied, and another decode is unnecessary.
+    if not proxy:
+        for existing in list_jobs():
+            if (existing.media_origin == 'external' and existing.source_fingerprint == fingerprint
+                    and existing.technical.get('viewing_proxy', {}).get('generated')
+                    and existing.status != 'deleting'):
+                ensure_source_unchanged(existing)
+                _check_interpreted_rate(source_fps, existing.technical)
+                return existing
+    if on_progress:
+        on_progress({'stage': 'inspecting', 'message': 'Reading original media'})
     try:
         technical = await probe_media(str(original))
     except ValueError:
@@ -160,6 +177,8 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps):
         raise HTTPException(503, 'FFmpeg and ffprobe are required to import camera media.')
     technical = sony_sidecar(original, technical)
     viewing_fingerprint = ''
+    ident = str(uuid.uuid4())
+    generated = False
     if proxy:
         try:
             viewing_fingerprint, proxy, _ = source_fingerprint(proxy)
@@ -191,8 +210,20 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps):
         source = proxy
     else:
         if not technical or not await decode_check(original):
-            raise HTTPException(422, decoder_guidance(original.name, technical.get('codec', '')))
-        source = original
+            from app.services.native_camera import supports_sony_f55, prepare_sony_viewing
+            if not supports_sony_f55(original, technical):
+                raise HTTPException(422, decoder_guidance(original.name, technical.get('codec', '')))
+            _check_interpreted_rate(source_fps, technical)
+            try:
+                proxy, generated_facts = await prepare_sony_viewing(original,
+                    Path(settings.upload_dir) / ident, technical, on_progress)
+                viewing_fingerprint, proxy, _ = source_fingerprint(proxy)
+            except (ValueError, OSError) as exc:
+                raise HTTPException(422, str(exc))
+            technical['viewing_proxy'] = generated_facts
+            technical['technical_basis'] = 'Original inspection and Sony recording metadata; SDK-developed viewing proxy'
+            generated = True
+        source = proxy or original
     if not math.isfinite(technical.get('duration_seconds', 0)) or technical.get('duration_seconds', 0) <= 0:
         raise HTTPException(422, 'A positive measured duration is required.')
     _check_interpreted_rate(source_fps, technical)
@@ -202,13 +233,21 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps):
         if (job.media_origin == 'external' and job.source_fingerprint == fingerprint
                 and job.viewing_fingerprint == viewing_fingerprint and job.status != 'deleting'):
             return job
-    ident = str(uuid.uuid4())
     job = Job(job_id=ident, file_id='', file_uri='', mime_type=get_mime_type(original.name),
               filename=original.name, size_bytes=size, local_path=str(original), technical=technical,
               metadata={'title': original.stem[:250]}, media_origin='external', source_fingerprint=fingerprint,
               viewing_path=str(proxy) if proxy else '', viewing_fingerprint=viewing_fingerprint)
-    await create_poster(str(source), str(Path(settings.upload_dir) / ident / 'poster.jpg'), technical['duration_seconds'])
-    ensure_source_unchanged(job)
-    if proxy:
+    try:
+        await create_poster(str(source), str(Path(settings.upload_dir) / ident / 'poster.jpg'), technical['duration_seconds'])
+        ensure_source_unchanged(job)
+    except BaseException:
+        if generated:
+            # Only this import's derived outputs; never an external original.
+            Path(proxy).unlink(missing_ok=True)
+            (Path(settings.upload_dir) / ident / 'poster.jpg').unlink(missing_ok=True)
+        raise
+    if generated:
+        job.warnings.append('Sony RAW analysis uses an automatically generated viewing proxy with an approximate display transform. Color results describe that proxy; original RAW media is unchanged.')
+    elif proxy:
         job.warnings.append('Analysis uses a linked viewing proxy. Color results describe that proxy and its viewing transform. Verify proxy alignment before editing.')
     return create_job(job)

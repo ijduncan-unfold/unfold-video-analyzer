@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { getAsset, getCapabilities, getLibrary, getProjects, getShots, importLocalMedia } from '../api/library'
-import type { AssetDetail, Capabilities, LibraryAsset, LibraryResponse, LibraryShot } from '../api/library'
+import type { AssetDetail, Capabilities, ImportProgress, LibraryAsset, LibraryResponse, LibraryShot } from '../api/library'
 import { chooseNativeMedia, nativeMediaAvailable, openDesktopWindow } from '../api/nativeMedia'
 import { copyEditorPairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -41,7 +41,7 @@ export function LibraryWorkspace() {
   const [detailError, setDetailError] = useState('')
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
   const [settings, setSettings] = useState(false)
-  const [upload, setUpload] = useState<{ filename: string; current: number; total: number } | null>(null)
+  const [upload, setUpload] = useState<{ filename: string; current: number; total: number; progress?: ImportProgress } | null>(null)
   const [uploadNotice, setUploadNotice] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -158,7 +158,9 @@ export function LibraryWorkspace() {
         const filename = path.split(/[/\\]/).pop() || path
         setUpload({ filename, current: index + 1, total: incoming.length })
         try {
-          const result = await importLocalMedia(path, '', false)
+          const result = await importLocalMedia(path, '', false, progress => {
+            setUpload(previous => previous ? { ...previous, progress } : previous)
+          })
           imported++; refreshLibrary()
           setShotProjectId(result.job_id)
           if (incoming.length === 1) openVideo({ id: result.job_id })
@@ -255,7 +257,7 @@ export function LibraryWorkspace() {
           </div>
           <div className="lw-filter-panel-actions">{hasFilters && <button className="lw-text-button" onClick={clearFilters}>Clear filters</button>}<div className="lw-view-toggle"><button className={layout === 'grid' ? 'is-active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Icon name="grid" size={16} /></button><button className={layout === 'list' ? 'is-active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><Icon name="list" size={17} /></button></div></div>
         </div>}
-        {upload && <div className="lw-upload-progress" role="status"><Icon name="film" size={17} /><div><strong>{upload.filename} · {upload.current}/{upload.total}</strong><span>Reading original media…</span><progress /></div></div>}
+        {upload && <div className="lw-upload-progress" role="status"><Icon name="film" size={17} /><div><strong>{upload.filename} · {upload.current}/{upload.total}</strong><span>{upload.progress?.message || 'Reading original media…'}{upload.progress?.percent !== undefined ? ` · ${upload.progress.percent}%` : ''}</span><progress aria-label="Import progress" max={100} value={upload.progress?.percent} /></div></div>}
         {uploadNotice && <div className="lw-notice" role="status"><Icon name="check" size={17} /><span>{uploadNotice}</span><button className="lw-icon-button" aria-label="Dismiss notification" onClick={() => setUploadNotice('')}><Icon name="close" size={15} /></button></div>}
         {uploadError && <div className="lw-inline-error" role="alert">{uploadError}<button className="lw-text-button" onClick={() => setUploadError('')}>Dismiss</button></div>}
         {(loading || projectLoading || shotScopeLoading) && library && <span className="lw-loading-status" role="status">Loading…</span>}

@@ -185,6 +185,10 @@ def _tray_image():
 
 
 def main(argv: list[str] | None = None) -> int:
+    worker_args = list(sys.argv[1:] if argv is None else argv)
+    if worker_args[:1] == ['--sony-raw-worker']:
+        from app.services.sony_raw_worker import main as run_sony_worker
+        return run_sony_worker(worker_args[1:])
     parser = argparse.ArgumentParser(description="Video Analyzer desktop companion")
     parser.add_argument("--data-dir", type=Path, default=default_data_dir())
     parser.add_argument("--port", type=int, default=None)
@@ -401,7 +405,7 @@ if __name__ == "__main__":
         exit_code = main()
     except Exception:
         logging.getLogger("desktop").exception("Desktop launcher failed")
-        if "--smoke-test" not in sys.argv:
+        if "--smoke-test" not in sys.argv and "--sony-raw-worker" not in sys.argv:
             show_message("Video Analyzer could not start. See desktop.log in your Video Analyzer data folder.", error=True)
         exit_code = 1
     raise SystemExit(exit_code)

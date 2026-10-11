@@ -27,8 +27,9 @@ the actual frozen bundle's notices and licenses, then sign the installer/app.
 The experimental Windows transfer ZIP under `portable/` is a separate collection:
 it includes the installed FFmpeg executables, camera runtimes and companion files,
 the frozen app, supplied notices, and a hash manifest. It does not constitute a
-license or redistribution clearance for third-party binaries. Its camera adapters
-are not enabled in the importer. See `docs/CAMERA_MEDIA.md` for verified load/decode
+license or redistribution clearance for third-party binaries. The Sony F55 RAW
+adapter is enabled in the Windows importer; other vendor adapters are not enabled.
+See `docs/CAMERA_MEDIA.md` for verified load/decode
 results and the remaining integration work.
 
 The Resolve integration's `WorkflowIntegration.node` is **not redistributed**.

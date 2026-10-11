@@ -8,7 +8,7 @@ The extension identifies a container, not its decoder. Import probes the actual 
 
 | Camera family | Direct proxy path | Proprietary RAW fallback |
 | --- | --- | --- |
-| Sony | Decodable XAVC/H.264, HEVC, MPEG-2 and other MXF/MOV codecs | F55/F5/F65 RAW and X-OCN: full-length viewing copy from Resolve or Sony RAW Viewer |
+| Sony | Decodable XAVC/H.264, HEVC, MPEG-2 and other MXF/MOV codecs | F55 RAW MXF: automatic viewing proxy on Windows x64; F5/F65 RAW and X-OCN remain unverified |
 | Panasonic | Decodable AVC-Intra/H.264, HEVC, MPEG-2, ProRes and other MXF/MOV codecs | Use the appropriate vendor/editor decoder and link its full-length viewing copy |
 | Canon | Decodable XF-AVC/H.264, HEVC and other MXF/MOV codecs | Cinema RAW/RAW Light CRM: full-length viewing copy from Resolve or Canon's RAW tools |
 | ARRI | ProRes MOV and other codecs the installed decoder can read | ARRIRAW ARI/ARX/MXF: full-length viewing copy from Resolve or ARRI tools |
@@ -16,15 +16,23 @@ The extension identifies a container, not its decoder. Import probes the actual 
 | RED | Decodable editorial formats | R3D: REDline/REDCINE-X or Resolve viewing copy; runtime included in the experimental portable collection; adapter not enabled |
 | ProRes RAW | Recent FFmpeg builds contain a decoder; import tests whether this recording actually decodes | Link an externally decoded viewing copy if the recording/build is unsupported |
 
-This matrix describes routing, not certification of every camera generation or codec variant. The portable Windows collection includes experimental vendor runtime files, but native RAW adapters are not yet enabled in the app. Recognizing an extension does not install a decoder. DNG/DPX/EXR image sequences, spanned-clip stitching, multicam, automatic LUT selection and a color-managed RAW development pipeline are not implemented.
+This matrix describes routing, not certification of every camera generation or codec variant. The portable Windows collection enables the tested Sony F55 RAW adapter only. Other included vendor runtime files are not enabled decoders. DNG/DPX/EXR image sequences, spanned-clip stitching, multicam, automatic LUT selection and a color-managed RAW development pipeline are not implemented.
+
+## Automatic Sony F55 RAW import
+
+Drop the MXF into the native desktop window or select it with Import. Keep its adjacent `M01.xml` file in the original camera folder. Local and UNC paths are referenced directly; the original is never copied into the library. If FFmpeg cannot decode an F55 RAW recording, an isolated worker uses the bundled, checksum-pinned Sony runtime. It walks the actual MXF picture boundaries, develops the coded Bayer raster, removes sensor padding, and writes a 1280-pixel-wide H.264 viewing proxy with all audio tracks in the app cache. Import displays progress during development and audio preparation.
+
+Every picture must be consecutive, with constant geometry and the expected frame count. Before publication, the app checks proxy duration, exact rational frame rate, measured frame count and audio track count. The original filename, codec, dimensions, source timecode and edit identity remain attached. Playback, thumbnails, visual discovery and Gemini use the viewing proxy. Auto reuses a short prepared proxy without another encode; Always and long recordings can still use segmented analysis proxies. Deleting a project removes app-owned derivatives and preserves the camera original.
+
+This is an experimental Windows x64 integration pinned to `SonyRawDev.dll` 5.3.0.02240_7047. Its clip-wide display transform uses the sidecar's RAW black/white levels and a Rec.709-like curve. It does not apply a camera color matrix, white-balance calibration or a creative LUT; colors are approximate and unsuitable for mastering or precise color matching. Spanned recordings, other Sony RAW generations and X-OCN are not certified by this fixture.
 
 ## Native vendor decoder integration plan
 
-Broad native RAW support is feasible, but each family requires an actual decoder integration. Installing an editor's codec plug-in does not automatically make that decoder available to FFmpeg or this app. SDK availability also does not establish permission to redistribute its binaries in an open-source installer. These are planned integrations, not capabilities implemented in this revision.
+Broad native RAW support is feasible, but each family requires an actual decoder integration. Installing an editor's codec plug-in does not automatically make that decoder available to FFmpeg or this app. SDK availability also does not establish permission to redistribute its binaries in an open-source installer. Sony F55 RAW is implemented above; the remaining rows describe further integration work.
 
 | Format | Verified vendor route | Next integration step |
 | --- | --- | --- |
-| Sony RAW / X-OCN | [Sony RAW SDK licensing program](https://pro.sony/s3/2023/09/07140729/Sony_X-OCN_WhitePaper_v2.0.pdf), including SDK and technical documents | Obtain SDK access and distribution terms; validate F55 RAW first, then X-OCN generations |
+| Sony RAW / X-OCN | [Sony RAW SDK licensing program](https://pro.sony/s3/2023/09/07140729/Sony_X-OCN_WhitePaper_v2.0.pdf), including SDK and technical documents | F55 adapter tested; verify vendor terms, calibrated development and other Sony generations |
 | Blackmagic RAW | [Public, free SDK](https://www.blackmagicdesign.com/products/blackmagicraw) for Windows, macOS and Linux, with CPU/GPU decoding and metadata | Build a native helper against the SDK, review its redistribution agreement, then test Windows x64 and Apple Silicon |
 | RED R3D | [Official R3D SDK download](https://www.reddigitalcinema.com/download/r3d-sdk); REDline offers a separate transcode route | Review the SDK license and implement its frame/audio/metadata API; validate spanned clips and current camera generations |
 | ARRIRAW / ARRICORE / HDE | [ARRI Image SDK through its partner program](https://www.arri.com/en/company/the-arri-philosophy/arri-partner-program); [ART GUI/CMD](https://www.arri.com/en/learn/camera-systems/tools/arri-reference-tool) offers a separate transcode route | Obtain partner SDK access and terms; test both single-file MXF and sequence workflows |
@@ -37,7 +45,7 @@ Where bundling is allowed, installers can carry the runtime with its notices. Ot
 
 ### Local decoder investigation (Windows, October 2026)
 
-The installed Sony runtime was loaded directly from its existing application directory in an isolated Python process. It created a decoder, recognized the F55 bitstream, initialized, and decoded the first, middle and last pictures of the network-share F55 fixture. Premiere and Media Encoder were not called. Only those picture payloads were read into memory; no full-size original or decoder binary was copied. Diagnostic previews are not color calibrated. These experiments do not establish SDK permission, portable compatibility, or production support: the native pipeline still needs verified ABI/layouts, active-image cropping, viewing transforms, timing, audio and full-clip validation.
+The initial experiment decoded the first, middle and last pictures using the installed Sony runtime. The integrated worker now reads the complete network-share fixture and uses the bundled runtime directly, without starting Premiere, Media Encoder or Resolve. Correct coded-plane strides and active-image cropping were verified visually; a synthetic test guards Bayer channel order and stride corruption. Full-clip import and playback verification are described below. Viewing colors remain approximate; this evidence does not establish vendor redistribution permission or support for untested formats.
 
 `scripts/inspect-camera-decoders.py` inventories existing Windows decoder installations, hashes their binaries, records PE versions, exports, direct/delayed dependencies and companion resources, and optionally tests DLL loading in separate processes. It does not copy binaries, invoke undocumented decoder methods, inspect originals, start editors or enable formats in the app. It requires `pefile`, which is included by the Windows desktop-build environment through PyInstaller.
 
@@ -53,7 +61,7 @@ The current machine has 15 main runtimes across Premiere Pro 2026, Media Encoder
 
 | Family | Located runtime | Current evidence |
 | --- | --- | --- |
-| Sony RAW / X-OCN | `SonyRawDev.dll` 5.3 and Sony SMDK companion | DLL loading; three F55 RAW frame decodes in a local experiment. Other Sony variants untested |
+| Sony RAW / X-OCN | `SonyRawDev.dll` 5.3 and Sony SMDK companion | Integrated F55 RAW import: all 880 pictures, exact cadence and four audio tracks. Other Sony variants untested |
 | ARRI | `ArriImageSdk.9.dll` 9.0.1 plus four CPU/GPU transform modules | DLL loading only; headers, API initialization and camera fixtures still needed |
 | Canon Cinema RAW | `CrmSdk.dll` 2.11 in Adobe / 2.10 in Resolve, scaling library and runtime/resources | DLL loading only; CRM decoding still untested |
 | RED | `REDR3D-x64.dll` in the Adobe installations | DLL loading only; exported names require the matching documented SDK interface |
@@ -63,7 +71,7 @@ The current machine has 15 main runtimes across Premiere Pro 2026, Media Encoder
 
 Panasonic support must route by the recording's codec and container. [Panasonic's P2/VariCam documentation](https://pro-av.panasonic.net/en/support/nle/avc-ultra/) lists AVC-Intra and AVC-LongG families; there is no basis here for treating every Panasonic recording as a single proprietary RAW codec. The app must retain card structures where separate audio, metadata or spanned recordings require them. Recognizing a native FFmpeg decoder does not certify that card workflow.
 
-For independent deployment, obtain the applicable runtime and interface from its vendor: [ARRI Image SDK](https://www.arri.com/en/company/the-arri-philosophy/arri-partner-program), [Blackmagic RAW SDK](https://www.blackmagicdesign.com/developer/products/braw/sdk-and-software), [RED R3D SDK](https://www.reddigitalcinema.com/download/r3d-sdk), and the Sony program above. Canon's Cinema RAW video interface still needs vendor confirmation. Installed editor runtimes are also collected in the experimental Windows portable archive in this repository. The archive includes the frozen app, FFmpeg, companion resources, and manifest hashes; it excludes originals, keys, tokens, and library data. All 39 DLL load checks passed, and Sony F55 also decoded a frame from the copied library. The app importer does not yet call these native adapters. Their presence and successful loading do not establish redistribution rights.
+For independent deployment, obtain the applicable runtime and interface from its vendor: [ARRI Image SDK](https://www.arri.com/en/company/the-arri-philosophy/arri-partner-program), [Blackmagic RAW SDK](https://www.blackmagicdesign.com/developer/products/braw/sdk-and-software), [RED R3D SDK](https://www.reddigitalcinema.com/download/r3d-sdk), and the Sony program above. Canon's Cinema RAW video interface still needs vendor confirmation. Installed editor runtimes are also collected in the experimental Windows portable archive in this repository. The archive includes the frozen app, FFmpeg, companion resources, and manifest hashes; it excludes originals, keys, tokens, and library data. All 39 DLL load checks passed. The app importer calls only the tested Sony F55 adapter. Presence and successful loading do not establish redistribution rights.
 
 ## Linking a viewing proxy
 
@@ -79,7 +87,7 @@ Camera formats that a browser cannot play get an app-owned, cached H.264/AAC pla
 
 ## Verification
 
-The user's Sony clip was inspected in place on its network share: the adjacent sidecar identifies **F55RAWSQ_4096_2160**, PMW-F55 camera and AXS-R5 recorder. FFprobe reads a 36.703333-second duration, nominal 24000/1001 stream rate, four PCM audio tracks and source timecode, but reports no supported video codec. This is a genuine RAW recording, not XAVC wrapped in MXF. No original bytes were copied or modified. A vendor/editor viewing proxy is still needed to analyze this particular recording.
+The user's Sony clip was imported in place on its network share: the adjacent sidecar identifies **F55RAWSQ_4096_2160**, PMW-F55 camera and AXS-R5 recorder. FFprobe reads a 36.703333-second duration, nominal 24000/1001 stream rate, four PCM audio tracks and source timecode, but cannot decode the video. The native import developed all 880 pictures, muxed four AAC audio tracks and created a 4,746,514-byte H.264 proxy. Import took approximately 106 seconds on the development machine. The original's 4,357,851,696-byte size and modification timestamp were unchanged; no full-size original was copied. HTTP range playback returned the generated MP4 while the project retained the original source identity.
 
 Automated tests cover linked import without copying, deduplication, unsupported decoder guidance, frame-rate/duration/timecode/aspect mismatches, source/proxy changes, explicit alignment confirmation, preservation on deletion, public path exclusion and same-origin/loopback restrictions. Camera-family claims are conditional on decoding; physical camera fixtures for every family and native RAW SDK builds still need validation.
 

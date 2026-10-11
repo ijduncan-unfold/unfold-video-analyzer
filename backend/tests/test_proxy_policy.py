@@ -60,6 +60,20 @@ def test_missing_duration_and_youtube_never_silently_override_always_or_off():
         proxy_decision(youtube, 'always')
 
 
+@pytest.mark.parametrize('mode', ['auto', 'off'])
+def test_prepared_raw_viewing_proxy_avoids_reencoding_the_short_camera_original(mode):
+    job = source_job(filename='sony.mxf', size_bytes=4_357_851_696,
+                     viewing_path='cache/sony-viewing.mp4',
+                     technical={'duration_seconds': 36.7, 'codec': 'F55RAW',
+                                'viewing_proxy': {'generated': True}})
+    assert proxy_decision(job, mode)['upload_strategy'] == 'viewing_proxy'
+    assert not proxy_decision(job, mode)['proxy_used']
+    assert proxy_decision(job, 'always')['proxy_used']
+    job.technical['duration_seconds'] = 7200
+    assert proxy_decision(job, 'auto')['proxy_used']
+    assert proxy_decision(job, 'off')['upload_strategy'] == 'viewing_proxy'
+
+
 @pytest.mark.parametrize('mode,codec,duration,expected', [
     ('always', 'h264', 60, True), ('off', 'prores', 3600, False),
     ('auto', 'prores', 60, True), ('auto', 'h264', 60, False),

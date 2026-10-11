@@ -119,6 +119,7 @@ async def probe_media(path: str) -> dict:
         "source_timecode": video.get("tags", {}).get("timecode") or fmt.get("tags", {}).get("timecode") or
             next((s.get("tags", {}).get("timecode") for s in streams if s.get("tags", {}).get("timecode")), None),
         "has_audio": any(s.get("codec_type") == "audio" for s in streams),
+        "audio_stream_count": sum(s.get("codec_type") == "audio" for s in streams),
         "pixel_format": video.get("pix_fmt"), "color_space": video.get("color_space"),
         "color_transfer": video.get('color_transfer'), "color_primaries": video.get('color_primaries'),
         "container": fmt.get('format_name'),

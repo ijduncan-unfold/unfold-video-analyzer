@@ -190,10 +190,28 @@ export interface Capabilities {
   max_file_size_mb?: number
   linked_media_import?: boolean
 }
-export function importLocalMedia(mediaPath: string, viewingPath: string, confirmed: boolean) {
-  return request<AssetDetail>('/api/local-media/import', { method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ media_path: mediaPath, viewing_path: viewingPath, proxy_alignment_confirmed: confirmed }) })
+export interface ImportProgress { stage: string; message: string; percent?: number }
+export async function importLocalMedia(mediaPath: string, viewingPath: string, confirmed: boolean, onProgress?: (progress: ImportProgress) => void) {
+  const importId = crypto.randomUUID()
+  const controller = new AbortController()
+  let finished = false
+  async function poll() {
+    while (!finished) {
+      try {
+        const progress = await request<ImportProgress>(`/api/local-media/import-progress/${importId}`, {
+          headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+        })
+        if (!finished) onProgress?.(progress)
+      } catch { /* The import response supplies errors; transient polls do not stop decoding. */ }
+      if (!finished) await new Promise(resolve => setTimeout(resolve, 800))
+    }
+  }
+  if (onProgress) void poll()
+  try {
+    return await request<AssetDetail>('/api/local-media/import', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ media_path: mediaPath, viewing_path: viewingPath, proxy_alignment_confirmed: confirmed, import_id: importId }) })
+  } finally { finished = true; controller.abort() }
 }
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
