@@ -80,7 +80,11 @@ def test_complete_clip_may_start_above_zero_but_missing_or_reordered_frames_fail
         process.poll.return_value = 0
         processes.append(command)
         return process
-    with patch.object(worker, 'Decoder', return_value=decoder), patch.object(worker.subprocess, 'Popen', side_effect=encode):
+    # Native decoding and process launch are simulated, including the Windows
+    # flag that is absent from subprocess on Linux and macOS test runners.
+    with patch.object(worker, 'Decoder', return_value=decoder), \
+         patch.object(worker.subprocess, 'CREATE_NO_WINDOW', 0x08000000, create=True), \
+         patch.object(worker.subprocess, 'Popen', side_effect=encode):
         if error:
             with pytest.raises(ValueError, match=error):
                 worker.run(args)
