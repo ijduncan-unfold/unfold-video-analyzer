@@ -18,6 +18,8 @@ Camera previews preserve anamorphic framing in square pixels, including JPEG thu
 4. **Explore visual match cuts.** Select a detected shape or trace your own outline, then search for similar silhouettes, framing, and colors across selected shots.
 5. **Export the whole shot or selected clips.** Download metadata and editorial interchange files, or copy individual in/out times and clip ranges.
 
+Move left or right across a library thumbnail to scrub its footage silently. The preview uses the ready viewing proxy or a directly playable original, loads only while hovered, and returns to the poster when you leave. In the **Clips** view, scrubbing stays within the clip's in/out range. Clicking still opens the viewer; selection and dragging into folders remain available.
+
 ## Organize shots in folders
 
 Imported source videos appear under **Shots**; their analyzed segments appear under **Clips**. Create named folders in the library sidebar, then drag a shot into a folder or select several shots and choose **Move to folder**. The destination picker supports folder search. Folder selection scopes both the shot library and the source choices in the Clips view. Imports made inside a folder are added to that folder.
