@@ -135,7 +135,8 @@ async def probe_media(path: str) -> dict:
         "sample_aspect_ratio": video.get('sample_aspect_ratio'),
         "color_transfer": video.get('color_transfer'), "color_primaries": video.get('color_primaries'),
         "container": fmt.get('format_name'),
-        "camera_manufacturer": fmt.get('tags', {}).get('company_name') or fmt.get('tags', {}).get('manufacturer'),
+        "camera_manufacturer": fmt.get('tags', {}).get('com.apple.proapps.manufacturer') or fmt.get('tags', {}).get('company_name') or fmt.get('tags', {}).get('manufacturer'),
+        "camera_model": fmt.get('tags', {}).get('com.apple.proapps.modelname') or fmt.get('tags', {}).get('model'),
         "rotation": next((s.get("rotation") for s in video.get("side_data_list", []) if "rotation" in s), 0),
         **timing,
     }

@@ -17,28 +17,42 @@ from app.services.native_camera import prepare_ffmpeg_viewing, prepare_braw_view
 
 DJI_URL = 'https://dl.djicdn.com/downloads/zenmuse+x7/20171017/D-Log+to+Rec709.zip'
 DJI_SHA = '0a576b299d8c7b9310a41fcbcac983bfaaf626e8bc3d4acc6cc15fb33972dab8'
+DJI_X9_URL = 'https://mydjiflight.dji.com/file/links/DJI_ZENMUSE_X9_DLOG_TO_REC709_3D_LUT_V1'
+DJI_X9_SHA = '583a08a77c920156f84770a69d4124f586196a9f0f76b2d02f23a1a05a863d06'
 LABELS = {'source': 'As decoded', 'dji_zenmuse_dlog': 'DJI Zenmuse X5S/X7 D-Log → Rec.709',
+          'dji_x9_dlog': 'DJI Inspire 3 / Zenmuse X9 D-Log → Rec.709',
           'red_rec709': 'RED SDK → Rec.709'}
 
 
 async def dji_lut():
-    cache = Path(settings.database_path).parent / 'display-luts' / 'dji-zenmuse-dlog.cube'
-    if cache.is_file() and cache.stat().st_size <= 2 * 1024 * 1024 and hashlib.sha256(cache.read_bytes()).hexdigest() == DJI_SHA:
+    return await _download_lut(DJI_URL, DJI_SHA, 'dji-zenmuse-dlog.cube', zipped=True)
+
+
+async def dji_x9_lut():
+    return await _download_lut(DJI_X9_URL, DJI_X9_SHA, 'dji-x9-dlog.cube')
+
+
+async def _download_lut(url, digest, filename, *, zipped=False):
+    cache = Path(settings.database_path).parent / 'display-luts' / filename
+    if cache.is_file() and cache.stat().st_size <= 2 * 1024 * 1024 and hashlib.sha256(cache.read_bytes()).hexdigest() == digest:
         return cache.read_bytes()
     async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-        async with client.stream('GET', DJI_URL) as response:
+        async with client.stream('GET', url) as response:
             response.raise_for_status()
             content = bytearray()
             async for chunk in response.aiter_bytes():
                 content.extend(chunk)
                 if len(content) > 8 * 1024 * 1024:
                     raise ValueError('DJI LUT download exceeded its size limit')
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        item = archive.getinfo('D-Log to Rec709.cube')
-        if item.file_size > 2 * 1024 * 1024:
-            raise ValueError('Unexpected DJI LUT size')
-        data = archive.read(item)
-    if hashlib.sha256(data).hexdigest() != DJI_SHA:
+    if zipped:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            item = archive.getinfo('D-Log to Rec709.cube')
+            if item.file_size > 2 * 1024 * 1024:
+                raise ValueError('Unexpected DJI LUT size')
+            data = archive.read(item)
+    else:
+        data = bytes(content)
+    if len(data) > 2 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != digest:
         raise ValueError('DJI LUT verification failed; the previous preview is kept')
     cache.parent.mkdir(parents=True, exist_ok=True)
     temporary = cache.with_name(uuid4().hex + '.tmp')
@@ -92,12 +106,16 @@ async def set_display_color(job_id, mode):
                     family='red', target_name=name)
                 facts = decoded['viewing_proxy']
             else:
-                (folder / 'display-lut.cube').write_bytes(await dji_lut())
-                source_facts = await probe_media(str(source))
-                target, facts = await prepare_ffmpeg_viewing(Path(source), folder, source_facts,
+                x9 = mode == 'dji_x9_dlog'
+                (folder / 'display-lut.cube').write_bytes(await (dji_x9_lut() if x9 else dji_lut()))
+                # ProRes Log is already decoded video. Grade its 10-bit original,
+                # rather than the existing 8-bit H.264 viewing copy.
+                color_source = job.local_path if technical.get('codec') == 'prores' else source
+                source_facts = await probe_media(str(color_source))
+                target, facts = await prepare_ffmpeg_viewing(Path(color_source), folder, source_facts,
                     progress, target_name=name, lut=True)
                 facts['viewing_transform'] = LABELS[mode] + ' · official DJI display LUT'
-                facts['lut_sha256'] = DJI_SHA
+                facts['lut_sha256'] = DJI_X9_SHA if x9 else DJI_SHA
             facts['display_mode'] = mode
         ensure_source_unchanged(job)
         if source_fingerprint(source)[0] != source_before:

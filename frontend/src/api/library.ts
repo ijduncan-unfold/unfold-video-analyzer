@@ -36,6 +36,8 @@ export interface LibraryAsset {
     height?: number | null
     frame_rate?: number | null
     codec?: string | null
+    camera_manufacturer?: string | null
+    camera_model?: string | null
     source_timecode?: string | null
     has_audio?: boolean | null
     playback_proxy_required?: boolean

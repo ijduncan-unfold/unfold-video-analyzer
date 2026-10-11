@@ -39,7 +39,7 @@ _import_progress = {}
 
 class DisplayColorRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    mode: str = Field(pattern=r'^(source|dji_zenmuse_dlog|red_rec709)$')
+    mode: str = Field(pattern=r'^(source|dji_zenmuse_dlog|dji_x9_dlog|red_rec709)$')
 
 
 @router.post('/{job_id}/display-color')

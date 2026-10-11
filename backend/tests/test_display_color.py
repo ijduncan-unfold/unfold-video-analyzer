@@ -60,6 +60,35 @@ def test_failed_color_render_restores_status_and_keeps_previous_media(client, tm
     assert retained.technical == job.technical and retained.file_id == job.file_id
 
 
+def test_x9_lut_grades_prores_original_not_lossy_viewing_copy(client, tmp_path):
+    job = camera(tmp_path)
+    preview = tmp_path / 'ungraded.mp4'
+    preview.write_bytes(b'ungraded 8-bit viewing copy')
+    update_job(job.job_id, viewing_path=str(preview), viewing_fingerprint=source_fingerprint(preview)[0],
+               technical={**job.technical, 'codec': 'prores'})
+    async def render(original, folder, facts, *args, **kwargs):
+        assert original == Path(job.local_path)
+        assert kwargs['lut'] is True
+        assert (folder / 'display-lut.cube').read_bytes() == b'X9 LUT'
+        target = folder / kwargs['target_name']; target.write_bytes(b'graded preview')
+        return target, {'generated': True, 'codec': 'h264'}
+    async def poster(source, target, duration):
+        Path(target).write_bytes(b'graded poster')
+    with patch.object(display_color, 'dji_x9_lut', AsyncMock(return_value=b'X9 LUT')) as x9, \
+         patch.object(display_color, 'dji_lut', AsyncMock()) as legacy, \
+         patch.object(display_color, 'probe_media', AsyncMock(return_value=job.technical)), \
+         patch.object(display_color, 'prepare_ffmpeg_viewing', AsyncMock(side_effect=render)), \
+         patch.object(display_color, 'create_poster', AsyncMock(side_effect=poster)):
+        result = asyncio.run(display_color.set_display_color(job.job_id, 'dji_x9_dlog'))
+        restored = asyncio.run(display_color.set_display_color(job.job_id, 'source'))
+    x9.assert_awaited_once(); legacy.assert_not_awaited()
+    assert result.technical['viewing_proxy']['lut_sha256'] == display_color.DJI_X9_SHA
+    assert result.technical['viewing_proxy']['display_mode'] == 'dji_x9_dlog'
+    assert restored.viewing_path == str(preview)
+    assert preview.read_bytes() == b'ungraded 8-bit viewing copy'
+    assert Path(job.local_path).read_bytes() == b'camera original must never change'
+
+
 @pytest.mark.parametrize('status', ['queued', 'analyzing', 'processing', 'deleting'])
 def test_color_cannot_race_analysis_or_deletion(client, tmp_path, status):
     job = camera(tmp_path); update_job(job.job_id, status=status)

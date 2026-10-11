@@ -42,6 +42,8 @@ Sony F55 development uses stable sidecar RAW black/white levels with a Rec.709-l
 
 Blackmagic and RED use their SDK camera/sidecar development defaults and reduced-resolution 8-bit viewing output. ARRI uses the Image SDK's Rec.709/D65/BT.1886 transformation. FFmpeg uses its decoded image without automatically choosing a camera Log LUT. Color and match-cut results describe these viewing images. None of these proxies is a replacement for the original RAW grade.
 
+Use **Display color** to apply DJI's official D-Log to Rec.709 viewing LUT. Inspire 3 / Zenmuse X9 and Ronin 4D use the X9 option; X5S/X7 use the separate older LUT. ProRes identifies compression, not the recorded Log profile, so already graded Rec.709 footage should stay **As decoded**. For ProRes, the LUT processes the original 10-bit decoded image in floating point before creating the H.264 proxy. The preview and poster update together, and **As decoded** restores the ungraded viewing copy without changing the original. Each LUT is downloaded from DJI, checksum verified, and cached locally.
+
 ## Portable resources
 
 The existing repository contains the Windows x64 app/FFmpeg/runtime ZIP through Git LFS. The destination needs no separate Python, Node, Premiere or Resolve installation for the standalone tool. The native RED bridge is compiled and included; SDK developer headers, samples, compiler tools, test footage, keys and user databases are excluded.

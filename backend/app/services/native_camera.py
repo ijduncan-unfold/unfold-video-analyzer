@@ -108,9 +108,10 @@ async def prepare_ffmpeg_viewing(original, folder, technical, on_progress=None, 
         with log.open('wb') as error:
             proc = await asyncio.create_subprocess_exec('ffmpeg', '-nostdin', '-v', 'error', '-i', str(original),
                 '-map', '0:v:0', '-map', '0:a?', '-vf',
-                VIEWING_SCALE + (',lut3d=file=display-lut.cube:interp=tetrahedral' if lut else ''),
+                ('format=gbrpf32le,lut3d=file=display-lut.cube:interp=tetrahedral,' if lut else '') + VIEWING_SCALE,
                 '-fps_mode', 'passthrough', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
                 '-threads', '2', '-filter_threads', '2', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k',
+                *(['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv'] if lut else []),
                 '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', '-y', str(partial),
                 cwd=str(folder), stdout=asyncio.subprocess.PIPE, stderr=error, **hidden_process_kwargs())
             async def read_progress():
