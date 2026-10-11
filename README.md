@@ -80,6 +80,22 @@ Exports preserve source coordinates and do not render or package video files. Se
 
 ## Run locally
 
+### Windows portable bundle — one repository
+
+The Windows x64 app, FFmpeg/ffprobe, and an experimental camera-runtime collection live together in this repository. Install Git and Git LFS on the destination computer, then:
+
+```powershell
+git clone https://github.com/ijduncan/video-analyzer.git
+cd video-analyzer
+git lfs pull
+```
+
+Double-click **Run Video Analyzer.cmd**. It verifies the bundled ZIP and extracts it under `%LOCALAPPDATA%/VideoAnalyzer/portable-bundles` on first launch. No separate Python, Node, Premiere, or Resolve installation is needed for the standalone app. Enter your own Gemini key in Settings; keys, footage, and library databases are excluded. Original media stays at its local or network path.
+
+The approximately 359 MB ZIP includes Sony, ARRI, Canon, RED, Blackmagic RAW, and ProRes RAW runtime files with companion resources and a hashed manifest. **These native RAW adapters are not yet connected to the app's importer.** All 39 collected DLLs passed isolated load checks on the development machine; only Sony F55 has a separate successful frame-decoding experiment. Other camera families still require decoder integration and real-media testing. Panasonic's decodable editorial codecs use FFmpeg; a separate Panasonic RAW runtime is not included. GPU modules require suitable drivers. This bundle is Windows x64 only; Apple Silicon needs native Mac components.
+
+Third-party binary licenses are separate from the app's source license; inclusion does not establish redistribution permission. See [camera support and decoder status](docs/CAMERA_MEDIA.md). Standard installers and their build workflows remain separate from this experimental portable collection.
+
 ### Installed app and editor previews
 
 A Windows companion installer packages the local engine and a native desktop window, with a tray menu for opening the app, pairing editors, installing the Resolve integration, and quitting. Drop videos from Explorer into that window or choose files with Import: the app references their original local or network paths automatically. User data stays in `%LOCALAPPDATA%/VideoAnalyzer`; API keys, databases, and footage are excluded from the installer. Setup can install the required FFmpeg tools separately through WinGet.

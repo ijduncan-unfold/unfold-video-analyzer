@@ -15,7 +15,7 @@ OpenCV: https://github.com/opencv/opencv/blob/4.x/LICENSE
 NumPy: https://github.com/numpy/numpy/blob/main/LICENSE.txt
 Google Gen AI SDK: https://github.com/googleapis/python-genai/blob/main/LICENSE
 
-FFmpeg and FFprobe are **not bundled** in this preview. Users install them
+FFmpeg and FFprobe are **not bundled in the standard installers**. Users install them
 separately. A release bundling these tools needs a reviewed redistributable build,
 its licenses, and corresponding source for the build and its linked dependencies.
 See https://ffmpeg.org/legal.html. Merely copying a locally installed executable
@@ -23,6 +23,13 @@ and linking to generic FFmpeg source is insufficient for a release checklist.
 
 Before public release, generate a complete software bill of materials and audit
 the actual frozen bundle's notices and licenses, then sign the installer/app.
+
+The experimental Windows transfer ZIP under `portable/` is a separate collection:
+it includes the installed FFmpeg executables, camera runtimes and companion files,
+the frozen app, supplied notices, and a hash manifest. It does not constitute a
+license or redistribution clearance for third-party binaries. Its camera adapters
+are not enabled in the importer. See `docs/CAMERA_MEDIA.md` for verified load/decode
+results and the remaining integration work.
 
 The Resolve integration's `WorkflowIntegration.node` is **not redistributed**.
 Its installation helper copies the matching bridge from the user's own installed

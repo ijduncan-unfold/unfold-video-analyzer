@@ -12,11 +12,11 @@ The extension identifies a container, not its decoder. Import probes the actual 
 | Panasonic | Decodable AVC-Intra/H.264, HEVC, MPEG-2, ProRes and other MXF/MOV codecs | Use the appropriate vendor/editor decoder and link its full-length viewing copy |
 | Canon | Decodable XF-AVC/H.264, HEVC and other MXF/MOV codecs | Cinema RAW/RAW Light CRM: full-length viewing copy from Resolve or Canon's RAW tools |
 | ARRI | ProRes MOV and other codecs the installed decoder can read | ARRIRAW ARI/ARX/MXF: full-length viewing copy from Resolve or ARRI tools |
-| Blackmagic | ProRes MOV | BRAW: vendor SDK or Resolve viewing copy; no BRAW SDK is bundled yet |
-| RED | Decodable editorial formats | R3D: REDline/REDCINE-X or Resolve viewing copy; no RED SDK is bundled yet |
+| Blackmagic | ProRes MOV | BRAW: vendor SDK or Resolve viewing copy; runtime included in the experimental portable collection; adapter not enabled |
+| RED | Decodable editorial formats | R3D: REDline/REDCINE-X or Resolve viewing copy; runtime included in the experimental portable collection; adapter not enabled |
 | ProRes RAW | Recent FFmpeg builds contain a decoder; import tests whether this recording actually decodes | Link an externally decoded viewing copy if the recording/build is unsupported |
 
-This matrix describes routing, not certification of every camera generation or codec variant. Vendor RAW SDKs are not yet bundled, and recognizing an extension does not install a decoder. DNG/DPX/EXR image sequences, spanned-clip stitching, multicam, automatic LUT selection and a color-managed RAW development pipeline are not implemented.
+This matrix describes routing, not certification of every camera generation or codec variant. The portable Windows collection includes experimental vendor runtime files, but native RAW adapters are not yet enabled in the app. Recognizing an extension does not install a decoder. DNG/DPX/EXR image sequences, spanned-clip stitching, multicam, automatic LUT selection and a color-managed RAW development pipeline are not implemented.
 
 ## Native vendor decoder integration plan
 
@@ -63,7 +63,7 @@ The current machine has 15 main runtimes across Premiere Pro 2026, Media Encoder
 
 Panasonic support must route by the recording's codec and container. [Panasonic's P2/VariCam documentation](https://pro-av.panasonic.net/en/support/nle/avc-ultra/) lists AVC-Intra and AVC-LongG families; there is no basis here for treating every Panasonic recording as a single proprietary RAW codec. The app must retain card structures where separate audio, metadata or spanned recordings require them. Recognizing a native FFmpeg decoder does not certify that card workflow.
 
-For independent deployment, obtain the applicable runtime and interface from its vendor: [ARRI Image SDK](https://www.arri.com/en/company/the-arri-philosophy/arri-partner-program), [Blackmagic RAW SDK](https://www.blackmagicdesign.com/developer/products/braw/sdk-and-software), [RED R3D SDK](https://www.reddigitalcinema.com/download/r3d-sdk), and the Sony program above. Canon's Cinema RAW video interface still needs vendor confirmation. Installed editor runtimes are referenced locally for investigation, not bundled or uploaded to GitHub. Their presence and successful loading do not establish redistribution rights.
+For independent deployment, obtain the applicable runtime and interface from its vendor: [ARRI Image SDK](https://www.arri.com/en/company/the-arri-philosophy/arri-partner-program), [Blackmagic RAW SDK](https://www.blackmagicdesign.com/developer/products/braw/sdk-and-software), [RED R3D SDK](https://www.reddigitalcinema.com/download/r3d-sdk), and the Sony program above. Canon's Cinema RAW video interface still needs vendor confirmation. Installed editor runtimes are also collected in the experimental Windows portable archive in this repository. The archive includes the frozen app, FFmpeg, companion resources, and manifest hashes; it excludes originals, keys, tokens, and library data. All 39 DLL load checks passed, and Sony F55 also decoded a frame from the copied library. The app importer does not yet call these native adapters. Their presence and successful loading do not establish redistribution rights.
 
 ## Linking a viewing proxy
 
