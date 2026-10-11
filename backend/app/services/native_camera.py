@@ -16,6 +16,223 @@ from app.services.media_probe import probe_media
 from app.services.sony_raw_worker import SONY_DLL_SHA256
 from app.utils.media_process import hidden_process_kwargs
 
+BRAW_DLL_SHA256 = '71a1f9ff0efdf2f9396f26a94a5a5e6ab52fbde927d6d0ba81c8f527c66b54b5'
+RED_BRIDGE_SHA256 = 'f8e9f0913a69e71525f8d7eb830d775059fa741e721a402a63734cc4e399377c'
+RED_DLL_SHA256 = '3e1a32e5101369dbabec7333d14cbc7bbef64acbb80c2f2710a342688e2611ef'
+
+
+def family_runtime(family, pins):
+    """Resolve only bundled resources; pin ABI-critical binaries and all cache files."""
+    if sys.platform != 'win32':
+        raise ValueError(f'{family} native decoding currently requires Windows x64')
+    configured = os.environ.get('VIDEO_ANALYZER_DECODER_DIR')
+    root = Path(configured).resolve() if configured else None
+    if root is None and getattr(sys, 'frozen', False):
+        root = Path(sys.executable).resolve().parent.parent / 'camera-decoders'
+    if root:
+        for name, digest in pins.items():
+            file = root / family / name
+            if not file.is_file() or _sha(file) != digest:
+                raise ValueError(f'The {family} decoder is missing or is an unverified version')
+        return root / family / next(iter(pins)), root / 'shared'
+    repo = Path(__file__).resolve().parents[3]
+    archive = repo / 'portable' / 'VideoAnalyzer-windows-x64.zip'
+    cache = Path(settings.database_path).resolve().parent / 'camera-decoders' / next(iter(pins.values()))
+    complete = cache / 'complete.json'
+    if complete.is_file():
+        try:
+            cached = json.loads(complete.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            cached = {}
+        required = {f'{family}/{name}': digest for name, digest in pins.items()}
+        if (isinstance(cached, dict) and all(cached.get(name) == digest for name, digest in required.items())
+                and all((cache / name).resolve().is_relative_to(cache.resolve()) and
+                        (cache / name).is_file() and _sha(cache / name) == digest for name, digest in cached.items())):
+            return cache / family / next(iter(pins)), cache / 'shared'
+    if not archive.is_file() or not zipfile.is_zipfile(archive):
+        raise ValueError(f'Download the Windows portable bundle with git lfs pull to enable {family}')
+    with zipfile.ZipFile(archive) as bundle:
+        manifest = json.loads(bundle.read('manifest.json'))
+        entries = {x['path'].replace('\\', '/'): x for x in manifest['files']}
+        for name, digest in pins.items():
+            if entries.get(f'camera-decoders/{family}/{name}', {}).get('sha256') != digest:
+                raise ValueError(f'The bundled {family} decoder version is unverified')
+        names = {name.replace('\\', '/'): name for name in bundle.namelist()}
+        cached = {}
+        for name, entry in entries.items():
+            if not name.startswith((f'camera-decoders/{family}/', 'camera-decoders/shared/')):
+                continue
+            relative = Path(name).relative_to('camera-decoders')
+            destination = (cache / relative).resolve()
+            if not destination.is_relative_to(cache.resolve()) or entry['bytes'] > 256 * 1024 * 1024:
+                raise ValueError('Invalid bundled decoder resource')
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(destination.name + '.' + uuid.uuid4().hex + '.tmp')
+            try:
+                with bundle.open(names[name]) as source, temporary.open('wb') as output:
+                    shutil.copyfileobj(source, output)
+                if _sha(temporary) != entry['sha256']:
+                    raise ValueError('Bundled decoder checksum mismatch')
+                temporary.replace(destination)
+                cached[relative.as_posix()] = entry['sha256']
+            finally:
+                temporary.unlink(missing_ok=True)
+        complete.write_text(json.dumps(cached), encoding='utf-8')
+    return cache / family / next(iter(pins)), cache / 'shared'
+
+
+def red_runtime():
+    return family_runtime('red', {'VideoAnalyzerRED.dll': RED_BRIDGE_SHA256, 'REDR3D-x64.dll': RED_DLL_SHA256})
+
+
+async def prepare_ffmpeg_viewing(original, folder, technical, on_progress=None):
+    """Develop FFmpeg-supported camera codecs once, with complete audio and progress."""
+    folder = Path(folder).resolve()
+    if folder.parent != Path(settings.upload_dir).resolve():
+        raise ValueError('Camera proxy cache must belong to this app')
+    folder.mkdir(parents=True, exist_ok=True)
+    target, partial = folder / 'camera-viewing.mp4', folder / 'camera-viewing.partial.mp4'
+    duration = technical.get('duration_seconds') or 0
+    if duration <= 0:
+        raise ValueError('Camera source duration could not be measured')
+    if on_progress:
+        on_progress({'stage': 'preparing_proxy', 'message': 'Preparing camera viewing proxy', 'percent': 0})
+    log = folder / 'camera-ffmpeg.log'
+    published, proc = False, None
+    try:
+        with log.open('wb') as error:
+            proc = await asyncio.create_subprocess_exec('ffmpeg', '-nostdin', '-v', 'error', '-i', str(original),
+                '-map', '0:v:0', '-map', '0:a?', '-vf',
+                'scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2',
+                '-fps_mode', 'passthrough', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                '-threads', '2', '-filter_threads', '2', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', '-y', str(partial),
+                stdout=asyncio.subprocess.PIPE, stderr=error, **hidden_process_kwargs())
+            async def read_progress():
+                while line := await proc.stdout.readline():
+                    key, _, raw = line.decode('utf-8', errors='replace').strip().partition('=')
+                    if key == 'out_time_us' and on_progress:
+                        try:
+                            percent = min(99, max(0, int(raw) / 1_000_000 / duration * 100))
+                        except ValueError:
+                            continue
+                        on_progress({'stage': 'preparing_proxy', 'message': 'Preparing camera viewing proxy', 'percent': round(percent, 1)})
+                await proc.wait()
+            await asyncio.wait_for(read_progress(), timeout=min(21600, max(300, duration * 15)))
+        if proc.returncode or not partial.is_file() or not partial.stat().st_size:
+            raise ValueError('Camera decoder could not prepare a viewing proxy; the original has been kept')
+        proxy = await probe_media(str(partial))
+        tolerance = 1 / max(1, technical.get('frame_rate') or 1) + .005
+        if (proxy.get('codec') != 'h264' or abs(proxy.get('duration_seconds', 0) - duration) > tolerance or
+            proxy.get('audio_stream_count') != technical.get('audio_stream_count', 0) or
+            (technical.get('nominal_frame_rate_verified') and
+             (Fraction(proxy.get('frame_rate_fraction') or '0') != Fraction(technical['frame_rate_fraction']) or
+              proxy.get('frame_rate_verified_frames') != (technical.get('frame_rate_verified_frames') or technical.get('camera_frame_count'))))):
+            raise ValueError('Camera viewing proxy failed its timing, cadence or audio checks')
+        partial.replace(target)
+        published = True
+        if on_progress:
+            on_progress({'stage': 'complete', 'message': 'Camera viewing proxy prepared', 'percent': 100})
+        return target, {'linked': False, 'generated': True,
+            'decoder': 'ffmpeg_prores_raw' if technical.get('codec') == 'prores_raw' else 'ffmpeg_camera',
+            'codec': 'h264', 'width': proxy['width'], 'height': proxy['height'],
+            'duration_seconds': proxy['duration_seconds'], 'frame_rate_fraction': proxy['frame_rate_fraction'],
+            'audio_stream_count': proxy['audio_stream_count'], 'frame_count': proxy.get('frame_rate_verified_frames'),
+            'color_calibrated': False, 'viewing_transform': 'FFmpeg decoded image; no automatic camera WB, color matrix or Log LUT',
+            'alignment': 'Complete original processed without trimming or retiming; duration, available cadence and every audio stream checked'}
+    except asyncio.TimeoutError:
+        raise ValueError('Camera viewing proxy preparation timed out')
+    finally:
+        if proc and proc.returncode is None:
+            await stop_worker(proc)
+        partial.unlink(missing_ok=True)
+        log.unlink(missing_ok=True)
+        if not published:
+            target.unlink(missing_ok=True)
+
+
+def braw_runtime():
+    return family_runtime('blackmagic', {'BlackmagicRawAPI.dll': BRAW_DLL_SHA256})
+
+
+async def prepare_braw_viewing(original, folder, on_progress=None, family='braw'):
+    """SDK inspects and decodes the original inside a disposable worker process."""
+    global _gate
+    if _gate is None:
+        _gate = asyncio.Semaphore(1)
+    async with _gate:
+        label = 'RED RAW' if family == 'red' else 'Blackmagic RAW'
+        dll, shared = await asyncio.to_thread(red_runtime if family == 'red' else braw_runtime)
+        folder = Path(folder).resolve()
+        if folder.parent != Path(settings.upload_dir).resolve():
+            raise ValueError('Native proxy cache must belong to this app')
+        folder.mkdir(parents=True, exist_ok=True)
+        target, progress = folder / f'{family}-viewing.mp4', folder / f'{family}-progress.json'
+        ffmpeg = shutil.which('ffmpeg')
+        if not ffmpeg:
+            raise ValueError(f'FFmpeg is required to encode the {label} viewing proxy')
+        arguments = ['--source', str(original), '--target', str(target), '--progress', str(progress),
+                     '--dll', str(dll), '--shared', str(shared), '--ffmpeg', ffmpeg]
+        env = os.environ.copy()
+        env.pop('GOOGLE_API_KEY', None)
+        if getattr(sys, 'frozen', False):
+            command = [sys.executable, f'--{family}-worker', *arguments]
+        else:
+            env['PYTHONPATH'] = str(Path(__file__).resolve().parents[2])
+            command = [sys.executable, '-m', f'app.services.{family}_worker', *arguments]
+        if on_progress:
+            on_progress({'stage': 'preparing_proxy', 'message': f'Opening {label} decoder', 'percent': 0})
+        proc = await asyncio.create_subprocess_exec(*command, env=env, stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL, **hidden_process_kwargs())
+        wait, state, last, published = asyncio.create_task(proc.wait()), {}, None, False
+        deadline = time.monotonic() + 21600
+        try:
+            while not wait.done():
+                if time.monotonic() > deadline:
+                    raise ValueError(f'{label} proxy preparation timed out')
+                try:
+                    state = json.loads(progress.read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    pass
+                if state.get('stage') and state != last and on_progress:
+                    on_progress({key: val for key, val in state.items() if key != 'technical'})
+                    last = state
+                await asyncio.wait({wait}, timeout=.4)
+            try:
+                state = json.loads(progress.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                pass
+            if proc.returncode or state.get('stage') != 'complete':
+                raise ValueError(state.get('message') or f'{label} decoder failed; the original has been kept')
+            technical = state['technical']
+            frames, fps = technical['camera_frame_count'], Fraction(technical['frame_rate_fraction'])
+            proxy = await probe_media(str(target))
+            if (not target.stat().st_size or proxy.get('codec') != 'h264' or
+                abs(proxy.get('duration_seconds', 0) - frames / float(fps)) > 1 / float(fps) + .005 or
+                Fraction(proxy.get('frame_rate_fraction') or '0') != fps or
+                proxy.get('frame_rate_verified_frames') != frames or
+                proxy.get('audio_stream_count') != technical['audio_stream_count']):
+                raise ValueError(f'{label} proxy failed its timing, frame-count or audio checks')
+            technical['viewing_proxy'] = {'linked': False, 'generated': True, 'decoder': 'red_raw' if family == 'red' else 'blackmagic_raw',
+                'codec': 'h264', 'width': proxy['width'], 'height': proxy['height'], 'frame_count': frames,
+                'duration_seconds': proxy['duration_seconds'], 'frame_rate_fraction': str(fps),
+                'audio_stream_count': proxy['audio_stream_count'], 'color_calibrated': False,
+                'viewing_transform': f'{label} SDK camera/sidecar processing defaults; reduced-resolution 8-bit viewing output',
+                'alignment': 'Every source frame decoded at SDK cadence; complete frame count, duration, frame rate and audio verified'}
+            published = True
+            if on_progress:
+                on_progress({'stage': 'complete', 'message': f'{label} proxy prepared', 'percent': 100})
+            return target, technical
+        finally:
+            if proc.returncode is None:
+                await stop_worker(proc)
+            await wait
+            for file in (progress, progress.with_suffix('.tmp'), target.with_suffix('.video.mp4'),
+                         target.with_suffix('.partial.mp4'), target.with_suffix('.ffmpeg.log'), target.with_suffix('.wav')):
+                file.unlink(missing_ok=True)
+            if not published:
+                target.unlink(missing_ok=True)
+
 
 def supports_sony_f55(path, technical):
     return (Path(path).suffix.lower() == '.mxf' and
@@ -157,7 +374,7 @@ async def _prepare_sony_viewing(original, folder, technical, on_progress):
                 state = json.loads(progress.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 pass
-            if state != last and on_progress:
+            if state.get('stage') and state != last and on_progress:
                 on_progress(state)
                 last = state
             await asyncio.wait({wait}, timeout=.4)

@@ -50,6 +50,7 @@ class Job:
     source_fingerprint: str = ""
     viewing_path: str = ""
     viewing_fingerprint: str = ""
+    camera_companions: list[dict] | None = None
     rough_cut: dict | None = None
 
 

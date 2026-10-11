@@ -118,6 +118,15 @@ def ensure_source_unchanged(job):
         raise HTTPException(409, 'The original media is offline. Relink it in your editor and load the selection again.')
     if not hmac.compare_digest(fingerprint, job.source_fingerprint):
         raise HTTPException(409, 'The source file changed. Load the editor selection again before using this analysis.')
+    if job.camera_companions is not None:
+        from app.services.camera_identity import recording_files
+        try:
+            _, files = recording_files(Path(job.local_path))
+            current = [{'path': str(path.resolve()), 'fingerprint': source_fingerprint(path)[0]} for path in files]
+        except (OSError, ValueError):
+            raise HTTPException(409, 'A camera recording part or sidecar is missing or offline. Import the recording again.')
+        if current != job.camera_companions:
+            raise HTTPException(409, 'A camera recording part or sidecar changed. Import the recording again.')
     if job.viewing_path:
         try:
             current, _, _ = source_fingerprint(job.viewing_path)

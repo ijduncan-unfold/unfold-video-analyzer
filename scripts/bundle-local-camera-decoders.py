@@ -79,6 +79,8 @@ def main():
     parser.add_argument("--adobe", type=Path, default=program_files / "Adobe" / "Adobe Premiere Pro 2026")
     parser.add_argument("--resolve", type=Path, default=program_files / "Blackmagic Design" / "DaVinci Resolve")
     parser.add_argument("--ffmpeg-root", type=Path)
+    parser.add_argument("--red-runtime", type=Path, help="Matching R3D 9.2.1 redistributable win directory")
+    parser.add_argument("--red-bridge", type=Path, help="VideoAnalyzerRED.dll built from native/red_bridge.cpp")
     parser.add_argument("--app", type=Path, help="Optional already-built portable VideoAnalyzer directory")
     parser.add_argument("--output", type=Path, default=repo / "dist" / "private" / "VideoAnalyzer-camera-bundle-windows-x64.zip")
     parser.add_argument("--probe-child", type=Path, help=argparse.SUPPRESS)
@@ -99,6 +101,9 @@ def main():
     records, families, probes = [], {}, []
     for family, patterns in FAMILIES.items():
         origin = args.resolve if family == "blackmagic" else args.adobe
+        if family == 'red' and args.red_runtime:
+            origin = args.red_runtime
+            patterns = ('REDR3D-x64.dll', 'REDDecoder-x64.dll', 'REDCuda-x64.dll', 'REDOpenCL-x64.dll')
         destination = staging / "camera-decoders" / family
         seen = set()
         for pattern in patterns:
@@ -112,6 +117,15 @@ def main():
         if not seen:
             raise ValueError(f"No installed runtime found for {family}")
         families[family] = sorted(seen)
+    if args.red_bridge:
+        copy_file(args.red_bridge, staging / 'camera-decoders/red/VideoAnalyzerRED.dll',
+                  'Video Analyzer read-only RED SDK bridge', records)
+        families['red'].append('VideoAnalyzerRED.dll')
+    if bool(args.red_bridge) != bool(args.red_runtime):
+        raise ValueError('--red-runtime and --red-bridge must be supplied together')
+    if args.red_runtime:
+        license_file = args.red_runtime.parent / 'SDK License Agreement.pdf'
+        copy_file(license_file, staging / 'notices/RED-SDK-License-Agreement.pdf', 'RED SDK supplied license', records)
     shared = staging / "camera-decoders" / "shared"
     system = Path(os.environ["WINDIR"]) / "System32"
     for name in VC_RUNTIMES:
@@ -160,11 +174,14 @@ def main():
         "Video Analyzer personal transfer bundle - Windows x64\n\n"
         "Extract the entire ZIP. Double-click Run Video Analyzer.cmd. Keep its folders together.\n"
         "The included frozen app and FFmpeg need no separate Python/Node/Adobe/Resolve installation.\n"
-        "Drop a Sony F55 RAW MXF into the desktop window, keeping its adjacent M01.xml.\n"
+        "Drop Sony F55 RAW MXF, Blackmagic BRAW or RED R3D into the desktop window.\n"
+        "Keep recording sidecars and numbered RED file parts together.\n"
         "The app references the original in place and automatically prepares a small\n"
         "viewing proxy with progress. A complete F55 clip passed frame/timing/audio checks.\n"
-        "Viewing colors are approximate, not a calibrated RAW grade. Other bundled\n"
-        "camera families have load tests only; their native adapters are not enabled.\n"
+        "Viewing colors are not a calibrated RAW grade. BRAW and RED adapters also\n"
+        "passed real-media frame/timing/audio checks. Canon CRM is not enabled.\n"
+        "ARRI RAW requires the official ARRI Reference Tool CMD download; see docs/CAMERA_MEDIA.md.\n"
+        "Other FFmpeg-decodable camera media receives a viewing proxy automatically.\n"
         "Bundled camera-decoders contain selected runtimes and their companion resources.\n"
         "Manifest hashes record exact components. GPU modules still need the appropriate\n"
         "hardware drivers (OpenCL/CUDA); Windows system libraries are supplied by Windows.\n"
@@ -176,7 +193,8 @@ def main():
         encoding="utf8")
     manifest = {"created_at": datetime.now(timezone.utc).isoformat(), "platform": "windows-x64",
                 "personal_transfer_bundle": True, "vendor_permissions_verified": False,
-                "decoder_adapters_enabled": ["sony_f55_raw"] if args.app else [], "app_included": bool(args.app),
+                "decoder_adapters_enabled": (["sony_f55_raw", "blackmagic_raw", "ffmpeg_camera"] +
+                    (["red_raw"] if args.red_bridge else [])) if args.app else [], "app_included": bool(args.app),
                 "families": families, "load_probes": probes,
                 "files": [{**entry, "path": str(entry["path"].relative_to(staging))} for entry in records]}
     (staging / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf8")

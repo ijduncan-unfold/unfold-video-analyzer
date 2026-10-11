@@ -98,7 +98,7 @@ def test_sony_sidecar_recovers_raw_format_and_resolution_but_uses_probed_exact_r
 
 
 def test_interpreted_camera_rate_rejected_before_creating_project(client, tmp_path):
-    original, _ = files(tmp_path)
+    original, _ = files(tmp_path, '.mp4')
     with patch.object(camera_media, 'probe_media', AsyncMock(return_value=FACTS)), \
          patch.object(camera_media, 'decode_check', AsyncMock(return_value=True)), \
          patch.object(camera_media, 'create_poster', AsyncMock()) as poster:
@@ -123,7 +123,7 @@ def test_link_route_rejects_remote_clients_and_cross_origin_before_reading_files
 
 
 def test_same_origin_route_registers_original_without_file_payload(client, tmp_path):
-    original, _ = files(tmp_path)
+    original, _ = files(tmp_path, '.mp4')
     with TestClient(app, base_url='http://127.0.0.1:8000', client=('127.0.0.1', 50000)) as local:
         with patch.object(camera_media, 'probe_media', AsyncMock(return_value=FACTS)), \
              patch.object(camera_media, 'decode_check', AsyncMock(return_value=True)), \

@@ -111,6 +111,15 @@ async def probe_media(path: str) -> dict:
         fps = float(Fraction(rate))
     except (ValueError, ZeroDivisionError):
         fps = 0
+    if fps <= 0:
+        # Camera MXF often omits avg_frame_rate while its stream declares a
+        # usable nominal rate. This fallback does not certify packet cadence.
+        try:
+            nominal = video.get('r_frame_rate', '0/1')
+            fps = float(Fraction(nominal))
+            rate = nominal if fps > 0 else '0/1'
+        except (ValueError, ZeroDivisionError):
+            fps, rate = 0, '0/1'
     timing = await _probe_packet_cadence(path, video)
     return {
         "duration_seconds": float(fmt.get("duration", video.get("duration", 0))),
@@ -123,6 +132,7 @@ async def probe_media(path: str) -> dict:
         "pixel_format": video.get("pix_fmt"), "color_space": video.get("color_space"),
         "color_transfer": video.get('color_transfer'), "color_primaries": video.get('color_primaries'),
         "container": fmt.get('format_name'),
+        "camera_manufacturer": fmt.get('tags', {}).get('company_name') or fmt.get('tags', {}).get('manufacturer'),
         "rotation": next((s.get("rotation") for s in video.get("side_data_list", []) if "rotation" in s), 0),
         **timing,
     }

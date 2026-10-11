@@ -67,6 +67,8 @@ async def run_analysis(
     warnings = ["AI-generated timestamps are approximate; review metadata before editorial use."]
     if job.technical.get('viewing_proxy', {}).get('decoder') == 'sony_f55_raw':
         warnings.append('Sony RAW analysis uses an SDK-developed viewing proxy with an approximate display transform; color results describe the proxy, not calibrated RAW color.')
+    elif job.technical.get('viewing_proxy', {}).get('generated'):
+        warnings.append('Analysis uses a generated camera viewing proxy; color results describe its development settings, not a final RAW grade.')
     flash_dict = None
     deep_results = []
     summary_dict = custom_result_dict = None
