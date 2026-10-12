@@ -1,4 +1,6 @@
-# Video Analyzer
+# Unfold Video Analyzer
+
+This fork adds a **Cosplay** analysis mode for booth and convention footage: character/franchise filters, costume variants, visible descriptions, activities, and editable suggested/confirmed/unknown identifications. Group clips match each depicted character. Select **Cosplay** in a media item's analysis menu or in the batch controls. **Select all matches** includes results beyond the current page. See [the Comic Con workflow and validation notes](docs/COSPLAY.md).
 
 Turn footage into a searchable shot library with Gemini analysis, visual match-cut discovery, editable metadata, and exports for the edit. Built for agency teams finding and reusing footage, and filmmakers exploring their material.
 

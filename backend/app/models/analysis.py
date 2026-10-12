@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
+from app.models.cosplay import CosplayIdentification
 
 
 # --- Pass 1: Flash Scene Detection (intermediate models) ---
@@ -94,6 +95,7 @@ class Shot(BaseModel):
     start_boundary: Literal['cut', 'continuation', 'unknown'] = 'unknown'
     section_numbers: list[int] = Field(default_factory=list)
     slates: list[Slate] = Field(default_factory=list)
+    cosplay: list[CosplayIdentification] = Field(default_factory=list, max_length=100)
 
 
 class Scene(BaseModel):

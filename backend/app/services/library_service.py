@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 from app.config import settings
+from app.models.cosplay import normalize_query
+from app.services.cosplay import effective_cosplay, job_cosplay
 from app.models.library import AssetMetadata
 from app.services.library_export import parse_seconds, segment_times
 
@@ -78,7 +80,7 @@ def _search_values(value):
 
 
 def _search_text(value):
-    return ' '.join(_search_values(value)).casefold()
+    return normalize_query(' '.join(_search_values(value))).casefold()
 
 
 def _term_pattern(term):
@@ -147,6 +149,7 @@ def asset_view(job, detail=False):
         'mime_type': job.mime_type, 'youtube_url': job.youtube_url,
         'media_origin': job.media_origin, 'uses_viewing_proxy': bool(job.viewing_path),
         'metadata': metadata, 'technical': job.technical,
+        'cosplay': job_cosplay(job),
         'shot_count': sum(len(scene.get('shots', [])) for scene in (job.flash_result or {}).get('scenes', [])),
         'summary': (job.summary or {}).get('executive_summary', ''),
         'thumbnail_url': f'/api/library/{job.job_id}/poster{cache_key}' if poster.is_file() else None,
@@ -174,7 +177,7 @@ def asset_view(job, detail=False):
 
 def search_score(query: str, data) -> int:
     """Explainable case-insensitive keyword matching; deliberately not called semantic search."""
-    terms = re.findall(r'\w+', query.casefold())
+    terms = re.findall(r'\w+', normalize_query(query).casefold())
     text = _search_text(data)
     if not all(_term_count(text, term) for term in terms):
         return -1
@@ -196,7 +199,7 @@ def match_shot(query: str, shot: dict) -> tuple[int, dict]:
         ('Custom analysis', shot.get('custom_analysis')),
         ('Project metadata', [shot.get('filename'), shot.get('project_metadata')]),
     ]
-    terms = re.findall(r'\w+', query.casefold())
+    terms = re.findall(r'\w+', normalize_query(query).casefold())
     texts = [(label, value, _search_text(value)) for label, value in scopes]
     combined = ' '.join(text for _, _, text in texts)
     if not all(_term_count(combined, term) for term in terms):
@@ -268,6 +271,7 @@ def shot_views(job):
                 'start_seconds': seconds(shot.get('start_time', '0')),
                 'end_seconds': seconds(shot.get('end_time', '0')),
                 'tags': list(dict.fromkeys(shot.get('tags', []) + annotation.get('tags', []))),
+                'cosplay': effective_cosplay(shot, annotation),
                 'human_tags': annotation.get('tags', []), 'notes': annotation.get('notes', ''),
                 'review_status': annotation.get('review_status', 'unreviewed'),
                 'thumbnail_url': thumbnail_url(job, number),

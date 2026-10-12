@@ -91,6 +91,7 @@ async def run_shot_detection(
     source_offset: float = 0.0,
     previous_shot: Shot | None = None,
     single_take: bool = False,
+    cosplay: bool = False,
 ) -> tuple[list[Shot], dict]:
     """Stage 2: estimate shots and evidence within a bounded scene.
 
@@ -114,6 +115,11 @@ async def run_shot_detection(
         end_time=format_time(end_secs),
         shot_number_offset=shot_number_offset,
     )
+    if cosplay:
+        from app.prompts.cosplay_prompt import COSPLAY_PROMPT
+        prompt += COSPLAY_PROMPT
+    else:
+        prompt += "\nLeave cosplay empty; costume identification is a separate user-selected mode."
     if scene_outline.scene_title.startswith("Section "):
         prompt += (
             "\nThis interval is a processing section, not an editorial scene. "
@@ -176,6 +182,10 @@ async def run_shot_detection(
     result = ShotDetectionResult.model_validate_json(response_text(response))
     result.shots = validate_shots(result.shots, start_secs, end_secs, shot_number_offset)
     for shot in result.shots:
+        if not cosplay:
+            shot.cosplay = []
+        for costume in shot.cosplay:
+            costume.identification = "suggested" if costume.character else "unknown"
         if shot.transcript.strip():
             shot._dialogue_fragments = [{'start_time': shot.start_time, 'end_time': shot.end_time, 'text': shot.transcript}]
     reviews = []

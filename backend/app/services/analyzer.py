@@ -135,7 +135,7 @@ async def run_analysis(
         persist(flash_result=result, transcript=transcript, shot_annotations=annotations, **changes)
 
     try:
-        if mode not in {"flash_only", "flash_pro"}:
+        if mode not in {"flash_only", "flash_pro", "cosplay"}:
             raise ValueError("Unknown analysis mode")
         if not math.isfinite(fps) or not 0.1 <= fps <= 30:
             raise ValueError("Sampling FPS must be between 0.1 and 30")
@@ -145,7 +145,7 @@ async def run_analysis(
             if duration <= 0:
                 raise ValueError("Source duration must be positive")
         config = dict(job.analysis_config)
-        resolved_mode = resolve_shot_mode(job, shot_mode)
+        resolved_mode = resolve_shot_mode(job, 'single_take' if mode == 'cosplay' and shot_mode == 'auto' else shot_mode)
         config.update(proxy_decision(job, proxy_mode))
         config['proxy_used'] = media is not None
         for key in ('upload_part_seconds', 'proxy_max_resolution', 'summary_input'):
@@ -211,6 +211,7 @@ async def run_analysis(
                     **({'source_offset': offset} if media else {}),
                     **({'previous_shot': previous} if previous is not None else {}),
                     **({'single_take': True} if resolved_mode == 'single_take' else {}),
+                    **({'cosplay': True} if mode == 'cosplay' else {}),
                 )
                 usage_records.append(usage)
                 shots = validate_shots(shots, start, end, shot_counter)

@@ -280,6 +280,7 @@ def _csv_document(data: dict) -> str:
                "Subjects", "Dominant Colors", "Mood", "Reviewed Tags", "Shot Notes",
                "Shot Review Status", "Source Frame Rate", "Source Timecode", "Timing Status",
                "AI Tags", "Actions", "Visible Text", "Potential Logos", "Location", "Transcript", "Evidence"]
+    headers += ['Cosplay Characters', 'Cosplay Franchises', 'Cosplay Identifications']
     headers += ['Slate ' + title for _, title in SLATE_COLUMNS] + ['Slate Observations']
     writer.writerow(headers)
     meta, technical = data.get("metadata") or {}, data.get("technical") or {}
@@ -293,7 +294,7 @@ def _csv_document(data: dict) -> str:
         # An asset can have valuable human metadata before AI analysis exists.
         row = common + [""] * 17 + [technical.get("frame_rate_fraction") or technical.get("frame_rate"),
                                      technical.get("source_timecode"), "No shot analysis available"] + [""] * 7
-        writer.writerow([_cell(value) for value in row] + [''] * (len(SLATE_COLUMNS) + 1))
+        writer.writerow([_cell(value) for value in row] + [''] * (len(SLATE_COLUMNS) + 4))
     for scene, shot, reviewed in shots:
         try:
             start, end = segment_times(shot, technical.get("duration_seconds"))
@@ -312,6 +313,11 @@ def _csv_document(data: dict) -> str:
                         shot.get("tags"), shot.get("actions"), shot.get("visible_text"), shot.get("logos"),
                         shot.get("location"), shot.get("transcript"),
                         json.dumps(_public(shot.get("evidence") or []), ensure_ascii=False)]
+        from app.services.cosplay import effective_cosplay
+        costumes = effective_cosplay(shot, reviewed)
+        row += ['; '.join(dict.fromkeys(c['character'] for c in costumes if c['character'])),
+                '; '.join(dict.fromkeys(c['franchise'] for c in costumes if c['franchise'])),
+                json.dumps(costumes, ensure_ascii=False)]
         slates = shot.get('slates') or []
         row += ['; '.join(dict.fromkeys(slate.get(key, '') for slate in slates if slate.get(key)))
                 for key, _ in SLATE_COLUMNS]

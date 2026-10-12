@@ -21,7 +21,18 @@ export interface Slate {
   review_status?: string
 }
 
+export interface CosplayIdentification {
+  character: string
+  franchise: string
+  costume_variant: string
+  visible_details: string
+  activity: string
+  possible_characters: string[]
+  identification: 'suggested' | 'confirmed' | 'unknown'
+}
+
 export interface Shot {
+  cosplay?: CosplayIdentification[]
   shot_number: number
   thumbnail_url?: string | null
   start_time: string

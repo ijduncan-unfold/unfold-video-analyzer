@@ -15,6 +15,8 @@ from app.services.library_service import (
 )
 from app.services.library_filters import library_facets, matches_metadata, matches_tag
 
+from app.services.cosplay import matches_cosplay, job_cosplay, cosplay_facets, searchable_flash
+
 router = APIRouter(prefix='/api/library')
 _poster_locks = {}
 
@@ -48,6 +50,7 @@ def _filtered(jobs, project='', review_status='', tag='', rights_status='', coll
 async def library(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
                   tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
                   production: str = '', scene: str = '', take: str = '', camera_roll: str = '', cinematographer: str = '',
+                  character: str = '', franchise: str = '', identification: str = Query(default='', pattern='^(|suggested|confirmed|unknown)$'),
                   sort: str = Query(default='relevance', pattern='^(name|newest|relevance)$'),
                   limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     jobs = list_jobs()
@@ -56,8 +59,10 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
     for job in _filtered(jobs, project, review_status, tag, rights_status, collection, folder_id):
         if not matches_metadata(job, metadata_filters):
             continue
+        if not matches_cosplay(job_cosplay(job), character, franchise, identification):
+            continue
         public = asset_view(job)
-        score = search_score(q, [job.filename, public['metadata'], public['technical'], job.summary, job.flash_result,
+        score = search_score(q, [job.filename, public['metadata'], public['technical'], job.summary, searchable_flash(job),
                                  job.deep_results, job.shot_annotations,
                                  public_search_metadata(job.custom_result), public_transcript_segments(job)])
         if score >= 0:
@@ -78,6 +83,7 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
         'facets': {'projects': sorted({j.metadata.get('project') for j in jobs if j.metadata.get('project')}),
                    'tags': sorted({tag for j in jobs for tag in j.metadata.get('tags', [])}),
                    'collections': sorted({v for j in jobs for v in j.metadata.get('collections', [])}),
+                   **cosplay_facets(_filtered(jobs, folder_id=folder_id)),
                    **library_facets(_filtered(jobs, folder_id=folder_id))},
         'stats': {'assets': len(jobs), 'shots': sum(asset_view(j)['shot_count'] for j in jobs),
                   'reviewed': sum(j.metadata.get('review_status') == 'reviewed' for j in jobs),
@@ -88,6 +94,7 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
 async def search_shots(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
                        tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
                        production: str = '', scene: str = '', take: str = '', camera_roll: str = '', cinematographer: str = '',
+                       character: str = '', franchise: str = '', identification: str = Query(default='', pattern='^(|suggested|confirmed|unknown)$'),
                        job_id: str | None = Query(default=None, max_length=200),
                        limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     matches = []
@@ -96,6 +103,8 @@ async def search_shots(q: str = Query(default='', max_length=500), project: str 
     metadata_filters = dict(production=production, scene=scene, take=take, camera_roll=camera_roll, cinematographer=cinematographer)
     for job in _filtered(scoped, project=project, rights_status=rights_status, collection=collection, folder_id=folder_id):
         for shot in shot_views(job):
+            if not matches_cosplay(shot['cosplay'], character, franchise, identification):
+                continue
             if not matches_metadata(job, metadata_filters, shot):
                 continue
             if review_status and shot['review_status'] != review_status:
@@ -182,8 +191,11 @@ async def edit_asset(job_id: str, metadata: AssetMetadata):
 @router.patch('/{job_id}/shots/{shot_number}')
 async def edit_shot(job_id: str, shot_number: int, annotation: ShotAnnotation,
                     expected_start_time: str | None = Query(default=None, max_length=100),
-                    expected_end_time: str | None = Query(default=None, max_length=100)):
+                    expected_end_time: str | None = Query(default=None, max_length=100),
+                    expected_analysis_started_at: str | None = Query(default=None, max_length=100)):
     job = require_job(job_id)
+    if expected_analysis_started_at is not None and expected_analysis_started_at != str(job.analysis_config.get('started_at') or ''):
+        raise HTTPException(409, 'The analysis changed. Reload the clip before saving identifications.')
     shot = next((s for s in shot_views(job) if s['shot_number'] == shot_number), None)
     guarded = expected_start_time is not None or expected_end_time is not None
     if guarded and (shot is None

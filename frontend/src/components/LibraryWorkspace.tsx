@@ -6,6 +6,7 @@ import type { AssetDetail, Capabilities, ImportProgress, LibraryAsset, LibraryRe
 import { chooseNativeMedia, chooseNativeFolders, discoverNativeMedia, getDroppedFolders, isVideoMedia, nativeMediaAvailable, resolveBrowserDrop, resolveBrowserFolderDrop } from '../api/nativeMedia'
 import { copyEditorPairingCode, getDesktopHealth, getDesktopToken, saveDesktopGoogleApiKey } from '../api/desktop'
 import { useSettingsStore } from '../stores/settingsStore'
+import { CosplayBadges } from './library/CosplayEditor'
 import { AssetInspector } from './library/AssetInspector'
 import { HoverScrubThumbnail } from './library/HoverScrubThumbnail'
 import { Icon } from './library/Icon'
@@ -19,6 +20,8 @@ import { LibraryFolders, FolderMovePicker, SHOT_DRAG_TYPE } from './library/Libr
 import './LibraryWorkspace.css'
 
 const METADATA_FILTERS = [
+  { key: 'character', label: 'Character', all: 'All characters' },
+  { key: 'franchise', label: 'Franchise', all: 'All franchises' },
   { key: 'production', label: 'Production', all: 'All productions' },
   { key: 'scene', label: 'Scene', all: 'All scenes' },
   { key: 'take', label: 'Take', all: 'All takes' },
@@ -29,7 +32,7 @@ const METADATA_FILTERS = [
 export function LibraryWorkspace() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [metadataFilters, setMetadataFilters] = useState({ production: '', scene: '', take: '', camera_roll: '', cinematographer: '' })
+  const [metadataFilters, setMetadataFilters] = useState({ character: '', franchise: '', identification: '', production: '', scene: '', take: '', camera_roll: '', cinematographer: '' })
   const [tag, setTag] = useState('')
   const [folderId, setFolderId] = useState('')
   const [folders, setFolders] = useState<FolderResponse | null>(null)
@@ -52,8 +55,9 @@ export function LibraryWorkspace() {
   const [refresh, setRefresh] = useState(0)
   const [selection, setSelection] = useState<{ id: string; seconds?: number; shot?: number } | null>(null)
   const [checkedProjects, setCheckedProjects] = useState<DeletionProject[]>([])
-  const [batchMode, setBatchMode] = useState<AnalysisMode>('flash_pro')
+  const [batchMode, setBatchMode] = useState<AnalysisMode>('cosplay')
   const [queueing, setQueueing] = useState(false)
+  const [selectingAll, setSelectingAll] = useState(false)
   const [batchResults, setBatchResults] = useState<BatchAnalysisResult[]>([])
   const batchLock = useRef(false)
   const [deletingProjects, setDeletingProjects] = useState<DeletionProject[] | null>(null)
@@ -120,7 +124,7 @@ export function LibraryWorkspace() {
     getProjects(controller.signal, folderId).then(result => {
       if (controller.signal.aborted) return
       setProjects(result.projects); setProjectsError('')
-      setShotProjectId(current => result.projects.some(item => item.id === current) ? current : result.projects[0]?.id || '')
+      setShotProjectId(current => result.projects.some(item => item.id === current) ? current : '')
     }).catch(err => { if (!controller.signal.aborted) setProjectsError(errorMessage(err)) })
     return () => controller.abort()
   }, [refresh, folderId])
@@ -156,10 +160,10 @@ export function LibraryWorkspace() {
       try {
         const [result, shots] = await Promise.all([
           getLibrary({ q: searchMode === 'assets' ? query : '', ...metadataFilters, tag: searchMode === 'assets' ? tag : '', folder_id: folderId, limit: pageSize, offset: searchMode === 'assets' ? page * pageSize : 0, sort: sort === 'default' ? (query ? 'relevance' : 'newest') : sort }, controller.signal),
-          searchMode === 'shots' && shotProjectId ? getShots({ q: query, job_id: shotProjectId, ...metadataFilters, tag, folder_id: folderId, limit: pageSize, offset: page * pageSize }, controller.signal) : Promise.resolve(null),
+          searchMode === 'shots' ? getShots({ q: query, job_id: shotProjectId || undefined, ...metadataFilters, tag, folder_id: folderId, limit: pageSize, offset: page * pageSize }, controller.signal) : Promise.resolve(null),
         ])
         if (controller.signal.aborted) return
-        setLibrary(result); setShotResults(shots?.shots.filter(shot => shot.job_id === shotProjectId) || []); setShotTotal(shots?.total || 0); setShotResultProject(shotProjectId)
+        setLibrary(result); setShotResults(shots?.shots.filter(shot => !shotProjectId || shot.job_id === shotProjectId) || []); setShotTotal(shots?.total || 0); setShotResultProject(shotProjectId)
         const resultTotal = searchMode === 'shots' ? shots?.total || 0 : result.total
         if (page > 0 && resultTotal <= page * pageSize) setPagination({ context: pageContext, page: Math.max(0, Math.ceil(resultTotal / pageSize) - 1) })
       } catch (err) { if (!controller.signal.aborted) setError(errorMessage(err)) }
@@ -321,7 +325,7 @@ export function LibraryWorkspace() {
   }
 
   async function analyzeSelected() {
-    if (batchLock.current || !checkedProjects.length) return
+    if (batchLock.current || selectingAll || !checkedProjects.length) return
     batchLock.current = true; setQueueing(true); setBatchResults([])
     const ids = checkedProjects.map(item => item.id)
     try {
@@ -335,7 +339,23 @@ export function LibraryWorkspace() {
     } finally { batchLock.current = false; setQueueing(false); refreshLibrary() }
   }
 
-  function clearFilters() { setQuery(''); setMetadataFilters({ production: '', scene: '', take: '', camera_roll: '', cinematographer: '' }); setTag('') }
+  async function selectAllMatching() {
+    if (selectingAll || queueing) return
+    const context = pageContext
+    setSelectingAll(true); setError('')
+    try {
+      const selected: DeletionProject[] = []
+      for (let offset = 0; ; offset += 500) {
+        const result = await getLibrary({ q: query, ...metadataFilters, tag, folder_id: folderId, sort: 'name', limit: 500, offset })
+        if (currentLibraryContext.current !== context) return
+        selected.push(...result.assets.filter(asset => !isActiveAnalysis(asset.status) && asset.status !== 'deleting').map(asset => ({ id: asset.job_id, title: asset.metadata.title || asset.filename })))
+        if (offset + result.assets.length >= result.total || !result.assets.length) break
+      }
+      if (currentLibraryContext.current === context) setCheckedProjects([...new Map(selected.map(item => [item.id, item])).values()])
+    } catch (err) { setError(errorMessage(err)) }
+    finally { setSelectingAll(false) }
+  }
+  function clearFilters() { setQuery(''); setMetadataFilters({ character: '', franchise: '', identification: '', production: '', scene: '', take: '', camera_roll: '', cinematographer: '' }); setTag('') }
   const assets = library?.assets || []
   const selectableProjects = assets.filter(asset => !isActiveAnalysis(asset.status) && asset.status !== 'deleting')
   const allPageSelected = selectableProjects.length > 0 && selectableProjects.every(asset => checkedProjects.some(item => item.id === asset.job_id))
@@ -374,15 +394,16 @@ export function LibraryWorkspace() {
             <button className="lw-icon-button" aria-label="Settings" title="Settings" onClick={() => setSettings(true)}><Icon name="settings" size={18} /></button>
           </div>
         </header>
-        <div className="lf-scope-heading"><h2>{folderId === 'unfiled' ? 'Unfiled' : folders?.folders.find(folder => folder.id === folderId)?.name || 'All media'}</h2><span>{searchMode === 'assets' ? `${library?.total || 0} media ${library?.total === 1 ? 'item' : 'items'}` : 'Clips from the selected media'}</span></div>
+        <div className="lf-scope-heading"><h2>{folderId === 'unfiled' ? 'Unfiled' : folders?.folders.find(folder => folder.id === folderId)?.name || 'All media'}</h2><span>{searchMode === 'assets' ? `${library?.total || 0} media ${library?.total === 1 ? 'item' : 'items'}` : shotProjectId ? 'Clips from the selected media' : 'Clips across this library folder'}</span></div>
         {searchMode === 'assets' && (assets.length > 0 || checkedProjects.length > 0) && <div className="lw-project-selection" role="group" aria-label="Media selection">
           <label><input type="checkbox" aria-label="Select media on this page" checked={allPageSelected} disabled={queueing || moving || loading || !selectableProjects.length} onChange={event => setCheckedProjects(previous => event.target.checked ? [...previous, ...selectableProjects.filter(asset => !previous.some(item => item.id === asset.job_id)).map(asset => ({ id: asset.job_id, title: asset.metadata.title || asset.filename }))] : previous.filter(item => !selectableProjects.some(asset => asset.job_id === item.id)))} />Select page</label>
-          {(!!checkedProjects.length || queueing) && <><span>{checkedProjects.length} selected</span><button className="lw-text-button" disabled={queueing || moving} onClick={() => setCheckedProjects([])}>Clear selection</button><FolderMovePicker folders={folders?.folders || []} ids={checkedProjects.map(item => item.id)} disabled={queueing || moving} onMove={moveShots} /><div className="lw-batch-analysis"><select aria-label="Selected media analysis type" disabled={queueing} value={batchMode} onChange={event => setBatchMode(event.target.value as AnalysisMode)}><option value="flash_pro">Full analysis</option><option value="flash_only">Clips and tags</option></select><button className="lw-button lw-button-primary" disabled={queueing || moving || !checkedProjects.length} onClick={() => void analyzeSelected()}><Icon name="spark" size={16} />{queueing ? 'Queueing…' : 'Analyze selected'}</button></div><button className="lw-button lw-button-danger" disabled={queueing || moving} onClick={() => setDeletingProjects(checkedProjects)}><Icon name="trash" size={15} />Delete selected</button></>}
+          {(library?.total || 0) > pageSize && <button className="lw-text-button" disabled={selectingAll || queueing || moving} onClick={() => void selectAllMatching()}>{selectingAll ? 'Selecting…' : `Select all ${library?.total} matches`}</button>}
+          {(!!checkedProjects.length || queueing) && <><span>{checkedProjects.length} selected</span><button className="lw-text-button" disabled={queueing || moving} onClick={() => setCheckedProjects([])}>Clear selection</button><FolderMovePicker folders={folders?.folders || []} ids={checkedProjects.map(item => item.id)} disabled={queueing || moving} onMove={moveShots} /><div className="lw-batch-analysis"><select aria-label="Selected media analysis type" disabled={queueing} value={batchMode} onChange={event => setBatchMode(event.target.value as AnalysisMode)}><option value="flash_pro">Full analysis</option><option value="flash_only">Clips and tags</option><option value="cosplay">Cosplay</option></select><button className="lw-button lw-button-primary" disabled={selectingAll || queueing || moving || !checkedProjects.length} onClick={() => void analyzeSelected()}><Icon name="spark" size={16} />{queueing ? 'Queueing…' : 'Analyze selected'}</button></div><button className="lw-button lw-button-danger" disabled={queueing || moving} onClick={() => setDeletingProjects(checkedProjects)}><Icon name="trash" size={15} />Delete selected</button></>}
         </div>}
         {!!batchResults.length && <div className="lw-batch-notice"><div role="status">{batchResults.filter(result => result.accepted).length} media items queued{queueing ? '…' : '.'}</div>{batchResults.filter(result => !result.accepted).map(result => <p className="lw-inline-error" role="alert" key={result.id}>{projects?.find(item => item.id === result.id)?.title || result.id}: {result.error}</p>)}{!queueing && <button className="lw-text-button" onClick={() => setBatchResults([])}>Dismiss</button>}</div>}
         {searchMode === 'shots' && <div className="lw-project-scope">
           <label><span>Source media</span><select aria-label="Source media" required value={shotProjectId} disabled={!projects?.length} onChange={event => setShotProjectId(event.target.value)}>
-            {!projects?.length && <option value="">{projectLoading ? 'Loading media…' : 'No media yet'}</option>}
+            <option value="">{projectLoading ? 'Loading media…' : 'All media in this folder'}</option>
             {projects?.map(item => <option value={item.id} key={item.id}>{item.title || item.filename}</option>)}
           </select></label>
           {shotProjectId && <button className="lw-text-button" onClick={() => openVideo({ id: shotProjectId })}>Open media<Icon name="arrow" size={14} /></button>}
@@ -391,6 +412,7 @@ export function LibraryWorkspace() {
         {filtersOpen && <div id="library-filters" className="lw-filter-panel">
           <div className="lw-filters">
             {METADATA_FILTERS.map(({ key, label, all }) => <label key={key}><span>{label}</span><select aria-label={`Filter by ${label.toLowerCase()}`} value={metadataFilters[key]} disabled={!library?.facets[key]?.length && !metadataFilters[key]} onChange={event => setMetadataFilters(previous => ({ ...previous, [key]: event.target.value }))}><option value="">{library?.facets[key]?.length ? all : 'No metadata yet'}</option>{metadataFilters[key] && !library?.facets[key]?.includes(metadataFilters[key]) && <option>{metadataFilters[key]}</option>}{library?.facets[key]?.map(value => <option key={value}>{value}</option>)}</select></label>)}
+            <label><span>Identification</span><select aria-label="Filter by identification" value={metadataFilters.identification} onChange={event => setMetadataFilters(previous => ({ ...previous, identification: event.target.value }))}><option value="">All identifications</option><option value="suggested">Suggested</option><option value="confirmed">Confirmed</option><option value="unknown">Unknown costumes</option></select></label>
             <label><span>Tag</span><select aria-label="Filter by tag" value={tag} onChange={event => setTag(event.target.value)}><option value="">All tags</option>{library?.facets.tags.map(name => <option key={name}>{name}</option>)}</select></label>
             {searchMode === 'assets' && <label><span>Sort</span><select aria-label="Sort footage" value={sort === 'newest' && !query ? 'default' : sort} onChange={event => setSort(event.target.value)}><option value="default">{query ? 'Relevance' : 'Newest first'}</option><option value="name">Name A–Z</option>{query && <option value="newest">Newest first</option>}</select></label>}
           </div>
@@ -421,12 +443,12 @@ function AssetCard({ asset, selected, onClick, checked, onToggle, onDelete, lock
     <div className="lw-project-card-actions"><input type="checkbox" aria-label={`Select media ${title}`} checked={checked} disabled={busy} title={busy ? 'This media is busy.' : 'Select media'} onChange={onToggle} /><button className="lw-icon-button" aria-label={`Delete media ${title}`} title={busy ? 'Finish or cancel analysis before deleting this media.' : 'Delete media'} disabled={busy} onClick={onDelete}><Icon name="trash" size={16} /></button></div>
     <button className={`lw-asset-card ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-pressed={selected}>
     <HoverScrubThumbnail key={asset.preview_url} src={asset.preview_url} poster={asset.thumbnail_url} enabled={asset.status !== 'deleting' && !asset.technical.playback_proxy_required} placeholder={<div className="lw-card-placeholder"><Icon name="film" size={32} /><span>{asset.mime_type?.split('/')[1]?.toUpperCase() || 'VIDEO'}</span></div>}><span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{duration(asset.technical.duration_seconds)}</span>{isAnalyzing ? <span className="lw-card-status analyzing"><Icon name="spark" size={11} />{asset.status === 'queued' ? 'Queued' : 'Analyzing'}</span> : analyzed ? null : asset.status === 'error' ? <span className="lw-card-status error">Analysis failed</span> : <span className="lw-card-status pending">{asset.status === 'deleting' ? 'Removing…' : 'Not analyzed'}</span>}</HoverScrubThumbnail>
-    <div className="lw-card-content"><div className="lw-card-title"><h3 title={asset.metadata.title || asset.filename}>{asset.metadata.title || asset.filename}</h3><OriginalOfflineBadge offline={originalOffline} /></div><div className="lw-card-subtitle">{asset.metadata.project && <span>{asset.metadata.project}</span>}</div>{asset.match_context && asset.match_context !== 'Matched asset metadata' && <p className="lw-match-context">{asset.match_context}</p>}{asset.metadata.tags.length > 0 && <div className="lw-card-tags">{asset.metadata.tags.slice(0, 3).map(tag => <span key={tag}>{tag}</span>)}{asset.metadata.tags.length > 3 && <span>+{asset.metadata.tags.length - 3}</span>}</div>}{(isAnalyzing || asset.status === 'complete' || asset.status === 'error') && <div className="lw-card-analysis" aria-label={`Analysis progress for ${title}`}>{isAnalyzing ? <><strong>{analysisStageLabel(asset.analysis_progress?.stage || (asset.status === 'queued' ? 'queued' : undefined))}</strong>{asset.status !== 'queued' && <span>{facts.coverage || facts.summary}</span>}</> : asset.status === 'complete' ? <span>Analyzed · {asset.shot_count} {asset.shot_count === 1 ? 'clip' : 'clips'}</span> : <span>{asset.error || 'Analysis failed. Open this media to retry.'}</span>}</div>}</div>
+    <div className="lw-card-content"><div className="lw-card-title"><h3 title={asset.metadata.title || asset.filename}>{asset.metadata.title || asset.filename}</h3><OriginalOfflineBadge offline={originalOffline} /></div><div className="lw-card-subtitle">{asset.metadata.project && <span>{asset.metadata.project}</span>}</div>{asset.match_context && asset.match_context !== 'Matched asset metadata' && <p className="lw-match-context">{asset.match_context}</p>}<CosplayBadges records={asset.cosplay} />{asset.metadata.tags.length > 0 && <div className="lw-card-tags">{asset.metadata.tags.slice(0, 3).map(tag => <span key={tag}>{tag}</span>)}{asset.metadata.tags.length > 3 && <span>+{asset.metadata.tags.length - 3}</span>}</div>}{(isAnalyzing || asset.status === 'complete' || asset.status === 'error') && <div className="lw-card-analysis" aria-label={`Analysis progress for ${title}`}>{isAnalyzing ? <><strong>{analysisStageLabel(asset.analysis_progress?.stage || (asset.status === 'queued' ? 'queued' : undefined))}</strong>{asset.status !== 'queued' && <span>{facts.coverage || facts.summary}</span>}</> : asset.status === 'complete' ? <span>Analyzed · {asset.shot_count} {asset.shot_count === 1 ? 'clip' : 'clips'}</span> : <span>{asset.error || 'Analysis failed. Open this media to retry.'}</span>}</div>}</div>
     <Icon name="chevron" className="lw-list-chevron" size={16} />
   </button></div>
 }
 function ShotCard({ shot, selected, onClick, originalOffline }: { originalOffline: boolean; shot: LibraryShot; selected: boolean; onClick: () => void }) {
-  return <button className={`lw-asset-card lw-shot-card ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-pressed={selected}><HoverScrubThumbnail key={shot.preview_url} src={shot.preview_url} poster={shot.thumbnail_url} start={shot.start_seconds} end={shot.end_seconds} placeholder={<div className="lw-card-placeholder"><Icon name="film" size={32} /><span>CLIP {String(shot.shot_number).padStart(2, '0')}</span></div>}><span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{shot.start_time} – {shot.end_time}</span><span className="lw-card-status">CLIP {String(shot.shot_number).padStart(2, '0')}</span></HoverScrubThumbnail><div className="lw-card-content"><div className="lw-card-title"><h3>{shot.scene_title || `Clip ${shot.shot_number}`}</h3><OriginalOfflineBadge offline={originalOffline} /></div><div className="lw-card-subtitle"><span title={shot.filename}>{shot.filename}</span></div><p className="lw-shot-description">{shot.visual_description}</p>{shot.match_context && shot.match_context !== shot.visual_description && <p className="lw-match-context">{shot.match_context}</p>}<div className="lw-card-tags">{[shot.shot_type, shot.mood, ...shot.tags].filter(Boolean).slice(0, 3).map((tag, index) => <span key={`${tag}-${index}`}>{tag}</span>)}</div></div><Icon name="chevron" className="lw-list-chevron" size={16} /></button>
+  return <button className={`lw-asset-card lw-shot-card ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-pressed={selected}><HoverScrubThumbnail key={shot.preview_url} src={shot.preview_url} poster={shot.thumbnail_url} start={shot.start_seconds} end={shot.end_seconds} placeholder={<div className="lw-card-placeholder"><Icon name="film" size={32} /><span>CLIP {String(shot.shot_number).padStart(2, '0')}</span></div>}><span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{shot.start_time} – {shot.end_time}</span><span className="lw-card-status">CLIP {String(shot.shot_number).padStart(2, '0')}</span></HoverScrubThumbnail><div className="lw-card-content"><div className="lw-card-title"><h3>{shot.scene_title || `Clip ${shot.shot_number}`}</h3><OriginalOfflineBadge offline={originalOffline} /></div><div className="lw-card-subtitle"><span title={shot.filename}>{shot.filename}</span></div><CosplayBadges records={shot.cosplay} /><p className="lw-shot-description">{shot.visual_description}</p>{shot.match_context && shot.match_context !== shot.visual_description && <p className="lw-match-context">{shot.match_context}</p>}<div className="lw-card-tags">{[shot.shot_type, shot.mood, ...shot.tags].filter(Boolean).slice(0, 3).map((tag, index) => <span key={`${tag}-${index}`}>{tag}</span>)}</div></div><Icon name="chevron" className="lw-list-chevron" size={16} /></button>
 }
 function EmptyState({ hasLibrary, filtered, shots, folder, importing, onImport, onClear, onVideos }: { hasLibrary: boolean; filtered: boolean; shots: boolean; folder: boolean; importing: boolean; onImport: () => void; onClear: () => void; onVideos: () => void }) {
   if (folder && !filtered && !shots) return <div className="lw-empty-state"><Icon name="folder" size={28} /><h2>This folder is empty</h2><p>Move media here from All media, or import into this folder.</p><button className="lw-button lw-button-primary" disabled={importing} onClick={onImport}>Import media</button></div>

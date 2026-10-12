@@ -1,4 +1,4 @@
-export type AnalysisMode = 'flash_only' | 'flash_pro'
+export type AnalysisMode = 'flash_only' | 'flash_pro' | 'cosplay'
 export interface BatchAnalysisResult { id: string; accepted: boolean; error?: string }
 
 /** Queue requests promptly; the server limits concurrent Gemini analyses. */
