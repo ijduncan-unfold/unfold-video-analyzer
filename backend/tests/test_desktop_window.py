@@ -61,6 +61,7 @@ def test_native_picker_cancel_returns_no_files(monkeypatch):
 
 def test_native_launcher_keeps_pairing_out_of_command_line_and_reuses_window(monkeypatch):
     monkeypatch.setattr(desktop_window, '_process', None)
+    monkeypatch.setattr(desktop_window, 'ui_version', lambda: '0123456789abcdef')
     # The launcher contract uses a stub process; it does not require a GUI
     # package or display server on backend-only CI runners.
     monkeypatch.setattr(importlib.util, 'find_spec', Mock(return_value=object()))
@@ -70,7 +71,24 @@ def test_native_launcher_keeps_pairing_out_of_command_line_and_reuses_window(mon
     desktop_window.launch_window('https://localhost:8443', 'private-test-token')
     launch.assert_called_once()
     assert 'private-test-token' not in ' '.join(launch.call_args.args[0])
-    assert launch.call_args.kwargs['env']['VIDEO_ANALYZER_WINDOW_URL'] == 'https://localhost:8443/#desktop-token=private-test-token'
+    assert launch.call_args.kwargs['env']['VIDEO_ANALYZER_WINDOW_URL'] == 'https://localhost:8443/?ui=0123456789abcdef#desktop-token=private-test-token'
+
+
+def test_native_ui_version_changes_with_frontend_build_and_keeps_bridge_origin(tmp_path, monkeypatch):
+    monkeypatch.setenv('VIDEO_ANALYZER_FRONTEND_DIR', str(tmp_path))
+    page = tmp_path / 'index.html'
+    page.write_text('<script src="/assets/old.js"></script>')
+    previous = desktop_window.ui_version()
+    page.write_text('<script src="/assets/new.js"></script>')
+    current = desktop_window.ui_version()
+    assert previous != current and len(current) == 16
+    assert desktop_window.local_origin(f'http://127.0.0.1:8000/?ui={current}') == ('http', '127.0.0.1:8000')
+    api = desktop_window.NativeFiles(f'http://127.0.0.1:8000/?ui={current}')
+    api._window = Mock(get_current_url=Mock(return_value=f'http://127.0.0.1:8000/?ui={current}'))
+    assert api._trusted()
+    for query in ('ui=bad', 'ui=' + current + '&redirect=external', 'redirect=external'):
+        with pytest.raises(ValueError):
+            desktop_window.local_origin(f'http://127.0.0.1:8000/?{query}')
 
 
 def test_native_launcher_without_desktop_dependencies_explains_the_requirement(monkeypatch):

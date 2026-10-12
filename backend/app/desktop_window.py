@@ -1,6 +1,8 @@
 """Native file drops supply original paths; the web UI never uploads their bytes."""
 import json
+import hashlib
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -14,14 +16,24 @@ _process = None
 def local_origin(url):
     parsed = urlsplit(url)
     if (parsed.scheme not in {'http', 'https'} or parsed.hostname not in {'localhost', '127.0.0.1', '::1'}
-            or parsed.username or parsed.password or parsed.path not in {'', '/'} or parsed.query):
+            or parsed.username or parsed.password or parsed.path not in {'', '/'}
+            or parsed.query and not re.fullmatch(r'ui=[0-9a-f]{16}', parsed.query)):
         raise ValueError('The desktop window requires the local Video Analyzer origin.')
     return parsed.scheme, parsed.netloc
 
 
+def ui_version():
+    root = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]
+    frontend = Path(os.environ.get('VIDEO_ANALYZER_FRONTEND_DIR', str(root / 'frontend' / 'dist')))
+    try:
+        return hashlib.sha256((frontend / 'index.html').read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ''  # Development servers can serve an unbuilt frontend.
+
+
 def launch_window(base_url, token='', pick=False):
     global _process
-    local_origin(base_url)
+    scheme, authority = local_origin(base_url)
     if _process is not None and _process.poll() is None:
         return
     # Verify the optional desktop runtime before reporting a successful launch.
@@ -29,7 +41,8 @@ def launch_window(base_url, token='', pick=False):
     if importlib.util.find_spec('webview') is None:
         raise ValueError('Install the desktop dependencies to enable native file drops.')
     env = os.environ.copy()
-    env['VIDEO_ANALYZER_WINDOW_URL'] = base_url.rstrip('/') + '/' + ('#desktop-token=' + token if token else '')
+    version = ui_version()
+    env['VIDEO_ANALYZER_WINDOW_URL'] = f'{scheme}://{authority}/' + (f'?ui={version}' if version else '') + ('#desktop-token=' + token if token else '')
     env['VIDEO_ANALYZER_WINDOW_PICK'] = '1' if pick else '0'
     if getattr(sys, 'frozen', False):
         command = [sys.executable, '--desktop-window']
