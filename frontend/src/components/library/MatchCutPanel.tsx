@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
-import { getProjects } from '../../api/library'
-import type { AssetDetail, LibraryProject } from '../../api/library'
+import { getFolders, getProjects } from '../../api/library'
+import type { AssetDetail, LibraryFolder, LibraryProject } from '../../api/library'
 import type { Shot } from '../../api/types'
 import { visualFrame, visualRequest } from '../../api/visual'
 import type { VisualIndex, VisualMatch, VisualResults, VisualShape } from '../../api/visual'
 import { errorMessage, timestamp } from './format'
 import { readMatchCutSession, saveMatchCutSession } from './matchCutSession'
 import { ProjectSearchPicker } from './ProjectSearchPicker'
+import { resolveMatchCutScope } from './matchCutScope'
+import type { MatchCutScope } from './matchCutScope'
+import { searchAcrossMedia } from './matchCutBatch'
 import { simplifyOutline } from './freehandOutline'
 import './MatchCutPanel.css'
 
@@ -29,7 +32,11 @@ export function MatchCutPanel({ asset, shots, initialShot, useInitialShot = fals
   const [seconds, setSeconds] = useState(saved?.seconds ?? (shot ? midpoint(shot) : 0))
   const [frameSeconds, setFrameSeconds] = useState(seconds)
   const [projects, setProjects] = useState<LibraryProject[]>([])
-  const [targetIds, setTargetIds] = useState(saved?.targetIds ?? [asset.job_id])
+  const [folders, setFolders] = useState<LibraryFolder[]>([])
+  const [scopeLoading, setScopeLoading] = useState(true)
+  const [targetScope, setTargetScope] = useState<MatchCutScope>(saved?.targetScope ?? (saved ?
+    { mode: 'selected', mediaIds: saved.targetIds, folderIds: [] } : { mode: 'all', mediaIds: [], folderIds: [] }))
+  const targetIds = useMemo(() => resolveMatchCutScope(targetScope, projects, asset.job_id), [targetScope, projects, asset.job_id])
   const [indexes, setIndexes] = useState<VisualIndex[]>(saved?.indexes ?? [])
   const [validatedScope, setValidatedScope] = useState('')
   const [weights, setWeights] = useState(saved?.weights ?? { shape: 1, composition: 0, color: 0 })
@@ -84,7 +91,21 @@ export function MatchCutPanel({ asset, shots, initialShot, useInitialShot = fals
 
   useEffect(() => {
     const controller = new AbortController()
-    getProjects(controller.signal).then(data => setProjects(data.projects.filter(p => p.shot_count > 0))).catch(err => { if (!controller.signal.aborted) setError(errorMessage(err)) })
+    Promise.all([getProjects(controller.signal), getFolders(controller.signal)]).then(async ([data, listing]) => {
+      let media = data.projects
+      // Existing companion builds expose membership through folder-filtered
+      // listings. Keep the UI upgrade usable before the engine is restarted.
+      if (media.some(item => item.folder_id === undefined)) {
+        const membership = new Map<string, string>()
+        const grouped = await Promise.all(listing.folders.map(async folder => ({
+          id: folder.id, data: await getProjects(controller.signal, folder.id),
+        })))
+        for (const group of grouped) for (const item of group.data.projects) membership.set(item.id, group.id)
+        media = media.map(item => ({ ...item, folder_id: item.folder_id === undefined ? membership.get(item.id) || null : item.folder_id }))
+      }
+      if (!controller.signal.aborted) { setProjects(media); setFolders(listing.folders) }
+    }).catch(err => { if (!controller.signal.aborted) setError(errorMessage(err)) })
+      .finally(() => { if (!controller.signal.aborted) setScopeLoading(false) })
     return () => { controller.abort(); request.current?.abort() }
   }, [])
   useEffect(() => {
@@ -93,18 +114,18 @@ export function MatchCutPanel({ asset, shots, initialShot, useInitialShot = fals
     async function poll() {
       const ids = JSON.parse(scopeKey) as string[]
       const rows = await Promise.all(ids.map(async id => {
-        try { return { data: await visualRequest<VisualIndex>(`${encodeURIComponent(id)}/index`, undefined, controller.signal) } }
-        catch (err) { return { error: errorMessage(err) } }
+        try { return { id, data: await visualRequest<VisualIndex>(`${encodeURIComponent(id)}/index`, undefined, controller.signal) } }
+        catch (err) { return { id, error: errorMessage(err) } }
       }))
       if (controller.signal.aborted) return
-      setValidatedScope(rows.every(row => row.data) ? scopeKey : '')
+      setValidatedScope(rows.some(row => row.id === asset.job_id && row.data) ? scopeKey : '')
       setIndexes(rows.flatMap(row => row.data ? [row.data] : []))
-      setIndexErrors([...new Set(rows.flatMap(row => row.error ? [row.error] : []))])
+      setIndexErrors(rows.flatMap(row => row.error ? [`${projects.find(item => item.id === row.id)?.title || row.id}: ${row.error}`] : []))
       timer = setTimeout(poll, 1800)
     }
     void poll()
     return () => { controller.abort(); clearTimeout(timer) }
-  }, [scopeKey])
+  }, [scopeKey, asset.job_id, projects])
   useEffect(() => {
     const timer = setTimeout(() => setFrameSeconds(seconds), 250)
     return () => clearTimeout(timer)
@@ -119,18 +140,22 @@ export function MatchCutPanel({ asset, shots, initialShot, useInitialShot = fals
     if (!shotNumber) return
     // Persist user state, not playback, errors or in-flight request flags. Indexes
     // are revalidated before saved candidates can be previewed or exported.
-    saveMatchCutSession(asset.job_id, { run, shotNumber, seconds, targetIds, weights,
+    saveMatchCutSession(asset.job_id, { run, shotNumber, seconds, targetIds, targetScope, weights,
       region, sourceOutline, drawingMode, sourceShapeId, alignShape, knownShapes, indexes, result, resultKey,
       searchIntent, selected, incoming, handle })
-  }, [asset.job_id, run, shotNumber, seconds, targetIds, weights, region, sourceOutline, drawingMode, sourceShapeId,
+  }, [asset.job_id, run, shotNumber, seconds, targetIds, targetScope, weights, region, sourceOutline, drawingMode, sourceShapeId,
     alignShape, knownShapes, indexes, result, resultKey, searchIntent, selected, incoming, handle])
 
   async function build() {
     setError('')
-    try {
-      for (const id of targetIds) await visualRequest(`${encodeURIComponent(id)}/index`, {})
-      setNotice('Search as frames arrive; search again for newly indexed clips.')
-    } catch (err) { setError(errorMessage(err)) }
+    let started = 0
+    const failures: string[] = []
+    for (const id of targetIds) {
+      try { await visualRequest(`${encodeURIComponent(id)}/index`, {}); started++ }
+      catch (err) { failures.push(`${projects.find(item => item.id === id)?.title || id}: ${errorMessage(err)}`) }
+    }
+    setNotice(`${started} media ${started === 1 ? 'item' : 'items'} queued for visual indexing. Search as frames arrive.`)
+    if (failures.length) setError(failures.join('\n'))
   }
   const find = useCallback(async (automatic = false) => {
     if (!number || !sourceRevision || !ready) return
@@ -139,18 +164,24 @@ export function MatchCutPanel({ asset, shots, initialShot, useInitialShot = fals
     const controller = new AbortController(); request.current = controller
     lastCoverage.current = coverage
     setWorking(true); setError(''); setNotice('')
+    if (!automatic) setSelected(null)
     try {
-      const data = await visualRequest<VisualResults>(`${asset.job_id}/search`, {
+      const searchableIds = targetIds.filter(id => indexes.some(index => index.job_id === id))
+      const data = await searchAcrossMedia(searchableIds, ids => visualRequest<VisualResults>(`${asset.job_id}/search`, {
         shot_number: number, seconds: frameSeconds, revision: sourceRevision,
-        target_ids: targetIds, ...weights, region: weights.shape ? region : null, prepare_composition: !automatic, prepare_shape: !automatic, source_shape_id: sourceShapeId, align_shape: alignShape, source_outline: weights.shape ? sourceOutline : null,
-      }, controller.signal)
+        target_ids: ids, ...weights, region: weights.shape ? region : null, prepare_composition: !automatic, prepare_shape: !automatic, source_shape_id: sourceShapeId, align_shape: alignShape, source_outline: weights.shape ? sourceOutline : null,
+      }, controller.signal), controller.signal, (partial, searched) => {
+        if (!controller.signal.aborted) {
+          setResult(partial); setResultKey(searchKey)
+          if (!automatic) setNotice(`Searched ${searched} / ${searchableIds.length} media items.`)
+        }
+      })
       if (controller.signal.aborted) return
       setResult(data); setResultKey(searchKey)
       if (weights.shape) setKnownShapes({ key: shapeFrameKey, forms: data.source_shapes || [] })
-      if (!automatic) setSelected(null)
     } catch (err) { if (!controller.signal.aborted) setError(errorMessage(err)) }
     finally { if (!controller.signal.aborted) setWorking(false) }
-  }, [number, sourceRevision, ready, coverage, asset.job_id, frameSeconds, targetIds, weights, region, sourceOutline, sourceShapeId, alignShape, shapeFrameKey, searchKey])
+  }, [number, sourceRevision, ready, coverage, asset.job_id, frameSeconds, targetIds, indexes, weights, region, sourceOutline, sourceShapeId, alignShape, shapeFrameKey, searchKey])
   useEffect(() => {
     // Returning to an unfinished search only reads cached analysis. It never
     // starts additional Gemini work; active server jobs keep their own progress.
@@ -197,9 +228,10 @@ export function MatchCutPanel({ asset, shots, initialShot, useInitialShot = fals
         const next = shots.find(s => s.shot_number === Number(event.target.value))!
         setShotNumber(next.shot_number); setSeconds(midpoint(next)); setFrameSeconds(midpoint(next)); setRegion(null); setSourceShapeId(null); setSourceOutline(null); setSelected(null)
       }}>{shots.map(s => <option key={s.shot_number} value={s.shot_number}>Clip {String(s.shot_number).padStart(2, '0')} · {s.start_time}</option>)}</select></label>
-      <ProjectSearchPicker projects={projects} selectedIds={targetIds} onChange={setTargetIds} />
+      <ProjectSearchPicker projects={projects} folders={folders} sourceId={asset.job_id} scope={targetScope} onChange={setTargetScope} loading={scopeLoading} />
       <div className="mc-weights">{AXES.map(axis => <label key={axis}>{axis}<input aria-label={`${axis} weight`} type="range" min="0" max="1" step="0.1" value={weights[axis]} onChange={event => setWeights(w => ({ ...w, [axis]: Number(event.target.value) }))} /><span>{weights[axis] === 0 ? 'Off' : `${Math.round(weights[axis] * 100)}%`}</span></label>)}</div>
     </div>
+    <p className="lw-model-note">Search other recordings as well as edited videos. Media needs an analysis first; a single clip per recording is enough.</p>
     <div className="mc-index"><div role="status">{targets.some(i => i.status === 'indexing') ? 'Indexing' : 'Visual index'} · {available} / {targets.reduce((n, i) => n + i.total, 0)} frames{targets.some(i => i.failed) ? ' · Some frames failed; resume to retry.' : ''}</div>
       <button className="lw-button" disabled={!targetIds.length || targets.some(i => i.status === 'indexing') || (targets.length === targetIds.length && targets.every(i => i.status === 'complete'))} onClick={build}>{targets.some(i => i.status === 'indexing') ? 'Indexing…' : targets.every(i => i.status === 'complete') && targets.length ? 'Frames ready' : available ? 'Resume indexing' : 'Build visual index'}</button>
       {(targets.some(i => i.status === 'indexing') || readingComposition || readingShape) && <button className="lw-text-button" onClick={async () => { try { await Promise.all(targetIds.map(id => visualRequest(`${id}/index/cancel`, {}))); setNotice('Indexing paused. Saved frame analysis remains searchable.') } catch (err) { setError(errorMessage(err)) } }}>Pause</button>}

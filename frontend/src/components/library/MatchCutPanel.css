@@ -79,3 +79,10 @@
 .mc-shape-controls .lw-field { flex: 1; min-width: 180px; margin: 0; }
 .mc-shape-controls small, .mc-shape-controls p { flex-basis: 100%; margin: 0; }
 .mc-align { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.mc-search-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mc-search-scope .lw-field { min-width: 220px; margin: 0; }
+.mc-search-scope > small { flex-basis: 100%; color: #98a6b8; font-size: 12px; }
+.mc-picker-tabs { margin: 0 22px 14px; width: fit-content; }
+.mc-picker-hint { padding: 0 22px; color: #98a6b8; font-size: 12px; line-height: 1.6; }
+.mc-project-picker-filter { flex-wrap: wrap; gap: 12px; }
+.mc-project-picker footer { flex-wrap: wrap; }

@@ -42,6 +42,14 @@ test('invalidates a previous analysis run', () => {
   assert.equal(readMatchCutSession('reanalyzed', 'analysis-2'), null)
 })
 
+test('restores folder and whole-library scopes without losing legacy media selections', () => {
+  const scoped = { ...session, targetScope: { mode: 'selected', mediaIds: ['teaser'], folderIds: ['day1', 'unfiled'] } }
+  records.set('video-analyzer:match-cuts:v1:folder-scope', JSON.stringify(scoped))
+  assert.deepEqual(readMatchCutSession('folder-scope', 'analysis-1').targetScope, scoped.targetScope)
+  records.set('video-analyzer:match-cuts:v1:bad-scope', JSON.stringify({ ...session, targetScope: { mode: 'all', mediaIds: 'bad', folderIds: [] } }))
+  assert.equal(readMatchCutSession('bad-scope', 'analysis-1'), null)
+})
+
 test('removes the session when its project is deleted', () => {
   saveMatchCutSession('deleted-project', session)
   forgetMatchCutSession('deleted-project')

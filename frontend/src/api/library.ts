@@ -174,6 +174,8 @@ export interface LibraryProject {
   filename: string
   status: string
   shot_count: number
+  folder_id?: string | null
+  has_local_media?: boolean
 }
 export interface LibraryShot extends Shot {
   job_id: string

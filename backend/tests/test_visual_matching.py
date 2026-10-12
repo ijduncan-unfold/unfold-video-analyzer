@@ -118,3 +118,38 @@ def test_no_local_media_or_active_analysis(client, asset):
     assert client.post(f'/api/visual/{asset.job_id}/index').status_code == 409
     update_job(asset.job_id, status='analyzing')
     assert client.get(f'/api/visual/{asset.job_id}/index').status_code == 409
+
+
+def test_match_between_distinct_single_take_media_without_splitting_recordings(client, visual_asset):
+    import copy
+    from app.services.job_store import create_job
+    from app.services.library_folders import save_folder
+    source = get_job(visual_asset.job_id)
+    result = copy.deepcopy(source.flash_result)
+    result['scenes'][0]['shots'] = [result['scenes'][0]['shots'][0]]
+    result['scenes'][0]['shots'][0]['end_time'] = '00:08.000'
+    update_job(source.job_id, flash_result=result)
+    source = get_job(source.job_id)
+    target = copy.deepcopy(source)
+    target.job_id = 'other-single-take'
+    target.filename = 'Another recording.mov'
+    target_path = Path(source.local_path).with_name('other-recording.mp4')
+    target_path.write_bytes(b'different original recording')
+    target.local_path = str(target_path)
+    folder = save_folder('Second camera')
+    target.folder_id = folder['id']
+    create_job(target)
+    for ident in [source.job_id, target.job_id]:
+        assert client.post(f'/api/visual/{ident}/index').status_code == 202
+        assert wait_index(client, ident)['status'] == 'complete'
+    revision = client.get(f'/api/visual/{source.job_id}/index').json()['revision']
+    response = client.post(f'/api/visual/{source.job_id}/search', json={
+        'shot_number': 1, 'seconds': 1, 'revision': revision, 'target_ids': [source.job_id, target.job_id],
+        'shape': 0, 'composition': 0, 'color': 1})
+    assert response.status_code == 200, response.text
+    assert response.json()['matches'][0]['job_id'] == target.job_id
+    assert response.json()['matches'][0]['shot_number'] == 1
+    projects = client.get('/api/library/projects').json()['projects']
+    row = next(item for item in projects if item['id'] == target.job_id)
+    assert row['folder_id'] == folder['id'] and row['has_local_media'] is True
+    assert row['shot_count'] == 1

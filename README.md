@@ -4,6 +4,8 @@ Turn footage into a searchable shot library with Gemini analysis, visual match-c
 
 ![Video Analyzer showing a large footage preview beside shot thumbnails, descriptions, camera movements, and tags.](docs/screenshots/shot-workspace.png)
 
+Match cuts can search **All media**, **This media**, or **Selected media / folders**. The picker supports multiple folders, individual media, and select-all. An analyzed single-take recording is searchable without splitting it into multiple clips. Folder and library scopes refresh when the panel is reopened; unavailable sources are reported while available recordings remain searchable. Searches larger than 20 sources are combined into one ranked result list.
+
 ## Camera previews and display color
 
 Camera previews preserve anamorphic framing in square pixels, including JPEG thumbnails and vision frames. Very short recordings show their fractional duration and decoded frame count, with a **Loop preview** control. Mac `._` resource files and `__MACOSX` folders are ignored during import.

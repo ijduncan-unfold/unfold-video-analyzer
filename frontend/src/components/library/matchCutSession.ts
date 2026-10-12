@@ -1,10 +1,13 @@
 import type { VisualIndex, VisualMatch, VisualResults, VisualShape } from '../../api/visual'
+import type { MatchCutScope } from './matchCutScope'
+import { validMatchCutScope } from './matchCutScope.ts'
 
 export interface MatchCutSession {
   run: string | null
   shotNumber: number
   seconds: number
   targetIds: string[]
+  targetScope?: MatchCutScope
   weights: { shape: number; composition: number; color: number }
   region: number[] | null
   sourceOutline?: number[][] | null
@@ -42,7 +45,8 @@ export function readMatchCutSession(id: string, run: string | null): MatchCutSes
       (saved.drawingMode !== undefined && saved.drawingMode !== 'outline' && saved.drawingMode !== 'box') ||
       (saved.sourceShapeId !== null && (!Number.isInteger(saved.sourceShapeId) || saved.sourceShapeId < 0)) ||
       (saved.knownShapes !== null && (typeof saved.knownShapes?.key !== 'string' || !Array.isArray(saved.knownShapes?.forms))) ||
-      (saved.result && !Array.isArray(saved.result.matches))) return null
+      (saved.result && !Array.isArray(saved.result.matches)) ||
+      (saved.targetScope !== undefined && !validMatchCutScope(saved.targetScope))) return null
     return saved
   } catch { return memory.get(id)?.run === run ? memory.get(id)! : null }
 }

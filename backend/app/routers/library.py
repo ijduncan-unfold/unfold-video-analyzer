@@ -106,7 +106,8 @@ async def projects(folder_id: str = ''):
     for job in _filtered(list_jobs(), folder_id=folder_id):
         view = asset_view(job)
         imports.append({'id': job.job_id, 'title': view['metadata']['title'],
-                        'filename': job.filename, 'status': job.status, 'shot_count': view['shot_count']})
+                        'filename': job.filename, 'status': job.status, 'shot_count': view['shot_count'],
+                        'folder_id': job.folder_id, 'has_local_media': bool(job.local_path or job.viewing_path)})
     return {'projects': imports, 'total': len(imports)}
 
 
