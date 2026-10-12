@@ -231,6 +231,10 @@ function createPanel(dependencies) {
     const headers = { Authorization: "Bearer " + token };
     const options = Object.assign({}, init || {}, { headers, redirect: "error" });
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
+    // Camera registration develops a viewing proxy before returning. Match the
+    // decoder's six-hour ceiling; ordinary API calls still fail after 30 seconds.
+    const preparingMedia = path === "/register" && options.method === "POST";
+    const timeout = preparingMedia ? (6 * 60 * 60 + 30) * 1000 : 30000;
     let timer;
     let controller;
     if (typeof AbortController !== "undefined") {
@@ -242,8 +246,9 @@ function createPanel(dependencies) {
       new Promise((resolve, reject) => {
         timer = schedule(() => {
           if (controller) controller.abort();
-          reject(new Error("The local service did not respond. Check that it is running, then reconnect."));
-        }, 30000);
+          reject(new Error(preparingMedia ? "Media preparation took too long. Check the companion app, then reload the source." :
+            "The local service did not respond. Check that it is running, then reconnect."));
+        }, timeout);
       }),
     ]).catch(error => {
       if (autoConnect && endpoint === state.server && token === state.token) {
@@ -701,7 +706,7 @@ function createPanel(dependencies) {
       for (let index = 0; index < selection.clips.length; index++) {
         if (scope !== state.scope) return;
         const clip = selection.clips[index];
-        message("Loading clip " + (index + 1) + " of " + selection.clips.length + "…");
+        message("Loading clip " + (index + 1) + " of " + selection.clips.length + "… Preparing a viewing proxy if needed; camera footage can take a few minutes.");
         try {
           const asset = await request("/register", {
             method: "POST", body: JSON.stringify({ project_id: selection.project_id, item_id: clip.item_id, media_path: clip.media_path, name: clip.name, source_fps: clip.source_fps }),

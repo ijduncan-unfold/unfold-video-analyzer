@@ -46,7 +46,7 @@ for name in resolve_files:
 for name in ('install-resolve.ps1', 'install-resolve-macos.command', 'public-files.json'):
     datas.append((str(root / 'packaging/resolve' / name), 'desktop-docs'))
 
-panel = root / "dist" / "installers" / "VideoAnalyzer-Premiere-0.1.17.ccx"
+panel = root / "dist" / "installers" / "VideoAnalyzer-Premiere-0.1.18.ccx"
 if not panel.is_file():
     raise SystemExit("Package the Premiere panel before freezing the app.")
 datas.append((str(panel), "plugins"))

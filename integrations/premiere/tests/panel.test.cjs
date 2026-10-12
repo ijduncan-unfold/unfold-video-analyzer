@@ -210,6 +210,30 @@ function descendants(element, predicate) {
   return element.children.flatMap(child => (predicate(child) ? [child] : []).concat(descendants(child, predicate)));
 }
 
+test('slow camera registration stays connected beyond the ordinary API timeout and loads when its proxy is ready', async t => {
+  const h = harness();
+  t.after(() => h.panel.destroy());
+  await h.start();
+  let finishRegistration;
+  h.intercept(request => request.pathname.endsWith('/register') ? new Promise(resolve => { finishRegistration = resolve; }) : undefined);
+  const loading = h.panel.loadSelection();
+  await flush();
+  assert.equal(typeof finishRegistration, 'function');
+  // Advance all currently scheduled short timers as if the first 30 seconds
+  // elapsed while the local decoder is still working.
+  for (const [id, timer] of Array.from(h.timers)) {
+    if (timer.delay <= 30000) { h.timers.delete(id); await timer.callback(); }
+  }
+  assert.equal(h.panel.getState().connected, true);
+  assert.equal(h.el('load-selection').disabled, true);
+  assert.match(h.el('message').textContent, /viewing proxy/);
+  finishRegistration(h.json(h.service.assets[0]));
+  await loading;
+  assert.equal(h.panel.getState().connected, true);
+  assert.equal(h.el('load-selection').disabled, false);
+  assert.match(h.el('message').textContent, /clips loaded/);
+});
+
 test('saved analysis refresh is free of analyze requests and uses full-app thumbnail URLs', async () => {
   const h = harness();
   h.service.shots[0].thumbnail_url = '/api/thumbnails/clip-a/1?v=run%3A1';
