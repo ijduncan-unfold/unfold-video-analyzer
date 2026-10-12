@@ -53,6 +53,11 @@ def remove_record(job, pending):
     owned_copy, _ = deletion_paths(job)
     with connection() as db:
         db.execute('CREATE TABLE IF NOT EXISTS media_cleanup (job_id TEXT PRIMARY KEY, local_path TEXT NOT NULL)')
+        # Retain choices made before display preferences were saved separately.
+        mode = job.technical.get('display_color')
+        if job.source_fingerprint and mode in {'source', 'dji_x9_dlog', 'dji_zenmuse_dlog', 'red_rec709'}:
+            db.execute('CREATE TABLE IF NOT EXISTS source_display_color (fingerprint TEXT PRIMARY KEY, mode TEXT NOT NULL)')
+            db.execute('INSERT OR REPLACE INTO source_display_color VALUES (?, ?)', (job.source_fingerprint, mode))
         if pending:
             db.execute('INSERT OR REPLACE INTO media_cleanup VALUES (?, ?)', (job.job_id, str(owned_copy) if owned_copy else ''))
         else:

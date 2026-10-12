@@ -19,6 +19,75 @@ FACTS = {'duration_seconds': 10., 'frame_rate': 24., 'frame_rate_fraction': '24/
          'source_timecode': '01:00:00:00'}
 
 
+def test_saved_dji_look_survives_deletion_and_reimport_without_grading_proxy_twice(client, tmp_path):
+    from app.services import display_color
+    from app.services.job_store import delete_job
+    from app.services.editor_bridge import source_fingerprint
+    original, _ = files(tmp_path, '.mov')
+    facts = {**FACTS, 'codec': 'prores', 'camera_manufacturer': 'DJI', 'camera_model': 'Inspire 3'}
+    async def render(source, folder, technical, *args, **kwargs):
+        assert source == original.resolve()
+        assert (folder / 'display-lut.cube').read_bytes() == b'X9 LUT'
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / kwargs.get('target_name', 'camera-viewing.mp4')
+        target.write_bytes(b'graded proxy')
+        return target, {'generated': True, 'codec': 'h264'}
+    async def poster(source, target, duration):
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
+        Path(target).write_bytes(b'graded poster')
+    fingerprint = source_fingerprint(original)[0]
+    display_color.remember_display_color(fingerprint, 'dji_x9_dlog')
+    with patch.object(camera_media, 'probe_media', AsyncMock(return_value=facts)), \
+         patch.object(camera_media, 'decode_check', AsyncMock(return_value=True)), \
+         patch.object(camera_media, 'create_poster', AsyncMock(side_effect=poster)), \
+         patch.object(display_color, 'dji_x9_lut', AsyncMock(return_value=b'X9 LUT')), \
+         patch.object(display_color, 'prepare_ffmpeg_viewing', AsyncMock(side_effect=render)) as encode:
+        first = asyncio.run(camera_media.register_camera_source(str(original)))
+        assert asyncio.run(camera_media.register_camera_source(str(original))).job_id == first.job_id
+        assert cleanup(first)
+        delete_job(first.job_id)
+        second = asyncio.run(camera_media.register_camera_source(str(original)))
+    assert encode.await_count == 2
+    assert first.job_id != second.job_id
+    assert second.technical['display_color'] == 'dji_x9_dlog'
+    assert second.technical['viewing_proxy']['lut_sha256'] == display_color.DJI_X9_SHA
+    assert second.viewing_base['path'] == ''  # As decoded restores the original, not a graded base.
+    assert source_fingerprint(original)[0] == fingerprint
+    assert not (Path(second.viewing_path).parent / 'display-lut.cube').exists()
+
+
+def test_saved_display_choice_supports_as_decoded_and_does_not_follow_changed_original(client, tmp_path):
+    from app.services import display_color
+    from app.services.editor_bridge import source_fingerprint
+    original, _ = files(tmp_path, '.mov')
+    fingerprint = source_fingerprint(original)[0]
+    assert display_color.import_display_color(fingerprint) == ('source', '')
+    display_color.remember_display_color(fingerprint, 'dji_x9_dlog')
+    assert display_color.import_display_color(fingerprint)[0] == 'dji_x9_dlog'
+    display_color.remember_display_color(fingerprint, 'source')
+    assert display_color.import_display_color(fingerprint)[0] == 'source'
+    original.write_bytes(b'changed recording')
+    assert display_color.import_display_color(source_fingerprint(original)[0]) == ('source', '')
+
+
+def test_deleting_legacy_graded_entry_keeps_its_display_choice(client, tmp_path):
+    from app.services import display_color
+    from app.services.editor_bridge import source_fingerprint
+    from app.services.job_store import Job, create_job, get_job
+    from app.services.media_cleanup import remove_record
+    from uuid import uuid4
+    original, _ = files(tmp_path, '.mov')
+    fingerprint = source_fingerprint(original)[0]
+    job = create_job(Job(job_id=str(uuid4()), file_id='', file_uri='', filename=original.name,
+        mime_type='video/quicktime', size_bytes=original.stat().st_size, local_path=str(original),
+        source_fingerprint=fingerprint, media_origin='external', technical={'display_color': 'dji_x9_dlog'}))
+    assert display_color.import_display_color(fingerprint) == ('source', '')
+    remove_record(job, False)
+    assert get_job(job.job_id) is None
+    assert display_color.import_display_color(fingerprint)[0] == 'dji_x9_dlog'
+    assert original.read_bytes() == b'untouched camera original'
+
+
 def files(tmp_path, suffix='.mxf'):
     original = tmp_path / ('camera' + suffix)
     proxy = tmp_path / 'view.mp4'

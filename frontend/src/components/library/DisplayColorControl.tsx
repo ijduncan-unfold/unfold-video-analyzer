@@ -32,7 +32,7 @@ export function DisplayColorControl({ asset, disabled, onRefresh, onPause, onPre
       <button className="lw-button" disabled={disabled || saving || mode === applied} onClick={apply}>{saving ? 'Preparing display preview…' : 'Apply'}</button>
     </div>
     {!red && <small>Use the X9 transform for Inspire 3 / Ronin 4D D-Log, or X5S/X7 for those cameras. ProRes is a codec; choose the recorded Log profile. Leave already graded Rec.709 footage as decoded.</small>}
-    <small>Applies to playback and future analysis. Your original camera media stays unchanged.</small>
+    <small>Applies to playback and future analysis. Your display choice is remembered when you reimport this original. Your original camera media stays unchanged.</small>
     {error && <p className="lw-inline-error" role="alert">{error}</p>}
   </details>
 }

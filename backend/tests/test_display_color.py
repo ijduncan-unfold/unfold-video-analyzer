@@ -37,6 +37,7 @@ def test_display_transform_is_reversible_and_does_not_stack_or_change_original(c
          patch.object(display_color, 'prepare_ffmpeg_viewing', AsyncMock(side_effect=render)), \
          patch.object(display_color, 'create_poster', AsyncMock(side_effect=poster)):
         first = asyncio.run(display_color.set_display_color(job.job_id, 'dji_zenmuse_dlog'))
+        assert display_color.import_display_color(job.source_fingerprint)[0] == 'dji_zenmuse_dlog'
         second = asyncio.run(display_color.set_display_color(job.job_id, 'dji_zenmuse_dlog'))
         restored = asyncio.run(display_color.set_display_color(job.job_id, 'source'))
     assert seen == [Path(job.local_path)] * 2
@@ -48,16 +49,19 @@ def test_display_transform_is_reversible_and_does_not_stack_or_change_original(c
     assert any('Analyze again' in warning for warning in restored.warnings)
     assert Path(job.local_path).read_bytes() == b'camera original must never change'
     assert not (Path(settings.upload_dir) / job.job_id / 'display-lut.cube').exists()
+    assert display_color.import_display_color(job.source_fingerprint)[0] == 'source'
 
 
 def test_failed_color_render_restores_status_and_keeps_previous_media(client, tmp_path):
     job = camera(tmp_path)
-    with patch.object(display_color, 'dji_lut', AsyncMock(side_effect=ValueError('download failed'))):
+    with patch.object(display_color, 'dji_lut', AsyncMock(side_effect=ValueError('download failed'))), \
+         patch.object(display_color, 'probe_media', AsyncMock(return_value=job.technical)):
         with pytest.raises(HTTPException, match='download failed'):
             asyncio.run(display_color.set_display_color(job.job_id, 'dji_zenmuse_dlog'))
     retained = get_job(job.job_id)
     assert retained.status == job.status and retained.viewing_path == job.viewing_path
     assert retained.technical == job.technical and retained.file_id == job.file_id
+    assert display_color.import_display_color(job.source_fingerprint) == ('source', '')
 
 
 def test_x9_lut_grades_prores_original_not_lossy_viewing_copy(client, tmp_path):

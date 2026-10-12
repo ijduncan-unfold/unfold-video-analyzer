@@ -36,16 +36,16 @@ export function LibraryFolders({ data, activeId, onSelect, onRefresh, onMove, er
   }
   return <aside className="lf-sidebar" aria-label="Library folders">
     <div className="lf-heading"><h2>Folders</h2><button className="lw-icon-button" aria-label="Create folder" title="Create folder" onClick={() => setEditing('new')}><Icon name="plus" size={17} /></button></div>
-    <button className={`lf-folder ${activeId === '' ? 'is-active' : ''}`} aria-pressed={activeId === ''} onClick={() => onSelect('')}><Icon name="film" size={16} /><span>All shots</span><small>{data?.total_shots ?? '–'}</small></button>
+    <button className={`lf-folder ${activeId === '' ? 'is-active' : ''}`} aria-pressed={activeId === ''} onClick={() => onSelect('')}><Icon name="film" size={16} /><span>All media</span><small>{data?.total_shots ?? '–'}</small></button>
     <button {...destination('unfiled')} className={`lf-folder ${activeId === 'unfiled' ? 'is-active' : ''} ${dropId === 'unfiled' ? 'is-drop-target' : ''}`} aria-pressed={activeId === 'unfiled'} onClick={() => onSelect('unfiled')}><Icon name="folder" size={16} /><span>Unfiled</span><small>{data?.unfiled_shots ?? '–'}</small></button>
     <input className="lf-search" type="search" aria-label="Search folders" placeholder="Find a folder…" value={query} onChange={event => setQuery(event.target.value)} />
     <div className="lf-list">{data?.folders.filter(folder => folder.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map(folder => <div {...destination(folder.id)} className={`lf-row ${dropId === folder.id ? 'is-drop-target' : ''}`} key={folder.id}>
       <button className={`lf-folder ${activeId === folder.id ? 'is-active' : ''}`} aria-pressed={activeId === folder.id} onClick={() => onSelect(folder.id)} title={folder.name}><Icon name="folder" size={16} /><span>{folder.name}</span><small>{folder.shot_count}</small></button>
       <div className="lf-actions"><button className="lw-icon-button" aria-label={`Rename folder ${folder.name}`} onClick={() => setEditing(folder)}>✎</button><button className="lw-icon-button" aria-label={`Delete folder ${folder.name}`} onClick={() => setRemoving(folder)}><Icon name="trash" size={13} /></button></div>
     </div>)}</div>
-    {data && !data.folders.length && <p className="lf-hint">Create folders to organize your shots.</p>}
+    {data && !data.folders.length && <p className="lf-hint">Create folders to organize your media.</p>}
     <button className="lw-text-button" onClick={() => setEditing('new')}><Icon name="plus" size={14} />New folder</button>
-    <p className="lf-hint">Drag shots into a folder, or select shots and choose Move to folder.</p>
+    <p className="lf-hint">Drag media into a folder, or select media and choose Move to folder.</p>
     {error && <p className="lw-inline-error" role="alert">{error}<button className="lw-text-button" onClick={onRefresh}>Try again</button></p>}
     {editing && <FolderDialog title={editing === 'new' ? 'Create folder' : 'Rename folder'} onClose={() => setEditing(null)}><FolderNameForm folder={editing === 'new' ? undefined : editing} onSaved={() => { setEditing(null); onRefresh() }} /></FolderDialog>}
     {removing && <FolderDialog title={`Delete ${removing.name}?`} onClose={() => setRemoving(null)}><DeleteFolderForm folder={removing} onDeleted={() => { if (activeId === removing.id) onSelect('unfiled'); setRemoving(null); onRefresh() }} /></FolderDialog>}
@@ -78,7 +78,7 @@ function FolderNameForm({ folder, onSaved }: { folder?: LibraryFolder; onSaved: 
 function DeleteFolderForm({ folder, onDeleted }: { folder: LibraryFolder; onDeleted: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  return <><p>Its shots will move to Unfiled. All media and analysis will be kept.</p>{error && <p className="lw-inline-error" role="alert">{error}</p>}<button className="lw-button lw-button-danger" disabled={busy} onClick={async () => {
+  return <><p>Its media will move to Unfiled. All media and analysis will be kept.</p>{error && <p className="lw-inline-error" role="alert">{error}</p>}<button className="lw-button lw-button-danger" disabled={busy} onClick={async () => {
     if (busy) return; setBusy(true); setError('')
     try { await deleteFolder(folder.id); onDeleted() } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }}>{busy ? 'Deleting…' : 'Delete folder'}</button></>
@@ -88,7 +88,7 @@ export function FolderMovePicker({ folders, ids, disabled, onMove }: {
   folders: LibraryFolder[]; ids: string[]; disabled: boolean; onMove: (ids: string[], folderId: string | null) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
-  return <><button className="lw-button" disabled={disabled || !ids.length} onClick={() => setOpen(true)}><Icon name="folder" size={15} />Move to folder</button>{open && <FolderDialog title={`Move ${ids.length} ${ids.length === 1 ? 'shot' : 'shots'}`} onClose={() => setOpen(false)}><MoveForm folders={folders} ids={ids} onMove={onMove} onDone={() => setOpen(false)} /></FolderDialog>}</>
+  return <><button className="lw-button" disabled={disabled || !ids.length} onClick={() => setOpen(true)}><Icon name="folder" size={15} />Move to folder</button>{open && <FolderDialog title={`Move ${ids.length} media ${ids.length === 1 ? 'item' : 'items'}`} onClose={() => setOpen(false)}><MoveForm folders={folders} ids={ids} onMove={onMove} onDone={() => setOpen(false)} /></FolderDialog>}</>
 }
 
 function MoveForm({ folders, ids, onMove, onDone }: { folders: LibraryFolder[]; ids: string[]; onMove: (ids: string[], folderId: string | null) => Promise<void>; onDone: () => void }) {
@@ -100,5 +100,5 @@ function MoveForm({ folders, ids, onMove, onDone }: { folders: LibraryFolder[]; 
     try { await onMove(ids, id); onDone() } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
   const shown = folders.filter(folder => folder.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  return <><input className="lf-search" type="search" autoFocus aria-label="Find destination folder" placeholder="Find a folder…" value={query} onChange={event => setQuery(event.target.value)} /><div className="lf-destinations"><button className="lf-folder" disabled={busy} onClick={() => void move(null)}><Icon name="folder" size={16} />Unfiled</button>{shown.map(folder => <button className="lf-folder" disabled={busy} key={folder.id} onClick={() => void move(folder.id)}><Icon name="folder" size={16} /><span>{folder.name}</span></button>)}{query && !shown.length && <p>No folders match your search.</p>}</div>{busy && <p role="status">Moving shots…</p>}{error && <p className="lw-inline-error" role="alert">{error}</p>}</>
+  return <><input className="lf-search" type="search" autoFocus aria-label="Find destination folder" placeholder="Find a folder…" value={query} onChange={event => setQuery(event.target.value)} /><div className="lf-destinations"><button className="lf-folder" disabled={busy} onClick={() => void move(null)}><Icon name="folder" size={16} />Unfiled</button>{shown.map(folder => <button className="lf-folder" disabled={busy} key={folder.id} onClick={() => void move(folder.id)}><Icon name="folder" size={16} /><span>{folder.name}</span></button>)}{query && !shown.length && <p>No folders match your search.</p>}</div>{busy && <p role="status">Moving media…</p>}{error && <p className="lw-inline-error" role="alert">{error}</p>}</>
 }

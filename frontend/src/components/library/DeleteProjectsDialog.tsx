@@ -43,12 +43,12 @@ export function DeleteProjectsDialog({ projects, onClose, onDeleted }: {
     if (!Object.keys(failures).length) onClose()
   }
 
-  return <dialog ref={dialog} className="lw-settings-dialog lw-delete-projects" aria-labelledby="delete-shots-title" onCancel={event => { if (lock.current) event.preventDefault(); else onClose() }}>
-    <h2 id="delete-projects-title">Delete {remaining.length === 1 ? 'shot' : `${remaining.length} shots`}?</h2>
-    <p>Removes these shots and their analysis from the app. Deletes only copies and cache files created by the app. Your original source files are never deleted.</p>
+  return <dialog ref={dialog} className="lw-settings-dialog lw-delete-projects" aria-labelledby="delete-projects-title" onCancel={event => { if (lock.current) event.preventDefault(); else onClose() }}>
+    <h2 id="delete-projects-title">Delete {remaining.length === 1 ? 'media item' : `${remaining.length} media items`}?</h2>
+    <p>Removes these media items and their analysis from the app. Deletes only copies and cache files created by the app. Your original source files are never deleted.</p>
     <ul>{remaining.map(project => <li key={project.id}><strong>{project.title}</strong>{errors[project.id] && <span role="alert">{errors[project.id]}</span>}</li>)}</ul>
     {busy && <p role="status">Deleting… {completed} / {remaining.length}</p>}
-    {!busy && Object.keys(errors).length > 0 && <p role="status">Some shots couldn’t be deleted. You can retry the remaining shots.</p>}
-    <div className="lw-dialog-actions"><button className="lw-button" disabled={busy} onClick={onClose}>Cancel</button><button className="lw-button lw-button-danger" disabled={busy || !remaining.length} onClick={remove}>{busy ? 'Deleting…' : Object.keys(errors).length ? 'Retry deletion' : remaining.length === 1 ? 'Delete shot' : `Delete ${remaining.length} shots`}</button></div>
+    {!busy && Object.keys(errors).length > 0 && <p role="status">Some media items couldn’t be deleted. You can retry the remaining media items.</p>}
+    <div className="lw-dialog-actions"><button className="lw-button" disabled={busy} onClick={onClose}>Cancel</button><button className="lw-button lw-button-danger" disabled={busy || !remaining.length} onClick={remove}>{busy ? 'Deleting…' : Object.keys(errors).length ? 'Retry deletion' : remaining.length === 1 ? 'Delete media' : `Delete ${remaining.length} media items`}</button></div>
   </dialog>
 }

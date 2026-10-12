@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.services.editor_bridge import ensure_source_unchanged, source_fingerprint
-from app.services.job_store import claim_viewing, get_job, update_job
+from app.services.job_store import claim_viewing, connection, get_job, update_job
 from app.services.media_probe import create_poster, probe_media
 from app.services.native_camera import prepare_ffmpeg_viewing, prepare_braw_viewing
 
@@ -22,6 +22,45 @@ DJI_X9_SHA = '583a08a77c920156f84770a69d4124f586196a9f0f76b2d02f23a1a05a863d06'
 LABELS = {'source': 'As decoded', 'dji_zenmuse_dlog': 'DJI Zenmuse X5S/X7 D-Log → Rec.709',
           'dji_x9_dlog': 'DJI Inspire 3 / Zenmuse X9 D-Log → Rec.709',
           'red_rec709': 'RED SDK → Rec.709'}
+
+
+def remember_display_color(fingerprint, mode):
+    """Retain the user's choice when the library entry and its caches are removed."""
+    if not fingerprint:
+        return
+    with connection() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS source_display_color (fingerprint TEXT PRIMARY KEY, mode TEXT NOT NULL)')
+        db.execute('INSERT OR REPLACE INTO source_display_color VALUES (?, ?)', (fingerprint, mode))
+
+
+def import_display_color(fingerprint):
+    with connection() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS source_display_color (fingerprint TEXT PRIMARY KEY, mode TEXT NOT NULL)')
+        row = db.execute('SELECT mode FROM source_display_color WHERE fingerprint = ?', (fingerprint,)).fetchone()
+    if row and row[0] in LABELS:
+        return row[0], 'Remembered display transform for this unchanged original'
+    # Camera model and generic bt709 tags alone do not establish a Log profile.
+    return 'source', ''
+
+
+async def prepare_dji_viewing(original, folder, technical, mode, on_progress=None, *, target_name='camera-viewing.mp4'):
+    """Grade the original once, shared by import and manual display changes."""
+    x9 = mode == 'dji_x9_dlog'
+    lut = Path(folder) / 'display-lut.cube'
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    try:
+        if on_progress:
+            on_progress({'stage': 'preparing_display', 'message': 'Preparing ' + LABELS[mode]})
+        lut.write_bytes(await (dji_x9_lut() if x9 else dji_lut()))
+        def progress(value):
+            if on_progress:
+                on_progress({**value, 'message': 'Preparing ' + LABELS[mode] + ' viewing proxy'})
+        target, facts = await prepare_ffmpeg_viewing(original, folder, technical, progress, target_name=target_name, lut=True)
+        facts.update(viewing_transform=LABELS[mode] + ' · official DJI display LUT',
+                     lut_sha256=DJI_X9_SHA if x9 else DJI_SHA, display_mode=mode)
+        return target, facts
+    finally:
+        lut.unlink(missing_ok=True)
 
 
 async def dji_lut():
@@ -106,16 +145,12 @@ async def set_display_color(job_id, mode):
                     family='red', target_name=name)
                 facts = decoded['viewing_proxy']
             else:
-                x9 = mode == 'dji_x9_dlog'
-                (folder / 'display-lut.cube').write_bytes(await (dji_x9_lut() if x9 else dji_lut()))
                 # ProRes Log is already decoded video. Grade its 10-bit original,
                 # rather than the existing 8-bit H.264 viewing copy.
                 color_source = job.local_path if technical.get('codec') == 'prores' else source
                 source_facts = await probe_media(str(color_source))
-                target, facts = await prepare_ffmpeg_viewing(Path(color_source), folder, source_facts,
-                    progress, target_name=name, lut=True)
-                facts['viewing_transform'] = LABELS[mode] + ' · official DJI display LUT'
-                facts['lut_sha256'] = DJI_X9_SHA if x9 else DJI_SHA
+                target, facts = await prepare_dji_viewing(Path(color_source), folder, source_facts,
+                    mode, progress, target_name=name)
             facts['display_mode'] = mode
         ensure_source_unchanged(job)
         if source_fingerprint(source)[0] != source_before:
@@ -138,6 +173,7 @@ async def set_display_color(job_id, mode):
             file_id='', file_uri='', file_uploaded_at=None)
         committed = True
         poster.replace(folder / 'poster.jpg')
+        remember_display_color(job.source_fingerprint, mode)
         return result
     except (ValueError, OSError, httpx.HTTPError, zipfile.BadZipFile, KeyError) as exc:
         raise HTTPException(422, str(exc))

@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
+import httpx
 from fastapi import HTTPException
 
 from app.config import settings
@@ -188,6 +189,8 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps, o
     except FileNotFoundError:
         raise HTTPException(503, 'FFmpeg and ffprobe are required to import camera media.')
     technical = await asyncio.to_thread(sony_sidecar, original, technical)
+    from app.services.display_color import import_display_color, prepare_dji_viewing
+    display_mode, display_reason = import_display_color(fingerprint)
     from app.services.native_camera import supports_sony_f55
     if on_progress:
         on_progress({'stage': 'checking_decoder', 'message': 'Opening camera decoder' if supports_sony_f55(original, technical)
@@ -262,6 +265,16 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps, o
                 technical.update(camera_timing_fields(technical, generated_facts))
                 technical['technical_basis'] = 'Original inspection and Sony recording metadata; SDK-developed viewing proxy'
                 generated = True
+        elif display_mode in {'dji_x9_dlog', 'dji_zenmuse_dlog'}:
+            try:
+                proxy, generated_facts = await prepare_dji_viewing(original, Path(settings.upload_dir) / ident,
+                    technical, display_mode, on_progress)
+                viewing_fingerprint, proxy, _ = source_fingerprint(proxy)
+            except (ValueError, OSError, httpx.HTTPError) as exc:
+                raise HTTPException(422, 'The saved display transform could not be prepared: ' + str(exc))
+            technical.update(viewing_proxy=generated_facts, display_color=display_mode,
+                             display_color_reason=display_reason, display_revision=uuid.uuid4().hex)
+            generated = True
         elif not browser_playable(technical, original):
             from app.services.native_camera import prepare_ffmpeg_viewing
             try:
@@ -291,6 +304,9 @@ async def _register_camera_source(media_path, proxy_path, aligned, source_fps, o
               metadata={'title': original.stem[:250]}, media_origin='external', source_fingerprint=fingerprint,
               viewing_path=str(proxy) if proxy else '', viewing_fingerprint=viewing_fingerprint,
               camera_companions=companions)
+    if generated and technical.get('display_color') in {'dji_x9_dlog', 'dji_zenmuse_dlog'}:
+        # Restoring As decoded must not select the already graded viewing proxy.
+        job.viewing_base = {'path': '', 'fingerprint': '', 'proxy': {}, 'playback_proxy_required': True}
     try:
         if on_progress:
             on_progress({'stage': 'finishing', 'message': 'Preparing preview and saving project'})
