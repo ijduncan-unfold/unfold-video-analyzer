@@ -22,6 +22,10 @@ Cosplay uses the existing primary Gemini model in a focused shot-analysis pass. 
 - Reanalysis follows the existing review-preservation rules: annotations survive identical shot intervals; changed intervals retain previous annotations in archived analysis. A stale editor is rejected when its analysis run or shot interval changed.
 - The UI lists observations per shot. Longer single takes join observations across sections; this is not person tracking and may retain multiple descriptions of the same wearer.
 
+## Premiere and Resolve
+
+Cosplay analysis now leads the standard editor Description with costume details and appends the original scene description. Character, franchise and variant names become Keywords. The Metadata tab previews the effective values; review corrections before using Sync metadata in Premiere 0.1.20 or Resolve 0.1.3. Separate labeled cosplay fields retain the detailed identifications. See [the editor mapping](EDITOR_METADATA.md#cosplay-metadata) for native sync, XMP/XML exports and import limitations. No reanalysis is needed for existing saved costume results.
+
 ## Verification
 
 A live Gemini Cosplay pass completed on one short booth clip after fixing provider schema compatibility. This verifies the integration, not identification accuracy across the collection; review the pilot before bulk processing. Footage and credentials are not committed.

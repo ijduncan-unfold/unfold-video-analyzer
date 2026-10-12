@@ -131,3 +131,24 @@ test("oversized record is rejected without silently truncating dialogue or nativ
   const f = fixture(); await assert.rejects(f.host.syncMetadata(binding, { ...mapping, record: { ...mapping.record, huge: 'a'.repeat(4000001) } }), { code: 'METADATA_LIMIT' });
   assert.equal(f.transactions(), 0); assert.equal(f.schema.length, 0);
 });
+
+test('cosplay sync writes standard description and keywords plus dedicated columns, preserving editor edits', async () => {
+  const f = fixture(); f.edit({ 'Column.PropertyText.Description': '' });
+  const fields = [
+    { key: 'description', premiere: 'Column.PropertyText.Description', value: 'Gordon Freeman · Half-Life · HEV Suit [Suggested]\nScene description: Posing at a booth.' },
+    { key: 'keywords', premiere: 'VideoAnalyzerKeywords', value: 'Cosplay, Gordon Freeman, Half-Life', xmp_value: ['Cosplay', 'Gordon Freeman', 'Half-Life'] },
+    { key: 'cosplay_characters', premiere: 'VideoAnalyzerCosplayCharacters', value: 'Gordon Freeman', label: 'Cosplay characters' },
+    { key: 'cosplay_description', premiere: 'VideoAnalyzerCosplayDescription', value: 'HEV Suit [Suggested]', label: 'Cosplay description' },
+    { key: 'scene_description', premiere: 'VideoAnalyzerSceneDescription', value: 'Posing at a booth.', label: 'Scene description' },
+  ];
+  await f.host.syncMetadata(binding, { ...mapping, fields });
+  assert.equal(f.properties().VideoAnalyzerCosplayCharacters, 'Gordon Freeman');
+  assert.equal(f.properties().VideoAnalyzerSceneDescription, 'Posing at a booth.');
+  assert.equal(f.properties()['Column.PropertyText.Description'], fields[0].value);
+  assert.equal(f.fileProperties()[DC+'|description'], fields[0].value);
+  assert.deepEqual(f.fileProperties()[DC+'|subject'], fields[1].xmp_value);
+  f.edit({ VideoAnalyzerCosplayCharacters: 'Editor correction' });
+  await f.host.syncMetadata(binding, { ...mapping, fields: [] });
+  assert.equal(f.properties().VideoAnalyzerCosplayCharacters, 'Editor correction');
+  assert.equal(f.properties().VideoAnalyzerCosplayDescription, '');
+});

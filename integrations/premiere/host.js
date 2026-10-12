@@ -69,6 +69,7 @@ const XMP_FIELDS = {
 };
 const METADATA_COLUMNS = new Set(["Column.PropertyText.Description", "Column.Intrinsic.LogNote", "Column.PropertyText.Scene", "Column.PropertyText.Shot", "Column.Intrinsic.TapeName",
   "VideoAnalyzerKeywords", "VideoAnalyzerTake", "VideoAnalyzerCamera", "VideoAnalyzerProduction", "VideoAnalyzerDirector", "VideoAnalyzerCinematographer", "VideoAnalyzerShotType", "VideoAnalyzerCameraMovement", "VideoAnalyzerLocation", "VideoAnalyzerColors", "VideoAnalyzerSubjects", "VideoAnalyzerDialogue",
+  "VideoAnalyzerSceneDescription", "VideoAnalyzerCosplayDescription", "VideoAnalyzerCosplayCharacters", "VideoAnalyzerCosplayFranchises", "VideoAnalyzerCosplayVariants", "VideoAnalyzerCosplayIdentification",
   "VideoAnalyzerClipDescriptions", "VideoAnalyzerDetails", "VideoAnalyzerSlates", "VideoAnalyzerTechnical"]);
 
 function analysisFields(record) {

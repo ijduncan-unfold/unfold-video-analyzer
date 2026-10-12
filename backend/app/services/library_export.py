@@ -372,10 +372,11 @@ def _alt(parent, name: str, text: Any):
 
 
 def _xmp_document(data: dict) -> str:
-    from app.services.editor_metadata import map_fields
+    from app.services.editor_metadata import map_fields, effective_editor_shot
     meta, technical = data.get("metadata") or {}, data.get("technical") or {}
-    shots = [{**shot, 'human_tags': reviewed.get('tags', [])} for _, shot, reviewed in iter_shots(data)]
-    mapping = map_fields(meta, shots, data.get('transcript') or [], data.get('summary'))
+    shots = [effective_editor_shot(shot, reviewed) for _, shot, reviewed in iter_shots(data)]
+    mapping = map_fields(meta, shots, data.get('transcript') or [], data.get('summary'),
+                         cosplay_primary=(data.get('analysis_config') or {}).get('mode') == 'cosplay')
     mapped = {field['key']: field['value'] for field in mapping['fields']}
     root = ET.Element(f"{{{NS['x']}}}xmpmeta")
     rdf = _element(root, "rdf", "RDF")
@@ -387,7 +388,7 @@ def _xmp_document(data: dict) -> str:
     _element(desc, "dc", "format", data.get("mime_type", ""))
     subject = _element(desc, "dc", "subject")
     bag = _element(subject, "rdf", "Bag")
-    for tag in mapped.get('keywords', '').split(', '):
+    for tag in next((field['xmp_value'] for field in mapping['fields'] if field['key'] == 'keywords'), []):
         if not tag:
             continue
         _element(bag, "rdf", "li", tag)
@@ -442,14 +443,18 @@ def _xmp_document(data: dict) -> str:
         _element(marker, "xmpDM", "startTime", first)
         _element(marker, "xmpDM", "duration", last - first)
         _element(marker, "xmpDM", "name", f"Scene {scene.get('scene_number', '')} / Shot {shot.get('shot_number', '')}")
-        comment = [shot.get("visual_description", ""), f"Shot type: {shot.get('shot_type', '')}",
+        effective = effective_editor_shot(shot, reviewed)
+        shot_mapping = {field['key']: field['value'] for field in map_fields(
+            meta, [effective], [], shot_scope=True,
+            cosplay_primary=(data.get('analysis_config') or {}).get('mode') == 'cosplay')['fields']}
+        comment = [shot_mapping.get('description', ''), f"Shot type: {shot.get('shot_type', '')}",
                    f"Camera: {shot.get('camera_movement', '')}", f"Review: {reviewed.get('review_status', 'unreviewed')}"]
         if reviewed.get("notes"):
             comment.append(f"Reviewed notes: {reviewed['notes']}")
         if reviewed.get("tags"):
             comment.append("Reviewed tags: " + ", ".join(reviewed["tags"]))
         _element(marker, "xmpDM", "comment", "\n".join(comment))
-        _element(marker, "va", "shotMetadata", json.dumps(_public(shot), ensure_ascii=False))
+        _element(marker, "va", "shotMetadata", json.dumps(_public(effective), ensure_ascii=False))
     ET.indent(root)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")
 

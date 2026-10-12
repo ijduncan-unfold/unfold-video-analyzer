@@ -170,14 +170,18 @@ def export_fcpxml(job, *, preserve_order=False, title=None) -> str:
     sequence = ET.SubElement(project, "sequence", format="r1", duration=time(total), tcStart="0s", tcFormat="NDF")
     spine = ET.SubElement(sequence, "spine")
     record = 0
+    from app.services.editor_metadata import map_fields, effective_editor_shot
     for first, last, scene, shot, reviewed in shots:
+        fields = map_fields(data.get('metadata') or {}, [effective_editor_shot(shot, reviewed)], [],
+                            shot_scope=True, cosplay_primary=(data.get('analysis_config') or {}).get('mode') == 'cosplay')['fields']
+        mapped = {field['key']: field['value'] for field in fields}
         count = last - first
         clip = ET.SubElement(spine, "asset-clip", ref="r2", name=f"S{scene.get('scene_number', '')}_Shot{shot.get('shot_number', '')}",
                              offset=time(record), start=time(source_start + first), duration=time(count), tcFormat="NDF")
         ET.SubElement(clip, "note").text = _one_line(
             f"{shot.get('shot_type', '')} | {shot.get('camera_movement', '')} | "
-            f"{shot.get('visual_description', '')} | Reviewed notes: {reviewed.get('notes', '')}")
-        for tag in reviewed.get("tags") or []:
+            f"{mapped.get('description', '')} | Reviewed notes: {reviewed.get('notes', '')}")
+        for tag in next((field['xmp_value'] for field in fields if field['key'] == 'keywords'), []):
             ET.SubElement(clip, "keyword", start=time(source_start + first), duration=time(count), value=str(tag))
         if shot.get('slates'):
             metadata = ET.SubElement(clip, 'metadata')

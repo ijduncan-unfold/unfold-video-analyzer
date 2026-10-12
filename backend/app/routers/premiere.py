@@ -61,7 +61,8 @@ async def shots(job_id: str, q: str = Query(default='', max_length=500),
     if not saved:
         ensure_source_unchanged(job)
     return await search_shots(q=q, job_id=job_id, limit=limit, offset=0,
-                              project='', review_status='', tag='', rights_status='', collection='')
+                              project='', review_status='', tag='', rights_status='', collection='',
+                              character='', franchise='', identification='')
 
 
 @router.post('/assets/{job_id}/analyze', status_code=202)

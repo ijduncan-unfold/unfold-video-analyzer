@@ -134,3 +134,20 @@ test("unacknowledged or incomplete native append requires inspection rather than
 });
 test("a partially populated selects timeline is reported without deleting clips or replaying", async () => { const m = fixture({ incompleteSelects: true }); await assert.rejects(m.host.exportShots(binding, pack, "new"), { code: "TIMELINE_WRITE_UNCERTAIN" }); assert.equal(m.saved.length, 2); assert.equal(m.events.filter(e => e[0] === "selects").length, 1); });
 test("unverified original timebase blocks subclips as well as markers", async () => { const m = fixture(); await assert.rejects(m.host.exportShots(binding, { ...pack, technical: { ...technical, nominal_frame_rate_verified: false } }), { code: "UNVERIFIED_TIMEBASE" }); assert.deepEqual(m.events, []); });
+
+test('cosplay subclips use mapped description and replace corrected character keywords on resave', async () => {
+  const m = fixture();
+  const enriched = character => ({ ...pack, shots: [{ ...pack.shots[0], editor_metadata: { fields: [
+    { key: 'description', resolve: 'Description', value: character + ' [Suggested]\nScene description: A red circle' },
+    { key: 'keywords', resolve: 'Keywords', value: 'Cosplay, ' + character, xmp_value: ['Cosplay', character] },
+    { key: 'cosplay_characters', resolve: null, label: 'Cosplay characters', value: character },
+  ] } }] });
+  await m.host.exportShots(binding, enriched('Iron Man'));
+  assert.match((await m.saved[0].GetMetadata()).Description, /^Iron Man/);
+  await m.host.exportShots(binding, enriched('Gordon Freeman'));
+  const metadata = await m.saved[0].GetMetadata();
+  assert.match(metadata.Description, /^Gordon Freeman/);
+  assert.match(metadata.Keywords, /Gordon Freeman/);
+  assert.doesNotMatch(metadata.Keywords, /Iron Man/);
+  assert.match(metadata.Keywords, /human/);
+});
