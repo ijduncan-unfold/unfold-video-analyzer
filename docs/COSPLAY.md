@@ -24,8 +24,9 @@ Cosplay uses the existing primary Gemini model in a focused shot-analysis pass. 
 
 ## Verification
 
-No actual Comic Con footage or Gemini calls were used for implementation verification.
+A live Gemini Cosplay pass completed on one short booth clip after fixing provider schema compatibility. This verifies the integration, not identification accuracy across the collection; review the pilot before bulk processing. Footage and credentials are not committed.
 
+- Request serialization tests exercise the actual Gemini SDK without network access. Generation uses a simplified native JSON schema; full Pydantic length, list-size, and extra-field validation remains local. Provider failures report actionable categories without logging raw messages.
 - Backend regression tests cover aliases, same-costume group matching, unknown candidates, confirmation provenance, correction/search consistency, scoped facets, stale edits, CSV/JSON export, queue admission, focused single-take processing, continuity, and pagination of 1,000 synthetic clips.
 - Frontend queue tests cover the Cosplay mode alongside existing presets; TypeScript production build and ESLint pass.
 - Browser acceptance used 65 clearly labeled synthetic metadata fixtures in an isolated database. Checked all-pages selection, combined character/franchise filters, two costumes in one clip, editing/confirmation, canonicalized save, and confirmed results across all sources. Test fixtures are not included in the real library or committed.
@@ -33,7 +34,7 @@ No actual Comic Con footage or Gemini calls were used for implementation verific
 Run focused backend verification with:
 
 ```sh
-.venv/bin/python -m pytest backend/tests/test_cosplay.py backend/tests/test_analysis.py backend/tests/test_library.py backend/tests/test_selected_exports.py backend/tests/test_shot_continuity.py backend/tests/test_progressive_analysis.py -q
+.venv/bin/python -m pytest backend/tests/test_provider_schema.py backend/tests/test_cosplay.py backend/tests/test_analysis.py backend/tests/test_library.py backend/tests/test_selected_exports.py backend/tests/test_shot_continuity.py backend/tests/test_progressive_analysis.py -q
 npm --prefix frontend test
 npm --prefix frontend run lint
 npm --prefix frontend run build

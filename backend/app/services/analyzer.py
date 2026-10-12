@@ -35,12 +35,24 @@ def _event(event_name: str, **data) -> dict:
 
 def _failure(stage: str, error: Exception) -> str:
     """Provider messages can contain credential-bearing URLs or private input."""
-    logger.warning("%s failed (%s)", stage, type(error).__name__)
+    code = getattr(error, 'code', None)
+    # Report only known diagnostic categories, never provider payloads or URLs.
+    diagnostic = str(getattr(error, 'message', '')).casefold().replace('_', '')
+    markers = [value for value in ('schema', 'maxlength', 'additionalproperties', 'maxitems',
+               'not found', 'permission', 'api key', 'quota', 'billing', 'unsupported',
+               'too many states', 'complex', 'invalid json', 'thinking', 'video') if value in diagnostic]
+    logger.warning("%s failed (%s, HTTP %s, categories=%s)", stage, type(error).__name__,
+                   code if isinstance(code, int) else None, ','.join(markers))
     if isinstance(error, (ValueError, TypeError)):
         return f"{stage} did not return valid analysis. Retry this asset or use another configured model."
     if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
         return f"{stage} timed out. Retry this asset."
-    code = getattr(error, 'code', None)
+    if code == 400 and 'schema' in diagnostic:
+        return f"{stage}: Gemini rejected the response schema (HTTP 400). This is an application compatibility error; changing your key or retrying the same build will not fix it."
+    if code in {401, 403}:
+        return f"{stage}: Gemini denied access (HTTP {code}). Check the API key and its project/model permissions in Settings."
+    if code == 404:
+        return f"{stage}: Gemini could not find the configured model or uploaded file (HTTP 404). Check model availability and retry the source upload."
     if code in {408, 429, 500, 502, 503, 504}:
         return f"{stage}: Gemini is temporarily unavailable (HTTP {code}) after retries. Saved analysis is preserved; retry later."
     return f"{stage} could not complete. Check provider access, model availability and quota, then retry."
