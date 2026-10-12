@@ -9,21 +9,26 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { AssetInspector } from './library/AssetInspector'
 import { HoverScrubThumbnail } from './library/HoverScrubThumbnail'
 import { Icon } from './library/Icon'
-import { duration, errorMessage, reviewLabel } from './library/format'
+import { duration, errorMessage } from './library/format'
 import { analysisFacts, analysisStageLabel, isActiveAnalysis } from './library/analysisProgress'
 import { DeleteProjectsDialog } from './library/DeleteProjectsDialog'
 import type { DeletionProject } from './library/DeleteProjectsDialog'
 import { LibraryFolders, FolderMovePicker, SHOT_DRAG_TYPE } from './library/LibraryFolders'
 import './LibraryWorkspace.css'
 
+const METADATA_FILTERS = [
+  { key: 'production', label: 'Production', all: 'All productions' },
+  { key: 'scene', label: 'Scene', all: 'All scenes' },
+  { key: 'take', label: 'Take', all: 'All takes' },
+  { key: 'camera_roll', label: 'Camera roll', all: 'All rolls' },
+  { key: 'cinematographer', label: 'Cinematographer', all: 'All cinematographers' },
+] as const
+
 export function LibraryWorkspace() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [project, setProject] = useState('')
-  const [review, setReview] = useState('')
+  const [metadataFilters, setMetadataFilters] = useState({ production: '', scene: '', take: '', camera_roll: '', cinematographer: '' })
   const [tag, setTag] = useState('')
-  const [rights, setRights] = useState('')
-  const [collection, setCollection] = useState('')
   const [folderId, setFolderId] = useState('')
   const [folders, setFolders] = useState<FolderResponse | null>(null)
   const [folderError, setFolderError] = useState('')
@@ -69,8 +74,7 @@ export function LibraryWorkspace() {
   const libraryWindowScroll = useRef({ x: 0, y: 0 })
   const wasSelected = useRef(false)
   const refreshLibrary = useCallback(() => setRefresh(value => value + 1), [])
-  const reviewFilter = review
-  const pageContext = JSON.stringify([query, project, reviewFilter, tag, rights, collection, folderId, searchMode, sort, searchMode === 'shots' ? shotProjectId : ''])
+  const pageContext = JSON.stringify([query, metadataFilters, tag, folderId, searchMode, sort, searchMode === 'shots' ? shotProjectId : ''])
   const currentLibraryContext = useRef(pageContext)
   useEffect(() => { currentLibraryContext.current = pageContext }, [pageContext])
   const page = pagination.context === pageContext ? pagination.page : 0
@@ -149,8 +153,8 @@ export function LibraryWorkspace() {
       setLoading(true); setError('')
       try {
         const [result, shots] = await Promise.all([
-          getLibrary({ q: searchMode === 'assets' ? query : '', project, review_status: searchMode === 'assets' ? reviewFilter : '', tag: searchMode === 'assets' ? tag : '', rights_status: rights, collection, folder_id: folderId, limit: pageSize, offset: searchMode === 'assets' ? page * pageSize : 0, sort: sort === 'default' ? (query ? 'relevance' : 'newest') : sort }, controller.signal),
-          searchMode === 'shots' && shotProjectId ? getShots({ q: query, job_id: shotProjectId, project, review_status: reviewFilter, tag, rights_status: rights, collection, folder_id: folderId, limit: pageSize, offset: page * pageSize }, controller.signal) : Promise.resolve(null),
+          getLibrary({ q: searchMode === 'assets' ? query : '', ...metadataFilters, tag: searchMode === 'assets' ? tag : '', folder_id: folderId, limit: pageSize, offset: searchMode === 'assets' ? page * pageSize : 0, sort: sort === 'default' ? (query ? 'relevance' : 'newest') : sort }, controller.signal),
+          searchMode === 'shots' && shotProjectId ? getShots({ q: query, job_id: shotProjectId, ...metadataFilters, tag, folder_id: folderId, limit: pageSize, offset: page * pageSize }, controller.signal) : Promise.resolve(null),
         ])
         if (controller.signal.aborted) return
         setLibrary(result); setShotResults(shots?.shots.filter(shot => shot.job_id === shotProjectId) || []); setShotTotal(shots?.total || 0); setShotResultProject(shotProjectId)
@@ -160,7 +164,7 @@ export function LibraryWorkspace() {
       finally { if (!controller.signal.aborted) setLoading(false) }
     }, query ? 280 : 0)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [query, project, reviewFilter, tag, rights, collection, folderId, searchMode, shotProjectId, sort, page, pageContext, refresh])
+  }, [query, metadataFilters, tag, folderId, searchMode, shotProjectId, sort, page, pageContext, refresh])
 
   useEffect(() => {
     if (!selectedId) return
@@ -329,18 +333,18 @@ export function LibraryWorkspace() {
     } finally { batchLock.current = false; setQueueing(false); refreshLibrary() }
   }
 
-  function clearFilters() { setQuery(''); setProject(''); setReview(''); setTag(''); setRights(''); setCollection('') }
+  function clearFilters() { setQuery(''); setMetadataFilters({ production: '', scene: '', take: '', camera_roll: '', cinematographer: '' }); setTag('') }
   const assets = library?.assets || []
   const selectableProjects = assets.filter(asset => !isActiveAnalysis(asset.status) && asset.status !== 'deleting')
   const allPageSelected = selectableProjects.length > 0 && selectableProjects.every(asset => checkedProjects.some(item => item.id === asset.job_id))
   const shots = shotResultProject === shotProjectId ? shotResults : []
-  const hasFilters = !!(query || project || review || tag || rights || collection)
+  const hasFilters = !!(query || tag || Object.values(metadataFilters).some(Boolean))
   const count = searchMode === 'shots' ? (shotResultProject === shotProjectId ? shotTotal : 0) : library?.total || 0
   const projectLoading = searchMode === 'shots' && !projects && !projectsError
   const shotScopeLoading = searchMode === 'shots' && !!shotProjectId && shotResultProject !== shotProjectId
   const projectError = searchMode === 'shots' ? projectsError : ''
   const displayError = error || (!projects ? projectError : '')
-  const hasActiveFilters = !!(project || review || tag || rights || collection)
+  const hasActiveFilters = !!(tag || Object.values(metadataFilters).some(Boolean))
   return <div ref={workspace} className={`lw-workspace ${selection ? 'has-video-workspace' : ''}`}>
     <main ref={libraryMain} hidden={!!selection} className="lw-main" onDragEnter={event => { event.preventDefault(); if (event.dataTransfer.types.includes('Files')) { dragDepth.current++; setDragging(true) } }} onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDragLeave={event => { event.preventDefault(); dragDepth.current--; if (dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false) } }} onDrop={event => {
       event.preventDefault(); dragDepth.current = 0; setDragging(false)
@@ -383,11 +387,8 @@ export function LibraryWorkspace() {
         </div>}
         {filtersOpen && <div id="library-filters" className="lw-filter-panel">
           <div className="lw-filters">
-            <label><span>Production label</span><select aria-label="Filter by production label" value={project} onChange={event => setProject(event.target.value)}><option value="">Any label</option>{library?.facets.projects.map(name => <option key={name}>{name}</option>)}</select></label>
-            <label><span>Review</span><select aria-label="Filter by review status" value={review} onChange={event => setReview(event.target.value)}><option value="">Any status</option><option value="unreviewed">Unreviewed</option><option value="reviewed">Reviewed</option><option value="needs_changes">Needs changes</option></select></label>
+            {METADATA_FILTERS.map(({ key, label, all }) => <label key={key}><span>{label}</span><select aria-label={`Filter by ${label.toLowerCase()}`} value={metadataFilters[key]} disabled={!library?.facets[key]?.length && !metadataFilters[key]} onChange={event => setMetadataFilters(previous => ({ ...previous, [key]: event.target.value }))}><option value="">{library?.facets[key]?.length ? all : 'No metadata yet'}</option>{metadataFilters[key] && !library?.facets[key]?.includes(metadataFilters[key]) && <option>{metadataFilters[key]}</option>}{library?.facets[key]?.map(value => <option key={value}>{value}</option>)}</select></label>)}
             <label><span>Tag</span><select aria-label="Filter by tag" value={tag} onChange={event => setTag(event.target.value)}><option value="">All tags</option>{library?.facets.tags.map(name => <option key={name}>{name}</option>)}</select></label>
-            <label><span>Rights</span><select aria-label="Filter by usage rights" value={rights} onChange={event => setRights(event.target.value)}><option value="">All rights</option><option value="cleared">Cleared</option><option value="restricted">Restricted</option><option value="unknown">Unverified</option></select></label>
-            <label><span>Collection</span><select aria-label="Filter by collection" value={collection} onChange={event => setCollection(event.target.value)}><option value="">All collections</option>{library?.facets.collections?.map(name => <option key={name}>{name}</option>)}</select></label>
             {searchMode === 'assets' && <label><span>Sort</span><select aria-label="Sort footage" value={sort === 'newest' && !query ? 'default' : sort} onChange={event => setSort(event.target.value)}><option value="default">{query ? 'Relevance' : 'Newest first'}</option><option value="name">Name A–Z</option>{query && <option value="newest">Newest first</option>}</select></label>}
           </div>
           <div className="lw-filter-panel-actions">{hasFilters && <button className="lw-text-button" onClick={clearFilters}>Clear filters</button>}<div className="lw-view-toggle"><button className={layout === 'grid' ? 'is-active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Icon name="grid" size={16} /></button><button className={layout === 'list' ? 'is-active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><Icon name="list" size={17} /></button></div></div>
@@ -417,12 +418,12 @@ function AssetCard({ asset, selected, onClick, checked, onToggle, onDelete, lock
     <div className="lw-project-card-actions"><input type="checkbox" aria-label={`Select media ${title}`} checked={checked} disabled={busy} title={busy ? 'This media is busy.' : 'Select media'} onChange={onToggle} /><button className="lw-icon-button" aria-label={`Delete media ${title}`} title={busy ? 'Finish or cancel analysis before deleting this media.' : 'Delete media'} disabled={busy} onClick={onDelete}><Icon name="trash" size={16} /></button></div>
     <button className={`lw-asset-card ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-pressed={selected}>
     <HoverScrubThumbnail key={asset.preview_url} src={asset.preview_url} poster={asset.thumbnail_url} enabled={asset.status !== 'deleting' && !asset.technical.playback_proxy_required} placeholder={<div className="lw-card-placeholder"><Icon name="film" size={32} /><span>{asset.mime_type?.split('/')[1]?.toUpperCase() || 'VIDEO'}</span></div>}><span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{duration(asset.technical.duration_seconds)}</span>{isAnalyzing ? <span className="lw-card-status analyzing"><Icon name="spark" size={11} />{asset.status === 'queued' ? 'Queued' : 'Analyzing'}</span> : analyzed ? null : asset.status === 'error' ? <span className="lw-card-status error">Analysis failed</span> : <span className="lw-card-status pending">{asset.status === 'deleting' ? 'Removing…' : 'Not analyzed'}</span>}</HoverScrubThumbnail>
-    <div className="lw-card-content"><div className="lw-card-title"><h3 title={asset.metadata.title || asset.filename}>{asset.metadata.title || asset.filename}</h3><span className={`lw-review-dot ${asset.metadata.review_status}`} title={reviewLabel(asset.metadata.review_status)} /></div><div className="lw-card-subtitle">{asset.metadata.project && <span>{asset.metadata.project}</span>}</div>{asset.match_context && asset.match_context !== 'Matched asset metadata' && <p className="lw-match-context">{asset.match_context}</p>}{asset.metadata.tags.length > 0 && <div className="lw-card-tags">{asset.metadata.tags.slice(0, 3).map(tag => <span key={tag}>{tag}</span>)}{asset.metadata.tags.length > 3 && <span>+{asset.metadata.tags.length - 3}</span>}</div>}{(isAnalyzing || asset.status === 'complete' || asset.status === 'error') && <div className="lw-card-analysis" aria-label={`Analysis progress for ${title}`}>{isAnalyzing ? <><strong>{analysisStageLabel(asset.analysis_progress?.stage || (asset.status === 'queued' ? 'queued' : undefined))}</strong>{asset.status !== 'queued' && <span>{facts.coverage || facts.summary}</span>}</> : asset.status === 'complete' ? <span>Analyzed · {asset.shot_count} {asset.shot_count === 1 ? 'clip' : 'clips'}</span> : <span>{asset.error || 'Analysis failed. Open this media to retry.'}</span>}</div>}</div>
-    <div className="lw-list-review"><span className={`lw-review-dot ${asset.metadata.review_status}`} />{reviewLabel(asset.metadata.review_status)}</div><Icon name="chevron" className="lw-list-chevron" size={16} />
+    <div className="lw-card-content"><div className="lw-card-title"><h3 title={asset.metadata.title || asset.filename}>{asset.metadata.title || asset.filename}</h3></div><div className="lw-card-subtitle">{asset.metadata.project && <span>{asset.metadata.project}</span>}</div>{asset.match_context && asset.match_context !== 'Matched asset metadata' && <p className="lw-match-context">{asset.match_context}</p>}{asset.metadata.tags.length > 0 && <div className="lw-card-tags">{asset.metadata.tags.slice(0, 3).map(tag => <span key={tag}>{tag}</span>)}{asset.metadata.tags.length > 3 && <span>+{asset.metadata.tags.length - 3}</span>}</div>}{(isAnalyzing || asset.status === 'complete' || asset.status === 'error') && <div className="lw-card-analysis" aria-label={`Analysis progress for ${title}`}>{isAnalyzing ? <><strong>{analysisStageLabel(asset.analysis_progress?.stage || (asset.status === 'queued' ? 'queued' : undefined))}</strong>{asset.status !== 'queued' && <span>{facts.coverage || facts.summary}</span>}</> : asset.status === 'complete' ? <span>Analyzed · {asset.shot_count} {asset.shot_count === 1 ? 'clip' : 'clips'}</span> : <span>{asset.error || 'Analysis failed. Open this media to retry.'}</span>}</div>}</div>
+    <Icon name="chevron" className="lw-list-chevron" size={16} />
   </button></div>
 }
 function ShotCard({ shot, selected, onClick }: { shot: LibraryShot; selected: boolean; onClick: () => void }) {
-  return <button className={`lw-asset-card lw-shot-card ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-pressed={selected}><HoverScrubThumbnail key={shot.preview_url} src={shot.preview_url} poster={shot.thumbnail_url} start={shot.start_seconds} end={shot.end_seconds} placeholder={<div className="lw-card-placeholder"><Icon name="film" size={32} /><span>CLIP {String(shot.shot_number).padStart(2, '0')}</span></div>}><span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{shot.start_time} – {shot.end_time}</span><span className="lw-card-status">CLIP {String(shot.shot_number).padStart(2, '0')}</span></HoverScrubThumbnail><div className="lw-card-content"><div className="lw-card-title"><h3>{shot.scene_title || `Clip ${shot.shot_number}`}</h3><span className={`lw-review-dot ${shot.review_status}`} /></div><div className="lw-card-subtitle"><span title={shot.filename}>{shot.filename}</span></div><p className="lw-shot-description">{shot.visual_description}</p>{shot.match_context && shot.match_context !== shot.visual_description && <p className="lw-match-context">{shot.match_context}</p>}<div className="lw-card-tags">{[shot.shot_type, shot.mood, ...shot.tags].filter(Boolean).slice(0, 3).map((tag, index) => <span key={`${tag}-${index}`}>{tag}</span>)}</div></div><Icon name="chevron" className="lw-list-chevron" size={16} /></button>
+  return <button className={`lw-asset-card lw-shot-card ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-pressed={selected}><HoverScrubThumbnail key={shot.preview_url} src={shot.preview_url} poster={shot.thumbnail_url} start={shot.start_seconds} end={shot.end_seconds} placeholder={<div className="lw-card-placeholder"><Icon name="film" size={32} /><span>CLIP {String(shot.shot_number).padStart(2, '0')}</span></div>}><span className="lw-card-play"><Icon name="play" size={17} /></span><span className="lw-card-duration">{shot.start_time} – {shot.end_time}</span><span className="lw-card-status">CLIP {String(shot.shot_number).padStart(2, '0')}</span></HoverScrubThumbnail><div className="lw-card-content"><div className="lw-card-title"><h3>{shot.scene_title || `Clip ${shot.shot_number}`}</h3></div><div className="lw-card-subtitle"><span title={shot.filename}>{shot.filename}</span></div><p className="lw-shot-description">{shot.visual_description}</p>{shot.match_context && shot.match_context !== shot.visual_description && <p className="lw-match-context">{shot.match_context}</p>}<div className="lw-card-tags">{[shot.shot_type, shot.mood, ...shot.tags].filter(Boolean).slice(0, 3).map((tag, index) => <span key={`${tag}-${index}`}>{tag}</span>)}</div></div><Icon name="chevron" className="lw-list-chevron" size={16} /></button>
 }
 function EmptyState({ hasLibrary, filtered, shots, folder, importing, onImport, onClear, onVideos }: { hasLibrary: boolean; filtered: boolean; shots: boolean; folder: boolean; importing: boolean; onImport: () => void; onClear: () => void; onVideos: () => void }) {
   if (folder && !filtered && !shots) return <div className="lw-empty-state"><Icon name="folder" size={28} /><h2>This folder is empty</h2><p>Move media here from All media, or import into this folder.</p><button className="lw-button lw-button-primary" disabled={importing} onClick={onImport}>Import media</button></div>

@@ -6,6 +6,8 @@ Turn footage into a searchable shot library with Gemini analysis, visual match-c
 
 Match cuts can search **All media**, **This media**, or **Selected media / folders**. The picker supports multiple folders, individual media, and select-all. An analyzed single-take recording is searchable without splitting it into multiple clips. Folder and library scopes refresh when the panel is reopened; unavailable sources are reported while available recordings remain searchable. Searches larger than 20 sources are combined into one ranked result list.
 
+Library filters use recorded **Production, Scene, Take, Camera roll, and Cinematographer** slate metadata, plus analysis and personal tags. A manually assigned production label is also searchable. Media filters match any slate in a source; clip filters match the slate on that clip. Scene and take selections must match the same board. Dropdowns show metadata available in the selected folder, with missing fields disabled. Review status, rights, and collection controls have been removed from the library and clip editor; older stored values are preserved for compatibility.
+
 ## Camera previews and display color
 
 Camera previews preserve anamorphic framing in square pixels, including JPEG thumbnails and vision frames. Very short recordings show their fractional duration and decoded frame count, with a **Loop preview** control. Mac `._` resource files and `__MACOSX` folders are ignored during import.

@@ -58,7 +58,7 @@ export interface LibraryResponse {
   assets: LibraryAsset[]
   total: number
   active_jobs?: number
-  facets: { projects: string[]; tags: string[]; collections?: string[] }
+  facets: { projects: string[]; tags: string[]; collections?: string[]; production?: string[]; scene?: string[]; take?: string[]; camera_roll?: string[]; cinematographer?: string[] }
   stats: { assets: number; shots: number; reviewed: number; duration_seconds: number }
 }
 export interface ShotAnnotation {
@@ -250,7 +250,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
   return response.json() as Promise<T>
 }
-export function getLibrary(filters: { q?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number; sort?: string }, signal?: AbortSignal) {
+export function getLibrary(filters: { q?: string; production?: string; scene?: string; take?: string; camera_roll?: string; cinematographer?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number; sort?: string }, signal?: AbortSignal) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
   return request<LibraryResponse>(`/api/library?${params}`, { signal })
@@ -261,7 +261,7 @@ export function getAsset(id: string, signal?: AbortSignal) {
 export function getProjects(signal?: AbortSignal, folderId = '') {
   return request<{ projects: LibraryProject[]; total: number }>(`/api/library/projects?${new URLSearchParams({ folder_id: folderId })}`, { signal })
 }
-export function getShots(filters: { q: string; job_id?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+export function getShots(filters: { q: string; job_id?: string; production?: string; scene?: string; take?: string; camera_roll?: string; cinematographer?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
   return request<{ shots: LibraryShot[]; total: number }>(`/api/library/search/shots?${params}`, { signal })
@@ -285,7 +285,7 @@ export function saveMetadata(id: string, metadata: Partial<AssetMetadata>) {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metadata),
   })
 }
-export function saveShot(id: string, number: number, annotation: ShotAnnotation, expectedRange: { start_time: string; end_time: string }) {
+export function saveShot(id: string, number: number, annotation: Partial<ShotAnnotation>, expectedRange: { start_time: string; end_time: string }) {
   const params = new URLSearchParams({ expected_start_time: expectedRange.start_time, expected_end_time: expectedRange.end_time })
   return request<ShotAnnotation>(`/api/library/${encodeURIComponent(id)}/shots/${number}?${params}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(annotation),

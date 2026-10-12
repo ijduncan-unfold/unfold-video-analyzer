@@ -13,6 +13,7 @@ from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
     asset_view, shot_views, search_score, match_shot, public_search_metadata, public_transcript_segments,
 )
+from app.services.library_filters import library_facets, matches_metadata, matches_tag
 
 router = APIRouter(prefix='/api/library')
 _poster_locks = {}
@@ -36,7 +37,7 @@ def _filtered(jobs, project='', review_status='', tag='', rights_status='', coll
             continue
         if rights_status and meta.rights_status != rights_status:
             continue
-        if tag and tag.casefold() not in {v.casefold() for v in meta.tags}:
+        if not matches_tag(job, tag):
             continue
         if collection and collection not in meta.collections:
             continue
@@ -46,11 +47,15 @@ def _filtered(jobs, project='', review_status='', tag='', rights_status='', coll
 @router.get('')
 async def library(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
                   tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
+                  production: str = '', scene: str = '', take: str = '', camera_roll: str = '', cinematographer: str = '',
                   sort: str = Query(default='relevance', pattern='^(name|newest|relevance)$'),
                   limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     jobs = list_jobs()
+    metadata_filters = dict(production=production, scene=scene, take=take, camera_roll=camera_roll, cinematographer=cinematographer)
     matched = []
     for job in _filtered(jobs, project, review_status, tag, rights_status, collection, folder_id):
+        if not matches_metadata(job, metadata_filters):
+            continue
         public = asset_view(job)
         score = search_score(q, [job.filename, public['metadata'], public['technical'], job.summary, job.flash_result,
                                  job.deep_results, job.shot_annotations,
@@ -72,7 +77,8 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
         'active_jobs': sum(j.status in ('queued', 'analyzing', 'processing') or cut_is_active(j) for j in jobs),
         'facets': {'projects': sorted({j.metadata.get('project') for j in jobs if j.metadata.get('project')}),
                    'tags': sorted({tag for j in jobs for tag in j.metadata.get('tags', [])}),
-                   'collections': sorted({v for j in jobs for v in j.metadata.get('collections', [])})},
+                   'collections': sorted({v for j in jobs for v in j.metadata.get('collections', [])}),
+                   **library_facets(_filtered(jobs, folder_id=folder_id))},
         'stats': {'assets': len(jobs), 'shots': sum(asset_view(j)['shot_count'] for j in jobs),
                   'reviewed': sum(j.metadata.get('review_status') == 'reviewed' for j in jobs),
                   'duration_seconds': sum(j.technical.get('duration_seconds', 0) for j in jobs)}}
@@ -81,16 +87,20 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
 @router.get('/search/shots')
 async def search_shots(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
                        tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
+                       production: str = '', scene: str = '', take: str = '', camera_roll: str = '', cinematographer: str = '',
                        job_id: str | None = Query(default=None, max_length=200),
                        limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     matches = []
     jobs = list_jobs()
     scoped = [require_job(job_id)] if job_id is not None else jobs
+    metadata_filters = dict(production=production, scene=scene, take=take, camera_roll=camera_roll, cinematographer=cinematographer)
     for job in _filtered(scoped, project=project, rights_status=rights_status, collection=collection, folder_id=folder_id):
         for shot in shot_views(job):
+            if not matches_metadata(job, metadata_filters, shot):
+                continue
             if review_status and shot['review_status'] != review_status:
                 continue
-            if tag and tag.casefold() not in {t.casefold() for t in shot['tags']}:
+            if tag and tag.casefold() not in {t.casefold() for t in [*shot['tags'], *job.metadata.get('tags', [])]}:
                 continue
             score, match = match_shot(q, shot)
             if score >= 0:

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeAsset, cancelAnalysis, deleteAsset, getShots, saveMetadata, saveShot } from '../../api/library'
-import type { AssetDetail, AssetMetadata, Capabilities, LibraryShot, ProxyMode, ReviewStatus, ShotAnnotation } from '../../api/library'
+import type { AssetDetail, AssetMetadata, Capabilities, LibraryShot, ProxyMode, ShotAnnotation } from '../../api/library'
 import type { Shot, Slate } from '../../api/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from './Icon'
-import { bytes, duration, errorMessage, reviewLabel, splitTags, timestamp } from './format'
+import { bytes, duration, errorMessage, splitTags, timestamp } from './format'
 import { analysisFacts, analysisStageLabel, isActiveAnalysis } from './analysisProgress'
 import { ExportPanel } from './ExportPanel'
 import { SearchHighlight } from './SearchHighlight'
@@ -51,7 +51,6 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const [draft, setDraft] = useState<AssetMetadata>(() => ({ ...asset.metadata }))
   const [baseline, setBaseline] = useState(() => JSON.stringify(asset.metadata))
   const [tags, setTags] = useState(() => asset.metadata.tags.join(', '))
-  const [collections, setCollections] = useState(() => asset.metadata.collections.join(', '))
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -89,7 +88,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const cutBusy = !!asset.rough_cut && ['queued', 'analyzing', 'assembling'].includes(asset.rough_cut.status)
   const removalDisabled = busy || cutBusy || removing || saving || asset.status === 'deleting'
   const warnings = [...new Set([...(asset.warnings || []), ...(asset.flash?.analysis_warnings || [])])]
-  const metadata = { ...draft, tags: splitTags(tags), collections: splitTags(collections) }
+  const metadata = { ...draft, tags: splitTags(tags) }
   const dirty = JSON.stringify(metadata) !== baseline
   const shots = useMemo(() => asset.flash?.scenes.flatMap(scene => scene.shots.map(shot => ({ ...shot, scene_number: scene.scene_number, scene_title: scene.scene_title }))) || [], [asset.flash])
   const validSelection = shots.filter(shot => selection.shots.some(item => sameShot(item, shot)))
@@ -119,7 +118,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     try {
       const result = await saveMetadata(asset.job_id, metadata)
       setDraft(result.metadata); setBaseline(JSON.stringify(result.metadata))
-      setTags(result.metadata.tags.join(', ')); setCollections(result.metadata.collections.join(', '))
+      setTags(result.metadata.tags.join(', '))
       setNotice('Saved.'); onRefresh()
     } catch (err) { setError(errorMessage(err)) } finally { setSaving(false) }
   }
@@ -205,16 +204,14 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
       {tab === 'analysis' && warnings.length > 0 && <details className="lw-details"><summary>Analysis notes<Icon name="down" size={14} /></summary><div className="lw-analysis-warning">{warnings.map(warning => <p key={warning}>{warning}</p>)}</div></details>}
       {tab === 'metadata' && <>
         <MetadataHandoff asset={asset} selectedShot={selectedShot} />
-        {shots.some(shot => shot.slates?.length) && <details className="lw-details" open><summary>Slates<Icon name="down" size={14} /></summary>{shots.flatMap(shot => (shot.slates || []).map((slate, index) => <div key={`${shot.shot_number}-${index}`}><button className="lw-text-button" onClick={() => { setPreviewedShot(shot.shot_number); seek(timestamp(slate.start_time)) }}>Clip {String(shot.shot_number).padStart(2, '0')} · {slate.start_time}–{slate.end_time}</button><SlateFields slate={slate} /></div>))}<small className="lw-model-note">Read from the slate · unreviewed</small></details>}
+        {shots.some(shot => shot.slates?.length) && <details className="lw-details" open><summary>Slates<Icon name="down" size={14} /></summary>{shots.flatMap(shot => (shot.slates || []).map((slate, index) => <div key={`${shot.shot_number}-${index}`}><button className="lw-text-button" onClick={() => { setPreviewedShot(shot.shot_number); seek(timestamp(slate.start_time)) }}>Clip {String(shot.shot_number).padStart(2, '0')} · {slate.start_time}–{slate.end_time}</button><SlateFields slate={slate} /></div>))}<small className="lw-model-note">Read from the slate</small></details>}
         {asset.summary && <details className="lw-details"><summary>AI summary<Icon name="down" size={14} /></summary><p className="lw-panel-description">{asset.summary}</p></details>}
         <label className="lw-field">Title<input value={draft.title} onChange={event => field('title', event.target.value)} placeholder={asset.filename} /></label>
         <label className="lw-field">Tags<textarea rows={2} value={tags} onChange={event => setTags(event.target.value)} placeholder="Separate tags with commas" /></label>
         <label className="lw-field">Production label<input value={draft.project} onChange={event => field('project', event.target.value)} /></label>
-        <div className="lw-field-pair"><label className="lw-field">Review<select value={draft.review_status} onChange={event => field('review_status', event.target.value as ReviewStatus)}><option value="unreviewed">Unreviewed</option><option value="reviewed">Reviewed</option><option value="needs_changes">Needs changes</option></select></label><label className="lw-field">Usage rights<select title="Set by your team; AI does not verify usage rights." value={draft.rights_status} onChange={event => field('rights_status', event.target.value as AssetMetadata['rights_status'])}><option value="unknown">Unverified</option><option value="cleared">Cleared</option><option value="restricted">Restricted</option></select></label></div>
         <details className="lw-details"><summary>More metadata<Icon name="down" size={14} /></summary><div style={{ paddingTop: 14 }}>
           <label className="lw-field">Client<input value={draft.client} onChange={event => field('client', event.target.value)} /></label>
           <label className="lw-field">Campaign<input value={draft.campaign} onChange={event => field('campaign', event.target.value)} /></label>
-          <label className="lw-field">Collections<input value={collections} onChange={event => setCollections(event.target.value)} placeholder="Separate collections with commas" /></label>
           <label className="lw-field">Notes<textarea rows={3} value={draft.notes} onChange={event => field('notes', event.target.value)} /></label>
         </div></details>
         <details className="lw-details"><summary>File details<Icon name="down" size={14} /></summary><dl><div><dt>Filename</dt><dd>{asset.filename}</dd></div><div><dt>Duration</dt><dd>{duration(asset.technical.duration_seconds)}</dd></div><div><dt>Size</dt><dd>{bytes(asset.size_bytes)}</dd></div>{asset.technical.width != null && <div><dt>Resolution</dt><dd>{asset.technical.width} × {asset.technical.height}</dd></div>}{asset.technical.frame_rate != null && <div><dt>Frame rate</dt><dd>{Number(asset.technical.frame_rate).toFixed(2).replace(/\.00$/, '')} fps</dd></div>}<div><dt>Media</dt><dd>{asset.media_origin === 'external' ? 'Linked original · no full-size copy' : 'Local library copy'}{asset.uses_viewing_proxy ? ' · linked viewing proxy' : ''}</dd></div>{asset.technical.camera_metadata?.camera_model && <div><dt>Camera</dt><dd>{asset.technical.camera_metadata.manufacturer} {asset.technical.camera_metadata.camera_model}</dd></div>}{asset.technical.technical_basis && <div><dt>Source facts</dt><dd>{asset.technical.technical_basis}</dd></div>}<div><dt>Format</dt><dd>{asset.mime_type || 'Unknown'}</dd></div><div><dt>Codec</dt><dd>{asset.technical.codec || 'Unknown'}</dd></div><div><dt>Source timecode</dt><dd>{asset.technical.source_timecode || 'Not embedded'}</dd></div><div><dt>Audio</dt><dd>{asset.technical.has_audio == null ? 'Unknown' : asset.technical.has_audio ? 'Present' : 'No audio track'}</dd></div><div><dt>Imported</dt><dd>{asset.created_at ? new Date(asset.created_at).toLocaleDateString() : 'Unknown'}</dd></div></dl><div className="lw-remove-section">{confirmRemoval ? <div className="lw-remove-confirm" role="group" aria-label="Confirm asset removal"><strong>Remove this asset?</strong><p>Removes this shot and its analysis from the app. Deletes only copies and cache files created by the app. Your original source files are never deleted.</p><div><button className="lw-button" disabled={removing} onClick={() => setConfirmRemoval(false)}>Cancel</button><button className="lw-button lw-button-danger" disabled={removalDisabled} onClick={remove}>{removing ? 'Removing…' : 'Remove asset'}</button></div></div> : <button className="lw-text-button lw-remove-link" disabled={removalDisabled} onClick={() => setConfirmRemoval(true)}>Remove asset</button>}{busy && <small>Finish or cancel analysis before removing.</small>}</div></details>
@@ -365,7 +362,6 @@ function ShotEditor({ jobId, shot, annotation, selected, exportSelected, match, 
   const [expanded, setExpanded] = useState(false)
   const [tags, setTags] = useState(annotation?.tags.join(', ') || '')
   const [notes, setNotes] = useState(annotation?.notes || '')
-  const [review, setReview] = useState<ReviewStatus>(annotation?.review_status || 'unreviewed')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -376,12 +372,12 @@ function ShotEditor({ jobId, shot, annotation, selected, exportSelected, match, 
   }
   async function save() {
     setSaving(true); setMessage(''); setError('')
-    try { await saveShot(jobId, shot.shot_number, { tags: splitTags(tags), notes, review_status: review }, { start_time: shot.start_time, end_time: shot.end_time }); setMessage('Saved.'); onRefresh() }
+    try { await saveShot(jobId, shot.shot_number, { tags: splitTags(tags), notes }, { start_time: shot.start_time, end_time: shot.end_time }); setMessage('Saved.'); onRefresh() }
     catch (err) { setError(errorMessage(err)) } finally { setSaving(false) }
   }
   return <div className={`lw-shot-detail ${selected ? 'is-selected' : ''}`}>
     <button className="vw-shot-thumbnail" disabled={!canPreview} onClick={onSeek} aria-label={`Play clip ${shot.shot_number} at ${shot.start_time}`} aria-pressed={selected}>{shot.thumbnail_url ? <img src={shot.thumbnail_url} alt="" loading="lazy" /> : <Icon name="film" size={30} />}<span className="vw-thumbnail-play"><Icon name="play" size={22} /></span></button>
-    <div className="vw-shot-caption"><label className="vw-shot-select"><input type="checkbox" checked={exportSelected} onChange={onToggle} aria-label={`Select clip ${shot.shot_number} for export`} /><strong>Clip {String(shot.shot_number).padStart(2, '0')}</strong></label><span className={`lw-review-dot ${review}`} title={reviewLabel(review)} /><time>{shot.start_time} — {shot.end_time}</time></div>
+    <div className="vw-shot-caption"><label className="vw-shot-select"><input type="checkbox" checked={exportSelected} onChange={onToggle} aria-label={`Select clip ${shot.shot_number} for export`} /><strong>Clip {String(shot.shot_number).padStart(2, '0')}</strong></label><time>{shot.start_time} — {shot.end_time}</time></div>
     <p><SearchHighlight text={shot.visual_description} query={query} /></p><div className="lw-tags">{[shot.shot_type, shot.camera_movement, shot.mood].filter(Boolean).map((value, i) => <span key={`${value}-${i}`}><SearchHighlight text={value} query={query} /></span>)}</div>
     {match?.match_context && <details className="lw-details vw-match-context" open><summary>{match.match_sources?.join(' · ') || 'Search match'}<Icon name="down" size={13} /></summary><p><SearchHighlight text={match.match_context} query={query} /></p>{match.match_sources?.includes('Section analysis') && <details className="lw-details"><summary>Section context<Icon name="down" size={13} /></summary><p><SearchHighlight text={match.section_context?.scene_description || ''} query={query} /></p><AnalysisFields value={match.section_analysis} query={query} /></details>}</details>}
     {match?.match_sources?.includes('Custom analysis') && <details className="lw-details"><summary>Custom analysis · whole video<Icon name="down" size={13} /></summary><AnalysisFields value={match.custom_analysis} query={query} /></details>}
@@ -389,10 +385,10 @@ function ShotEditor({ jobId, shot, annotation, selected, exportSelected, match, 
     <div className="vw-shot-actions"><button className="lw-text-button" onClick={onExport}>Export clip</button><button className="lw-text-button" onClick={copyTimes}>Copy times</button></div>{copyMessage && <small className="vw-copy-message" role="status">{copyMessage}</small>}
     {!!shot.dominant_colors?.length && <details className="lw-details"><summary>Colors<Icon name="down" size={13} /></summary><p><SearchHighlight text={shot.dominant_colors.join(' · ')} query={query} /></p></details>}
     {!!shot.tags?.length && <details className="lw-details"><summary>AI tags<Icon name="down" size={13} /></summary><div className="lw-tags">{shot.tags.map(tag => <span key={tag}><SearchHighlight text={tag} query={query} /></span>)}</div></details>}
-    {!!shot.slates?.length && <details className="lw-details" open={!!query}><summary>Slate<Icon name="down" size={13} /></summary>{shot.slates.map((slate, index) => <div key={index}><small>{slate.start_time}–{slate.end_time}</small><SlateFields slate={slate} query={query} /></div>)}<small className="lw-model-note">Read from the slate · unreviewed</small></details>}
+    {!!shot.slates?.length && <details className="lw-details" open={!!query}><summary>Slate<Icon name="down" size={13} /></summary>{shot.slates.map((slate, index) => <div key={index}><small>{slate.start_time}–{slate.end_time}</small><SlateFields slate={slate} query={query} /></div>)}<small className="lw-model-note">Read from the slate</small></details>}
     {(shot.evidence?.length || shot.visible_text?.length || shot.logos?.length || shot.subjects?.length || shot.actions?.length || shot.location || shot.transcript || shot.audio_notes) ? <details className="lw-details lw-shot-evidence"><summary>Details<Icon name="down" size={13} /></summary><dl>{shot.subjects?.length > 0 && <div><dt>Subjects</dt><dd><SearchHighlight text={shot.subjects.join(', ')} query={query} /></dd></div>}{!!shot.actions?.length && <div><dt>Actions</dt><dd><SearchHighlight text={shot.actions.join(', ')} query={query} /></dd></div>}{!!shot.visible_text?.length && <div><dt>Visible text</dt><dd><SearchHighlight text={shot.visible_text.join(' · ')} query={query} /></dd></div>}{!!shot.logos?.length && <div><dt>Potential logos</dt><dd><SearchHighlight text={shot.logos.join(', ')} query={query} /></dd></div>}{shot.location && <div><dt>Location description</dt><dd><SearchHighlight text={shot.location} query={query} /></dd></div>}{shot.transcript && <div><dt>Model transcript</dt><dd><SearchHighlight text={shot.transcript} query={query} /></dd></div>}{shot.audio_notes && <div><dt>Audio observations</dt><dd><SearchHighlight text={shot.audio_notes} query={query} /></dd></div>}{shot.evidence?.map((evidence, index) => <div key={index}><dt>{evidence.modality} · {evidence.start_time}–{evidence.end_time}</dt><dd><SearchHighlight text={evidence.description} query={query} /></dd></div>)}</dl><p className="lw-model-note">Model observations are unverified. Clip timestamps are approximate.{shot.confidence != null ? ' Model confidence is uncalibrated and is not a reliability score.' : ''}</p></details> : null}
     {!!shot.analysis_warnings?.length && <details className="lw-details"><summary>Notes<Icon name="down" size={13} /></summary><div className="lw-analysis-warning">{shot.analysis_warnings.map(warning => <p key={warning}><SearchHighlight text={warning} query={query} /></p>)}</div></details>}
     <button className="lw-text-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>{expanded ? 'Close edit' : 'Edit'}<Icon name="down" size={13} /></button>
-    {expanded && <div className="lw-shot-fields"><label className="lw-field">Your tags<input value={tags} onChange={event => setTags(event.target.value)} placeholder="Comma-separated tags" /></label><label className="lw-field">Notes<textarea rows={2} value={notes} onChange={event => setNotes(event.target.value)} /></label><label className="lw-field">Review<select value={review} onChange={event => setReview(event.target.value as ReviewStatus)}><option value="unreviewed">Unreviewed</option><option value="reviewed">Reviewed</option><option value="needs_changes">Needs changes</option></select></label><button className="lw-button" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save clip'}</button>{message && <small className="lw-inline-success" role="status">{message}</small>}{error && <small className="lw-inline-error" role="alert">{error}</small>}</div>}
+    {expanded && <div className="lw-shot-fields"><label className="lw-field">Your tags<input value={tags} onChange={event => setTags(event.target.value)} placeholder="Comma-separated tags" /></label><label className="lw-field">Notes<textarea rows={2} value={notes} onChange={event => setNotes(event.target.value)} /></label><button className="lw-button" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save clip'}</button>{message && <small className="lw-inline-success" role="status">{message}</small>}{error && <small className="lw-inline-error" role="alert">{error}</small>}</div>}
   </div>
 }
