@@ -2,9 +2,10 @@
 html, body { width: 100%; height: 100%; }
 body { margin: 0; color: #dbe5f0; background: #161c23; font-family: sans-serif; font-size: 12px; }
 .panel { padding: 12px; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-.workspace { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.workspace { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; align-items: stretch; }
+.workspace > * { flex-shrink: 0; }
 .heading, .connection, .message { flex-shrink: 0; }
-.heading, .row { display: flex; align-items: center; }
+.heading, .row { display: flex; align-items: center; min-width: 0; }
 .heading { justify-content: space-between; margin-bottom: 16px; }
 h1 { font-size: 17px; font-weight: 600; margin: 0; }
 p { margin: 0; line-height: 1.5; }
@@ -27,23 +28,27 @@ input, select { display: block; width: 100%; height: 32px; color: #e2ebf5; backg
 .message { margin: 12px 0; color: #a9cfff; }
 .message.error { color: #ffbaad; }
 .project-name { color: #9baec3; font-size: 11px; margin-bottom: 8px; }
-.full-width, .asset-toggle { width: 100%; }
-.asset-toggle { text-align: left; margin: 12px 0; }
+.full-width, .asset-toggle { width: 100%; margin-bottom: 8px; }
+.asset-toggle { margin-top: 0; }
 .asset-picker { border: 1px solid #3b4a5a; border-radius: 5px; padding: 8px; margin-bottom: 12px; }
 .asset-list { max-height: 220px; overflow-y: auto; margin-top: 6px; }
-.asset-option { display: block; width: 100%; text-align: left; margin-top: 3px; background: transparent; }
+.asset-option { display: block; width: 100%; text-align: left; margin: 5px 0; padding: 10px; background: transparent; white-space: normal; border: 1px solid #3b4a5a; border-radius: 5px; cursor: pointer; }
+.asset-option:hover { background: #354659; }
+.asset-option:focus { outline: 2px solid #86bfff; }
 .asset-option.selected { border-color: #90c3ff; background: #263f5c; }
-.asset-option span { display: block; }
+.asset-option span { display: block; white-space: normal; overflow-wrap: break-word; }
 .asset-option .asset-status { color: #9baec3; margin-top: 3px; font-size: 10px; }
-#mode { flex: 1; min-width: 0; }
-#analyze { min-width: 108px; }
+#analysis-actions { flex-wrap: wrap; }
+#mode { flex: 1; min-width: 140px; margin-bottom: 6px; }
+#analyze { flex-shrink: 0; margin-bottom: 6px; }
 .progress { min-height: 18px; margin: 10px 0; color: #aecdf0; font-size: 11px; }
 .tabs { display: flex; border-bottom: 1px solid #33414e; margin-bottom: 12px; }
-.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; margin-right: 12px; }
-.tabs button[aria-selected="true"] { border-bottom-color: #90c3ff; color: #bcdcff; }
-.result-tools { justify-content: space-between; margin: 12px 0 8px; }
+.tabs sp-button { margin-right: 8px; margin-bottom: 8px; }
+.tabs sp-button[aria-selected="true"] { border-color: #90c3ff; color: #bcdcff; }
+.result-tools { margin: 10px 0 6px; }
+.result-tools sp-button { margin-top: 6px; }
 .result-tools .hint { flex: 1; }
-#timing-note { margin-bottom: 10px; }
+#marker-help, #timing-note { margin: 6px 0 10px; }
 .result { display: block; width: 100%; min-height: 70px; text-align: left; padding: 11px; margin: 0 0 8px; border: 1px solid #33414e; border-radius: 5px; background: #202a35; }
 .result > span { display: block; white-space: normal; }
 .result .result-time { font-size: 10px; color: #a9cfff; margin-bottom: 6px; }
@@ -51,27 +56,17 @@ input, select { display: block; width: 100%; height: 32px; color: #e2ebf5; backg
 .result .result-description { line-height: 1.5; }
 .result .result-detail { line-height: 1.5; color: #9baec3; font-size: 11px; margin-top: 5px; }
 .result-thumbnail { display: block; width: 100%; height: 130px; object-fit: contain; background: #101316; margin-bottom: 10px; }
-.clip-actions { flex-wrap: wrap; margin-top: 10px; }
-.clip-action { margin-top: 4px; padding: 6px 8px; font-size: 11px; }
-#refresh-analysis { margin-top: 6px; }
+.clip-actions { display: flex; flex-direction: column; align-items: stretch; margin-top: 10px; }
+.clip-actions > * { margin-right: 0; margin-top: 6px; width: 100%; }
 .highlight { color: #ffffff; background: #365a84; font-weight: 600; border-radius: 2px; }
 .result-title span, .result-description span, .result-detail span, .asset-option span span { display: inline; }
 .empty { padding: 20px 6px; color: #9baec3; line-height: 1.5; }
-.footer { justify-content: space-between; padding-top: 16px; margin-top: 10px; border-top: 1px solid #33414e; }
-.hidden { display: none; }
+.footer { flex-direction: column; align-items: stretch; padding-top: 12px; margin-top: 10px; border-top: 1px solid #33414e; }
+.footer > * { width: 100%; margin-right: 0; margin-bottom: 8px; }
 
-/* Spectrum controls size their native editor correctly at narrow dock widths. */
-sp-textfield { display: block; width: 100%; height: 32px; padding: 0; margin: 0; font-size: 13px; }
-sp-button { height: 32px; padding: 0; margin: 0; }
-sp-button.primary { margin-top: 0; }
-.full-width { display: block; width: 100%; margin-bottom: 8px; }
-.asset-toggle { display: block; margin: 8px 0; }
-.asset-option { margin: 5px 0; height: auto; min-height: 42px; }
-.tabs sp-button { margin-right: 8px; }
-.result-tools { margin: 10px 0 6px; }
-.result-tools sp-button { margin-top: 6px; }
-#marker-help, #timing-note { margin: 6px 0 10px; }
-.clip-actions { display: flex; flex-direction: column; align-items: stretch; }
-.clip-actions > * { margin-right: 0; margin-top: 6px; width: 100%; }
+/* Keep Spectrum's native display, padding and height: overriding these clips labels in UXP. */
+sp-textfield { width: 100%; margin: 0; font-size: 13px; }
+sp-button { flex-shrink: 0; }
 .action-status { font-size: 11px; color: #a9cfff; margin-top: 8px; line-height: 1.5; }
 .action-status.error { color: #ffbaad; }
+.hidden { display: none; }

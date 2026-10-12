@@ -317,11 +317,10 @@ function createPanel(dependencies) {
     const q = el("asset-search").value;
     const assets = state.assets.filter(asset => includesQuery(assetName(asset), q));
     assets.forEach(asset => {
-      const item = document.createElement("sp-button");
-      item.type = "button";
+      const item = document.createElement("div");
       item.className = "asset-option" + (state.asset && state.asset.job_id === asset.job_id ? " selected" : "");
-      item.setAttribute("variant", "secondary");
-      item.setAttribute("role", "listitem");
+      item.setAttribute("role", "button");
+      item.setAttribute("tabindex", "0");
       item.setAttribute("aria-label", "Choose " + assetName(asset));
       const title = document.createElement("span");
       appendHighlight(document, title, assetName(asset), q);
@@ -331,6 +330,9 @@ function createPanel(dependencies) {
       item.appendChild(title);
       item.appendChild(status);
       item.addEventListener("click", () => run(() => selectAsset(asset.job_id)));
+      item.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); run(() => selectAsset(asset.job_id)); }
+      });
       list.appendChild(item);
     });
     if (!assets.length) {

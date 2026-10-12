@@ -138,9 +138,9 @@ end run'''
 
 
 def _install_premiere_panel() -> None:
-    package = _resource_path('plugins/VideoAnalyzer-Premiere-0.1.16.ccx') if getattr(sys, 'frozen', False) else _resource_path('dist/installers/VideoAnalyzer-Premiere-0.1.16.ccx')
+    package = _resource_path('plugins/VideoAnalyzer-Premiere-0.1.17.ccx') if getattr(sys, 'frozen', False) else _resource_path('dist/installers/VideoAnalyzer-Premiere-0.1.17.ccx')
     if not package.is_file() and getattr(sys, 'frozen', False) and sys.platform == 'win32':
-        package = Path(sys.executable).parent / 'plugins' / 'VideoAnalyzer-Premiere-0.1.16.ccx'
+        package = Path(sys.executable).parent / 'plugins' / 'VideoAnalyzer-Premiere-0.1.17.ccx'
     if not package.is_file():
         raise ValueError('The Premiere package is missing. Build the plugin package first.')
     if sys.platform == 'darwin':
