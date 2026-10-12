@@ -25,9 +25,9 @@ function fixture(options = {}) {
   const project = { guid: "project", getRootItem: async () => root,
     lockedAccess(callback) { locked = true; try { assert.notEqual(callback() instanceof Promise, true); } finally { locked = false; } },
     executeTransaction(callback) { assert.ok(locked); transactions++; callback({ addAction(action) { if (!options.falseSuccess && !options.reject) properties = JSON.parse(action.packet); return true; } }); return !options.reject; } };
-  const api = { Project: { getActiveProject: async () => project }, ClipProjectItem: { cast: item => item.kind === "clip" ? item : null },
+  const api = { Project: { getActiveProject: async () => project }, ClipProjectItem: { cast: item => item.kind === "clip" ? { ...item, getId: undefined } : null },
     Constants: { MetadataType: { TEXT: 2 } }, Metadata: {
-      getProjectMetadata: async () => JSON.stringify(properties),
+      getProjectMetadata: async item => { assert.equal(item, clip, 'Metadata APIs require the original ProjectItem handle'); return JSON.stringify(properties); },
       async addPropertyToProjectMetadataSchema(name, label, type) { assert.equal(type, 2); schema.push([name, label]); if (options.concurrent) properties.unrelated = "Concurrent edit"; return false; },
       createSetProjectMetadataAction(item, packet, fields) { assert.ok(locked); assert.equal(item, clip); assert.ok(fields.includes("VideoAnalyzerAnalysis")); return { packet }; },
       createSetXMPMetadataAction() { assert.fail("Never write file XMP"); }

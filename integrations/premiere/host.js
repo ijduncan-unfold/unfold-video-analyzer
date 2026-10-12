@@ -161,7 +161,7 @@ function createHost(injectedApi, injectedXmp) {
         if (typeof value === "number" && Number.isFinite(value) && value > 0) fps = value;
       }
     }
-    return { clip, descriptor: { item_id: id, name: item.name || clip.name || "Source clip", media_path: path, source_fps: fps } };
+    return { projectItem: item, clip, descriptor: { item_id: id, name: item.name || clip.name || "Source clip", media_path: path, source_fps: fps } };
   }
   async function getProjectIdentity() { return identity(await activeProject()); }
   async function getSelection() {
@@ -214,7 +214,7 @@ function createHost(injectedApi, injectedXmp) {
       }
     }
     await activeProject(binding.project_id);
-    return { project, clip: found.clip, descriptor: found.descriptor };
+    return { project, projectItem: found.projectItem, clip: found.clip, descriptor: found.descriptor };
   }
   async function openSource(binding, seconds) {
     finiteSeconds(seconds, "Source position");
@@ -225,17 +225,19 @@ function createHost(injectedApi, injectedXmp) {
     requiredMethod(ppro.SourceMonitor, "openProjectItem");
     requiredMethod(ppro.TickTime, "createWithSeconds");
     const resolved = await resolveBinding(binding);
-    if (await ppro.SourceMonitor.openProjectItem(resolved.clip) !== true) {
+    if (await ppro.SourceMonitor.openProjectItem(resolved.projectItem) !== true) {
       fail("SOURCE_OPEN_FAILED", "Premiere could not open this clip in the Source Monitor.");
     }
-    if (await ppro.SourceMonitor.setPosition(ppro.TickTime.createWithSeconds(seconds)) !== true) {
-      fail("SOURCE_SEEK_FAILED", "Premiere opened the clip but could not seek to the requested moment.");
-    }
+    // SourceMonitor positions are recording-relative, even when the UI displays
+    // embedded camera timecode. A seek already at the target can return false;
+    // verify the actual item/position before deciding whether it failed.
+    const seekResult = await ppro.SourceMonitor.setPosition(ppro.TickTime.createWithSeconds(seconds));
     const currentItem = await ppro.SourceMonitor.getProjectItem();
     const position = await ppro.SourceMonitor.getPosition();
     const tolerance = 1 / (resolved.descriptor.source_fps || 24) + 0.001;
     if (!currentItem || await itemId(currentItem) !== binding.item_id || !position ||
         typeof position.seconds !== "number" || !Number.isFinite(position.seconds) || Math.abs(position.seconds - seconds) > tolerance) {
+      if (seekResult === false) fail("SOURCE_SEEK_FAILED", "Premiere opened the clip but could not seek to the requested moment.");
       fail("SOURCE_VERIFY_FAILED", "Premiere did not confirm the requested source moment. Check the Source Monitor and refresh the selection.");
     }
     await activeProject(binding.project_id);
@@ -320,7 +322,7 @@ function createHost(injectedApi, injectedXmp) {
       warnings: result.warnings, capabilities: result.capabilities };
   }
   async function syncMetadata(binding, mapping) {
-    const { project, clip } = await resolveBinding(binding);
+    const { project, projectItem } = await resolveBinding(binding);
     const ppro = getApi(), metadata = ppro.Metadata;
     for (const name of ["getProjectMetadata", "createSetProjectMetadataAction", "addPropertyToProjectMetadataSchema"]) requiredMethod(metadata, name);
     requiredMethod(project, "lockedAccess"); requiredMethod(project, "executeTransaction");
@@ -331,7 +333,7 @@ function createHost(injectedApi, injectedXmp) {
     const record = JSON.stringify(mapping.record);
     if (record.length > 4000000) fail("METADATA_LIMIT", "This analysis exceeds the panel's 4 MB metadata limit. Export the complete JSON and XMP from the analyzer instead; nothing was truncated.");
     toolkit.XMPMeta.registerNamespace(PROJECT_META_NS, "premierePrivateProjectMetaData");
-    const packet = await metadata.getProjectMetadata(clip);
+    const packet = await metadata.getProjectMetadata(projectItem);
     if (typeof packet !== "string") fail("METADATA_READ_FAILED", "Premiere could not read this clip's project metadata.");
     const xmp = new toolkit.XMPMeta(packet);
     const read = (document, key) => { const value = document.getProperty(PROJECT_META_NS, key); return value == null ? "" : String(value.value === undefined ? value : value.value); };
@@ -364,17 +366,17 @@ function createHost(injectedApi, injectedXmp) {
       xmp.setProperty(PROJECT_META_NS, key, changes[key]);
     }
     await resolveBinding(binding);
-    if (await metadata.getProjectMetadata(clip) !== packet) fail("METADATA_CHANGED", "Clip metadata changed during sync. Try again; your edits were preserved.");
+    if (await metadata.getProjectMetadata(projectItem) !== packet) fail("METADATA_CHANGED", "Clip metadata changed during sync. Try again; your edits were preserved.");
     let committed = false;
     // Use project metadata, never the file-XMP writer. Premiere's own metadata
     // linking preferences can mirror linked standard fields to file XMP.
     project.lockedAccess(() => {
       committed = project.executeTransaction(compound => {
-        compound.addAction(metadata.createSetProjectMetadataAction(clip, xmp.serialize(), Object.keys(changes)));
+        compound.addAction(metadata.createSetProjectMetadataAction(projectItem, xmp.serialize(), Object.keys(changes)));
       }, "Sync Video Analyzer metadata");
     });
     if (committed !== true) fail("METADATA_WRITE_FAILED", "Premiere did not confirm the metadata transaction.");
-    const after = new toolkit.XMPMeta(await metadata.getProjectMetadata(clip));
+    const after = new toolkit.XMPMeta(await metadata.getProjectMetadata(projectItem));
     if (Object.entries(changes).some(([key, value]) => read(after, key) !== value)) fail("METADATA_VERIFY_FAILED", "Premiere did not confirm every metadata field. Inspect project metadata before retrying.");
     await resolveBinding(binding);
     return { updated: Object.keys(changes).length - 2, preserved: preserved.length, complete_record: true };
@@ -445,7 +447,7 @@ function createHost(injectedApi, injectedXmp) {
         if (!a || !b || !Number.isFinite(a.seconds) || !Number.isFinite(b.seconds)) return false;
         const tolerance = 0.5 / (fps || 24) + 0.000001;
         if (Math.abs(a.seconds - frameStart) > tolerance || Math.abs(b.seconds - frameEnd) > tolerance) return false;
-        found = candidate; return true;
+        found = item; return true;
       });
       return found;
     };

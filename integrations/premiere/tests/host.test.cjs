@@ -29,6 +29,7 @@ function fixture() {
     isSequence: async () => false, isOffline: async () => false,
     isMergedClip: async () => false, isMulticamClip: async () => false,
     getMediaFilePath: async () => "C:\\Footage\\camera-a.mp4",
+    getMedia: async () => ({ getStart: async () => ({ seconds: 0 }) }),
     getContentType: async () => "MEDIA",
     getFootageInterpretation: async () => ({ getFrameRate: () => 24 }),
   };
@@ -140,6 +141,23 @@ test('inserts frame-aligned native subclip with audio at playhead without changi
   await f.host.makeSubclip(f.binding, f.range);
   assert.equal(f.items.length, 2, 'Repeated requests reuse the verified subclip');
   assert.equal(f.calls.at(-1)[0], 'open');
+});
+
+test('native source and timeline APIs receive ProjectItem handles, not cast ClipProjectItem wrappers', async () => {
+  const f = editFixture();
+  f.api.ClipProjectItem.cast = item => item.kind === 'clip' ? { ...item, getId: undefined, nativeClipWrapper: true } : null;
+  const open = f.api.SourceMonitor.openProjectItem;
+  f.api.SourceMonitor.openProjectItem = async item => { assert.equal(item.nativeClipWrapper, undefined); return open(item); };
+  const getEditor = f.api.SequenceEditor.getEditor;
+  f.api.SequenceEditor.getEditor = sequence => {
+    const editor = getEditor(sequence), insert = editor.createInsertProjectItemAction;
+    editor.createInsertProjectItemAction = (item, ...args) => { assert.equal(item.nativeClipWrapper, undefined); return insert(item, ...args); };
+    return editor;
+  };
+  assert.equal((await f.host.resolveBinding(f.binding)).projectItem, f.clip);
+  assert.equal((await f.host.openSource(f.binding, 1)).opened, true);
+  assert.equal((await f.host.insertClip(f.binding, f.range)).inserted, true);
+  await f.host.makeSubclip(f.binding, f.range);
 });
 
 test('missing timeline and invalid ranges reject before creating subclips', async () => {
@@ -299,6 +317,24 @@ test("Source open seeks native monitor and verifies item and position", async ()
   assert.equal(result.seconds, 12.75);
   assert.deepEqual(f.calls, [["open", "source-1"], ["seek", 12.75]]);
   assert.equal(f.markers.length, 0);
+});
+
+test('source navigation remains recording-relative when media has embedded camera timecode', async () => {
+  const f = fixture();
+  f.clip.getMedia = async () => ({ getStart: async () => ({ seconds: 49600 }) });
+  assert.equal((await f.host.openSource(f.binding, 12.75)).seconds, 12.75);
+  assert.deepEqual(f.calls, [['open', 'source-1'], ['seek', 12.75]]);
+  assert.equal((await f.host.openSource(f.binding, 0)).seconds, 0);
+  assert.equal(f.calls.at(-1)[1], 0);
+});
+
+test('a false seek response is accepted only when the requested source item and position are already verified', async () => {
+  const f = fixture();
+  f.api.SourceMonitor.setPosition = async () => false;
+  assert.equal((await f.host.openSource(f.binding, 0)).seconds, 0);
+  await assert.rejects(f.host.openSource(f.binding, 1), errorCode('SOURCE_SEEK_FAILED'));
+  f.api.SourceMonitor.getProjectItem = async () => ({ getId: () => 'wrong-source' });
+  await assert.rejects(f.host.openSource(f.binding, 0), errorCode('SOURCE_SEEK_FAILED'));
 });
 
 test("Source action rejects stale project and relinked media before native changes", async t => {
