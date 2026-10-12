@@ -1,6 +1,6 @@
 {
   "name": "video-analyzer-resolve",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Video Analyzer Workflow Integration for DaVinci Resolve Studio 20.1+",
   "main": "main.js",

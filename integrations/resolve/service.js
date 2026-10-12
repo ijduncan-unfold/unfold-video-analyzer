@@ -266,7 +266,7 @@ function createService(dependencies) {
       const summary = await host.exportShots(binding, pack, payload.destination);
       await verifyProject(binding.project_id);
       state.message = summary.created + " clips saved; " + summary.reused + " existing clips reused in Video Analyzer shots." +
-        (summary.added ? " " + summary.added + " added to " + (payload.destination === "new" ? "a new selects timeline." : "the end of the current timeline.") : " Drag them from the Media Pool into your edit.") + " Metadata saved in Keywords, Description, and Comments.";
+        (summary.added ? " " + summary.added + " added to " + (payload.destination === "new" ? "a new selects timeline." : "the end of the current timeline.") : " Drag them from the Media Pool into your edit.") + " Metadata saved in Keywords, Description, Dialog Notes, and Comments.";
       return view();
     },
     async exportSubtitles(payload) { const { asset } = await nativeContext(payload); if (!helpers.cues(asset, [], "transcript", "").length) throw new Error("No timed dialogue to export yet."); const content = await request("/assets/" + encodeURIComponent(asset.job_id) + "/subtitles", {}, true); const result = await saveSubtitle(helpers.subtitleName(asset), content); state.message = result ? "Subtitles exported." : "Export cancelled."; return view(); },

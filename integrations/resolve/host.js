@@ -9,8 +9,38 @@ const NO_MARKER_RESPONSE = "GetMarkerCustomData: Error response (errorStr:No mar
 const SHOT_BIN = "Video Analyzer shots";
 const SHOT_NAMESPACE = "video-analyzer:shot:v1:";
 const RECORD_START = "[Video Analyzer shot]\n", RECORD_END = "\n[/Video Analyzer shot]";
-const NATIVE_SHOT_FIELDS = new Set(["Scene", "Shot", "Take", "Camera #", "Roll/Card", "Production Name", "Director", "DOP", "Shot Type", "Move", "Location"]);
+const NATIVE_SHOT_FIELDS = new Set(["Scene", "Shot", "Take", "Camera #", "Roll Card #", "Production Name", "Director", "DOP", "Shot Type", "Move", "Location", "Dialog Notes"]);
+// GetClipProperty's display alias is not the SetMetadata key. Accept mappings
+// from older companions while always writing the metadata API's canonical key.
+const nativeField = name => name === "Roll/Card" ? "Roll Card #" : name;
 const ANALYSIS_START = "[Video Analyzer analysis]\n", ANALYSIS_END = "\n[/Video Analyzer analysis]";
+const TEXT_START = "[Video Analyzer details]\n", TEXT_END = "\n[/Video Analyzer details]";
+const digest = value => require("node:crypto").createHash("sha256").update(value).digest("hex");
+function analysisFields(record) {
+  const shots = Array.isArray(record.shots) ? record.shots : [];
+  const timed = cue => String(cue.start_time ?? cue.start_seconds ?? cue.start ?? "0") + "–" + String(cue.end_time ?? cue.end_seconds ?? cue.end ?? "");
+  return Object.fromEntries([
+    ["Video Analyzer Clip descriptions", shots.map(shot => timed(shot) + " · Clip " + shot.shot_number + "\n" + (shot.visual_description || "")).join("\n\n")],
+    ["Video Analyzer Dialogue", (record.transcript || []).filter(cue => cue.text).map(cue => timed(cue) + " " + (cue.speaker ? cue.speaker + ": " : "") + cue.text).join("\n")],
+    ["Video Analyzer Detailed analysis", JSON.stringify({ summary: record.summary, analysis: record.analysis,
+      clips: shots.map(shot => ({ ...shot, thumbnail_url: undefined, thumbnail: undefined })) }, null, 2)],
+    ["Video Analyzer Slate readings", shots.filter(shot => shot.slates && shot.slates.length).map(shot => timed(shot) + "\n" + JSON.stringify(shot.slates, null, 2)).join("\n\n")],
+    ["Video Analyzer Source inspection", JSON.stringify(record.technical || {}, null, 2)],
+    ["Video Analyzer Complete analysis JSON", JSON.stringify(record)],
+  ].filter(([, value]) => value && value !== "{}"));
+}
+function readableComments(comments, fields, previousHash) {
+  const start = comments.indexOf(TEXT_START), end = comments.indexOf(TEXT_END, start + TEXT_START.length);
+  if (start >= 0 && end >= 0) {
+    const old = comments.slice(start, end + TEXT_END.length);
+    // A changed text block belongs to the editor. The full updated record still
+    // travels separately, without replacing or duplicating these edited notes.
+    if (digest(old) !== previousHash) return { comments, hash: previousHash, preserved: 1 };
+    comments = (comments.slice(0, start) + comments.slice(end + TEXT_END.length)).trim();
+  }
+  const block = TEXT_START + Object.entries(fields).map(([key, value]) => key.replace(/^Video Analyzer /, "") + "\n" + value).join("\n\n") + TEXT_END;
+  return { comments: (comments ? comments + "\n\n" : "") + block, hash: digest(block), preserved: 0 };
+}
 class HostError extends Error {
   constructor(code, message) { super(message); this.name = "HostError"; this.code = code; }
 }
@@ -129,8 +159,10 @@ function prepareShots(binding, pack, timing) {
     // shot-package contains public shot facts plus explicitly scoped section,
     // asset and dialogue context, never provider credentials or raw API usage.
     const nativeFields = {};
+    const dialogue = analysisFields({ shots: [], transcript: shot.transcript_segments || [] })["Video Analyzer Dialogue"];
+    if (dialogue) nativeFields["Dialog Notes"] = dialogue;
     for (const field of shot.editor_metadata && shot.editor_metadata.fields || []) {
-      if (NATIVE_SHOT_FIELDS.has(field.resolve) && typeof field.value === "string" && field.value) nativeFields[field.resolve] = field.value;
+      if (NATIVE_SHOT_FIELDS.has(nativeField(field.resolve)) && typeof field.value === "string" && field.value) nativeFields[nativeField(field.resolve)] = field.value;
     }
     const record = { key, asset_id: pack.asset_id, analysis_session: pack.analysis_session, source_file: pack.filename,
       source_range: { start_seconds: start, end_seconds: end, start_frame: startFrame, end_frame_inclusive: endFrame, fps: timing.fps }, description, shot };
@@ -140,6 +172,37 @@ function prepareShots(binding, pack, timing) {
   }).sort((a, b) => a.startFrame - b.startFrame || a.endFrame - b.endFrame);
 }
 function createHost(resolve) {
+  async function thirdPartyPlan(item, fields, previous, recordName, previousRecord) {
+    if (typeof item.SetThirdPartyMetadata !== "function") return null;
+    method(item, "GetThirdPartyMetadata");
+    const before = await item.GetThirdPartyMetadata();
+    if (!before || typeof before !== "object" || Array.isArray(before)) fail("METADATA_READ_FAILED", "Resolve could not read additional clip metadata.");
+    const changes = {}, owned = {}; let preserved = 0;
+    for (const name of new Set([...Object.keys(fields), ...Object.keys(previous || {})])) {
+      if (!name.startsWith("Video Analyzer ")) continue;
+      const old = String(before[name] || "");
+      if (old && (!previous || digest(old) !== previous[name])) { preserved++; continue; }
+      changes[name] = fields[name] || ""; owned[name] = digest(changes[name]);
+    }
+    const oldRecord = String(before[recordName] || "");
+    const writeRecord = !oldRecord || oldRecord === previousRecord;
+    if (!writeRecord) preserved++;
+    return { before, changes, owned, preserved, recordName, writeRecord };
+  }
+  async function verifyThirdPartyUnchanged(item, plan) {
+    if (!plan) return;
+    const current = await item.GetThirdPartyMetadata();
+    const keys = Object.keys(plan.changes).concat(plan.writeRecord ? [plan.recordName] : []);
+    if (!current || keys.some(key => current[key] !== plan.before[key])) fail("METADATA_CHANGED", "Additional clip metadata changed during sync. Try again; your edits were preserved.");
+  }
+  async function writeThirdParty(item, plan, record) {
+    if (!plan) return;
+    const changes = { ...plan.changes, ...(plan.writeRecord ? { [plan.recordName]: record } : {}) };
+    if (!Object.keys(changes).length) return;
+    if (await item.SetThirdPartyMetadata(changes) !== true) fail("METADATA_WRITE_FAILED", "Searchable metadata was saved, but Resolve rejected its additional fields. Inspect the clip before retrying.");
+    const after = await item.GetThirdPartyMetadata();
+    if (!after || Object.entries(changes).some(([key, value]) => after[key] !== value)) fail("METADATA_VERIFY_FAILED", "Resolve did not confirm every additional metadata field. Inspect the clip before retrying.");
+  }
   async function readMarkers(item) { return markerMap(await item.GetMarkers()); }
   async function markerAtFrame(item, frame) {
     let customData;
@@ -425,20 +488,26 @@ function createHost(resolve) {
             ownedFields[field] = metadata[field];
           }
         }
-        const json = JSON.stringify({ ...plan.record, native_fields: ownedFields });
-        metadata.Comments = (humanComments ? humanComments + "\n\n" : "") + RECORD_START + json + RECORD_END;
+        const details = analysisFields({ shots: [plan.record.shot], transcript: plan.record.shot.transcript_segments || [], technical: pack.technical });
+        for (const field of plan.record.shot.editor_metadata && plan.record.shot.editor_metadata.fields || []) {
+          if (field && typeof field.value === "string" && field.value && field.label) details["Video Analyzer " + field.label] = field.value;
+        }
+        const readable = readableComments(humanComments, details, receipt && receipt.record.readable_hash);
+        const third = await thirdPartyPlan(item, details, receipt && receipt.record.third_party_fields, "VideoAnalyzer.Shot", receipt && JSON.stringify(receipt.record));
+        const json = JSON.stringify({ ...plan.record, native_fields: ownedFields, readable_hash: readable.hash, third_party_fields: third ? third.owned : {} });
+        metadata.Comments = readable.comments + "\n\n" + RECORD_START + json + RECORD_END;
+        if (metadata.Comments.length > 200000) fail("METADATA_LIMIT", "This shot's complete metadata exceeds the export limit. Export JSON instead; nothing was truncated.");
         if (created) {
           if (typeof item.SetName === "function") { if (await item.SetName(plan.name) !== true) fail("SHOT_NAME_FAILED", "Resolve could not name the saved shot."); }
           else { method(item, "SetClipProperty"); if (await item.SetClipProperty("Clip Name", plan.name) !== true) fail("SHOT_NAME_FAILED", "Resolve could not name the saved shot."); }
         }
+        const currentMetadata = await item.GetMetadata();
+        if (!currentMetadata || Object.keys(metadata).some(key => currentMetadata[key] !== before[key])) fail("METADATA_CHANGED", "Shot metadata changed during export. Your edits were preserved; inspect the saved shot before retrying.");
+        await verifyThirdPartyUnchanged(item, third);
         if (await item.SetMetadata(metadata) !== true) fail("METADATA_WRITE_FAILED", "Resolve could not save searchable shot metadata. The shot remains in the Media Pool; nothing was added to the timeline.");
         const after = await item.GetMetadata();
         if (!after || Object.entries(metadata).some(([key, value]) => after[key] !== value)) fail("METADATA_VERIFY_FAILED", "Resolve did not confirm the shot metadata. Inspect the saved shot before retrying.");
-        // Standard fields provide native text search. This optional newer SDK
-        // field also retains a structured copy for third-party metadata tools.
-        if (typeof item.SetThirdPartyMetadata === "function") {
-          if (await item.SetThirdPartyMetadata({ "VideoAnalyzer.Shot": json }) !== true) fail("METADATA_WRITE_FAILED", "Searchable metadata was saved, but Resolve rejected the structured copy. Nothing was added to the timeline.");
-        }
+        await writeThirdParty(item, third, json);
         items.push(item); existing.set(plan.key, item);
       }
       await checkTarget();
@@ -501,19 +570,23 @@ function createHost(resolve) {
     const before = await item.GetMetadata();
     if (!before || typeof before !== "object" || Array.isArray(before)) fail("METADATA_READ_FAILED", "Resolve could not read clip metadata.");
     const comments = String(before.Comments || ""), start = comments.indexOf(ANALYSIS_START), end = comments.indexOf(ANALYSIS_END, start + ANALYSIS_START.length);
-    let previous = {}, humanComments = comments;
+    let previous = {}, previousText, previousThird = {}, previousRecord, humanComments = comments;
     if (start >= 0 && end >= 0) {
       try {
         const parsed = JSON.parse(comments.slice(start + ANALYSIS_START.length, end));
         if (parsed && parsed.asset_id === mapping.record.asset.id && parsed.schema === "video-analyzer.editor-record") {
-          previous = parsed.native_fields || {}; humanComments = (comments.slice(0, start) + comments.slice(end + ANALYSIS_END.length)).trim();
+          previous = parsed.native_fields || {}; previousText = parsed.readable_hash; previousThird = parsed.third_party_fields || {};
+          previousRecord = comments.slice(start + ANALYSIS_START.length, end);
+          humanComments = (comments.slice(0, start) + comments.slice(end + ANALYSIS_END.length)).trim();
         }
       } catch (_) { /* preserve unrecognized existing notes */ }
     }
+    const details = analysisFields(mapping.record);
     const proposed = {}, changes = {}, owned = {}; let preserved = 0;
+    if (details["Video Analyzer Dialogue"]) proposed["Dialog Notes"] = details["Video Analyzer Dialogue"];
     for (const field of mapping.fields) {
       if (!field || typeof field.value !== "string") continue;
-      if (field.resolve === "Description" || NATIVE_SHOT_FIELDS.has(field.resolve)) proposed[field.resolve] = field.value;
+      if (field.resolve === "Description" || NATIVE_SHOT_FIELDS.has(nativeField(field.resolve))) proposed[nativeField(field.resolve)] = field.value;
       if (field.resolve === "Keywords") changes.Keywords = [...new Set(String(before.Keywords || "").split(",").concat(field.value.split(",")).map(value => value.trim()).filter(Boolean))].join(", ");
     }
     for (const field of new Set([...Object.keys(proposed), ...Object.keys(previous)])) {
@@ -521,18 +594,26 @@ function createHost(resolve) {
       if (before[field] && (previous[field] === undefined || before[field] !== previous[field])) { preserved++; continue; }
       changes[field] = proposed[field] || ""; owned[field] = changes[field];
     }
-    const record = JSON.stringify({ schema: "video-analyzer.editor-record", asset_id: mapping.record.asset.id, native_fields: owned, record: mapping.record });
-    changes.Comments = (humanComments ? humanComments + "\n\n" : "") + ANALYSIS_START + record + ANALYSIS_END;
+    // Promote human notes too; all remaining mapped facts retain their labels.
+    for (const field of mapping.fields) if (field && typeof field.value === "string" && field.value && field.label) details["Video Analyzer " + field.label] = field.value;
+    const readable = readableComments(humanComments, details, previousText);
+    preserved += readable.preserved;
+    const third = await thirdPartyPlan(item, details, previousThird, "VideoAnalyzer.Analysis", previousRecord);
+    if (third) preserved += third.preserved;
+    const record = JSON.stringify({ schema: "video-analyzer.editor-record", asset_id: mapping.record.asset.id, native_fields: owned,
+      readable_hash: readable.hash, third_party_fields: third ? third.owned : {}, record: mapping.record });
+    changes.Comments = readable.comments + "\n\n" + ANALYSIS_START + record + ANALYSIS_END;
     if (changes.Comments.length > 4000000) fail("METADATA_LIMIT", "This analysis exceeds the panel's 4 MB metadata limit. Export JSON and XMP instead; nothing was truncated.");
     await resolveBinding(binding);
     const current = await item.GetMetadata();
     if (!current || Object.entries(changes).some(([key]) => current[key] !== before[key])) fail("METADATA_CHANGED", "Clip metadata changed during sync. Try again; your edits were preserved.");
+    await verifyThirdPartyUnchanged(item, third);
     if (await item.SetMetadata(changes) !== true) fail("METADATA_WRITE_FAILED", "Resolve did not confirm the clip metadata write. Inspect the clip before retrying.");
     const after = await item.GetMetadata();
     if (!after || Object.entries(changes).some(([key, value]) => after[key] !== value)) fail("METADATA_VERIFY_FAILED", "Resolve did not confirm every metadata field. Inspect the clip before retrying.");
-    if (typeof item.SetThirdPartyMetadata === "function" && await item.SetThirdPartyMetadata({ "VideoAnalyzer.Analysis": record }) !== true) fail("METADATA_WRITE_FAILED", "Searchable metadata was saved, but Resolve rejected its structured copy. Inspect the clip before retrying.");
+    await writeThirdParty(item, third, record);
     await resolveBinding(binding);
-    return { updated: Object.keys(changes).length - 1, preserved, complete_record: true };
+    return { updated: Object.keys(changes).length + (third ? Object.keys(third.changes).length + Number(third.writeRecord) : 0), preserved, complete_record: true };
   }
   async function addMarkers(binding, technical, cues) {
     const { item, descriptor } = await resolveBinding(binding);

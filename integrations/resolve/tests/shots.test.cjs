@@ -15,12 +15,13 @@ function fixture(options = {}) {
   const root = { GetUniqueId: async () => "root", GetClipList: async () => [original], GetSubFolderList: async () => [bin] };
   folder = root;
   function clip(info) {
-    let metadata = { Comments: "Human note", Keywords: "human" }, name = "Imported";
+    let metadata = { Comments: "Human note", Keywords: "human" }, third = {}, name = "Imported";
     const properties = { "File Path": info.media, Start: info.startFrame, End: info.endFrame, Frames: info.endFrame - info.startFrame + 1, FPS: 24, ...options.subclipProperties };
     const id = options.sameId ? "original" : "shot-" + saved.length;
     return { GetUniqueId: async () => id, GetClipProperty: async () => ({ ...properties }),
       GetMetadata: async () => ({ ...metadata }), SetMetadata: async value => { events.push(["metadata", value]); if (options.metadataFailure) return false; if (!options.falseMetadataSuccess) metadata = { ...metadata, ...value }; return true; },
-      SetThirdPartyMetadata: async value => { events.push(["structured", value]); return true; },
+      GetThirdPartyMetadata: async () => ({ ...third }),
+      SetThirdPartyMetadata: async value => { events.push(["structured", value]); if (!options.falseThirdSuccess) third = { ...third, ...value }; return true; },
       SetName: async value => { name = value; events.push(["name", name]); return true; }, GetName: async () => name,
       edit(value) { metadata = { ...metadata, ...value }; }, properties };
   }
@@ -43,6 +44,20 @@ test("subclip intervals convert exclusive seconds to inclusive frame ends", () =
   const result = prepareShots(binding, pack, { fps: 24, frames: 240 });
   assert.deepEqual(result.map(x => [x.startFrame, x.endFrame]), [[24, 47], [72, 95]]);
   assert.ok(result[0].keywords.includes("red")); assert.match(result[0].json, /Soft light/); assert.match(result[0].json, /Hello/);
+});
+
+test("subclips retain readable timed dialogue and verify additional metadata before timeline edits", async () => {
+  const m = fixture(), scoped = structuredClone(pack);
+  scoped.shots[0].transcript_segments = [{ start_seconds: 1.2, end_seconds: 1.8, speaker: 'Actor', text: 'Hello' }];
+  await m.host.exportShots(binding, scoped, 'current');
+  const third = await m.saved[0].GetThirdPartyMetadata();
+  assert.equal(third['Video Analyzer Dialogue'], '1.2–1.8 Actor: Hello');
+  assert.equal((await m.saved[0].GetMetadata())['Dialog Notes'], '1.2–1.8 Actor: Hello');
+  assert.match((await m.saved[0].GetMetadata()).Comments, /Dialogue\n1.2–1.8 Actor: Hello/);
+  assert.equal(JSON.parse(third['Video Analyzer Complete analysis JSON']).shots.length, 1);
+  const failing = fixture({ falseThirdSuccess: true });
+  await assert.rejects(failing.host.exportShots(binding, scoped, 'current'), { code: 'METADATA_VERIFY_FAILED' });
+  assert.equal(failing.appended.length, 0);
 });
 test("invalid, duplicate, out-of-bounds and subframe shot ranges fail before native writes", async t => {
   for (const shots of [[], [pack.shots[0], pack.shots[0]], [{ ...pack.shots[0], end_seconds: 20 }], [{ ...pack.shots[0], end_seconds: 1.001 }]]) {
@@ -84,7 +99,7 @@ test("native shot fields map slate values, retain editor revisions and clear onl
   ] } }] };
   await m.host.exportShots(binding, enriched);
   const before = await m.saved[0].GetMetadata();
-  assert.equal(before.Scene, '012B'); assert.equal(before.Take, '03'); assert.equal(before['Roll/Card'], 'A001'); assert.equal(before.FPS, undefined);
+  assert.equal(before.Scene, '012B'); assert.equal(before.Take, '03'); assert.equal(before['Roll Card #'], 'A001'); assert.equal(before['Roll/Card'], undefined); assert.equal(before.FPS, undefined);
   m.saved[0].edit({ Scene: 'Editor scene' });
   await m.host.exportShots(binding, enriched); assert.equal((await m.saved[0].GetMetadata()).Scene, 'Editor scene');
   await m.host.exportShots(binding, { ...pack, shots: [pack.shots[0]] });

@@ -3,7 +3,7 @@
   <Plugin>
     <Id>com.ijduncan.videoanalyzer</Id>
     <Name>Video Analyzer</Name>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Description>Load Media Pool or timeline footage, search analyzed clips and dialogue, and add clips to an edit.</Description>
     <FilePath>main.js</FilePath>
   </Plugin>

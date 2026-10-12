@@ -13,7 +13,7 @@ FIELDS = (
     ('scene', 'Scene', 'Scene', 'xmpDM:scene', 'Column.PropertyText.Scene'),
     ('shot', 'Slate shot', 'Shot', 'xmpDM:shotNumber', 'Column.PropertyText.Shot'),
     ('take', 'Take', 'Take', 'xmpDM:takeNumber', 'VideoAnalyzerTake'),
-    ('camera_roll', 'Camera roll', 'Roll/Card', 'xmpDM:tapeName', 'Column.Intrinsic.TapeName'),
+    ('camera_roll', 'Camera roll', 'Roll Card #', 'xmpDM:tapeName', 'Column.Intrinsic.TapeName'),
     ('camera', 'Camera', 'Camera #', 'xmpDM:cameraLabel', 'VideoAnalyzerCamera'),
     ('production_title', 'Production', 'Production Name', 'xmpDM:projectName', 'VideoAnalyzerProduction'),
     ('director', 'Director', 'Director', 'xmpDM:director', 'VideoAnalyzerDirector'),
@@ -23,7 +23,7 @@ FIELDS = (
     ('location', 'Location', 'Location', 'xmpDM:shotLocation', 'VideoAnalyzerLocation'),
     ('colors', 'Colors', None, 'va:colors', 'VideoAnalyzerColors'),
     ('subjects', 'Subjects', None, 'va:subjects', 'VideoAnalyzerSubjects'),
-    ('transcript', 'Dialogue', None, 'va:transcript', 'VideoAnalyzerDialogue'),
+    ('transcript', 'Dialogue', 'Dialog Notes', 'va:transcript', 'VideoAnalyzerDialogue'),
 )
 
 

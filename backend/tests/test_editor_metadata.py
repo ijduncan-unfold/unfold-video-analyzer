@@ -29,7 +29,8 @@ def test_mapping_carries_slate_provenance_distinct_from_section_and_full_dialogu
     mapping = editor_metadata(job, include_record=True)
     fields = {item['key']: item for item in mapping['fields']}
     assert fields['scene']['value'] == '012B' and fields['scene']['origin'] == 'Slate reading · unreviewed'
-    assert fields['camera_roll']['resolve'] == 'Roll/Card'
+    assert fields['camera_roll']['resolve'] == 'Roll Card #'
+    assert fields['transcript']['resolve'] == 'Dialog Notes'
     assert fields['cinematographer']['xmp'] == 'xmpDM:directorPhotography'
     assert fields['production_title']['xmp'] == 'xmpDM:projectName'
     assert 'Blue' in fields['keywords']['xmp_value']
