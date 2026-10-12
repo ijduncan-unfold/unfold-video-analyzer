@@ -123,8 +123,15 @@ export interface CutMoment {
   visual: string
   kind: 'usable' | 'false_start' | 'repeated_take' | 'off_topic'
   reason: string
+  original_moment_id?: string
+  part_index?: number
+  part_count?: number
+  text_is_context?: boolean
 }
 export interface RoughCutDraft {
+  remove_fillers?: boolean
+  filler_spans?: { start_seconds: number; end_seconds: number; start_time: string; end_time: string; text: string }[]
+  filler_removal?: { removed_count: number; removed_seconds: number; checked_windows: number; skipped_count: number }
   proxy_mode?: ProxyMode
   proxy_used?: boolean
   proxy_reason?: string
@@ -149,12 +156,12 @@ export interface CutClipEdit { moment_id: string; start_seconds: number; end_sec
 export function getRoughCut(id: string, signal?: AbortSignal) {
   return request<RoughCutDraft | null>(`/api/library/${encodeURIComponent(id)}/rough-cut`, { signal })
 }
-export function generateRoughCut(id: string, mode: RoughCutDraft['mode'], targetSeconds: number, brief: string, proxyMode: ProxyMode = 'auto') {
+export function generateRoughCut(id: string, mode: RoughCutDraft['mode'], targetSeconds: number, brief: string, proxyMode: ProxyMode = 'auto', removeFillers = false) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const apiKey = getApiKey()
   if (apiKey) headers['X-API-Key'] = apiKey
   return request<RoughCutDraft>(`/api/library/${encodeURIComponent(id)}/rough-cut`, {
-    method: 'POST', headers, body: JSON.stringify({ mode, target_seconds: targetSeconds, brief, proxy_mode: proxyMode }),
+    method: 'POST', headers, body: JSON.stringify({ mode, target_seconds: targetSeconds, brief, proxy_mode: proxyMode, remove_fillers: removeFillers }),
   })
 }
 export function saveRoughCut(id: string, revision: string, clips: CutClipEdit[]) {

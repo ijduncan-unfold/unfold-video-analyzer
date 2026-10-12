@@ -6,8 +6,10 @@ The Rough cut workspace builds a saved, reviewable edit of one local recording. 
 
 1. Open a recording and choose **Rough cut**.
 2. Choose **Clean up the take**, or **Make it shorter** with a target in minutes. Add priorities in the editing brief, such as retaining the demonstration, keeping natural pauses, or removing repeated explanations.
+   Optionally enable **Remove filler words** for an additional closer audio pass. It is off by default and saved with the draft; enable it before generating again to clean an older draft.
 3. Generate. The app saves speech excerpts as each two-minute source window finishes. Shorter utterances carry approximate times, verbatim intelligible dialogue, visual notes, a take classification, and an editorial reason.
 4. Gemini selects complete thoughts in chronological source order, preferring clear delivery and useful visuals while preserving meaning. Large inputs use bounded batches, with cross-batch reconciliation when the selected evidence fits one context; otherwise a continuity warning remains.
+   With filler removal enabled, selected speech is revisited in twenty-second audio windows with boundary context. Only nonlexical hesitations are eligible; meaningful words, acknowledgements and stuttering are retained. Observed intervals are restored to original source time, merged across overlapping windows, and snapped inward to source frames. Selected excerpts are split around those gaps, preserving audio/video source references. Split rows explicitly label their text as original excerpt context rather than pretending to have exact per-fragment transcripts. The proposed filler audio can be auditioned, and restoring an original excerpt replaces its cleaned parts in place.
 5. Search dialogue or visual/edit notes, preview the sequence, adjust boundaries, reorder or remove excerpts, and restore omitted takes. Preview seeks through the original, so joins can pause during seeking. Save changes to persist the review.
 6. Export FCPXML for an editable timeline or JSON for the draft. The timeline retains audio, uses original source ranges, and references the original filename. Place the recording beside the XML or relink it in Resolve/Final Cut Pro. Export follows the reviewed sequence order, even when it differs from source order.
 
@@ -24,9 +26,9 @@ The draft, speech evidence, sequence order, trims, and editorial reasons live in
 - Timings are AI estimates, not word alignment or verified edit boundaries. Review the beginnings/endings of words and thoughts.
 - Selection is an editorial proposal, not guaranteed preservation of every relevant point. Check qualifications, context, and continuity before publishing.
 - Condense targets are approximate; excess duration is flagged instead of cutting arbitrarily through a sentence.
-- Silent B-roll is not independently selected by this speech-focused pass. Multicam switching, word-level filler deletion, retimed captions, and rendering a new MP4 remain future work.
+- Silent B-roll is not independently selected by this speech-focused pass. Filler removal estimates audible intervals and may miss or misidentify hesitations; it is not forced word alignment. Multicam switching, retimed captions, and rendering a new MP4 remain future work.
 - Analysis uses the recording's first audio stream. Additional separate microphone/audio streams are not mixed by this prototype; use a recording with the dialogue in that stream.
-- Source timing/orientation must satisfy the existing FCPXML exporter. JSON remains available for unsupported source timing. The generated rough-cut XML was structurally tested and downloaded through the browser; native editor import of this particular draft is still pending.
+- Source timing/orientation must satisfy the existing FCPXML exporter. JSON remains available for unsupported source timing. The user confirmed an ordinary rough-cut XML imports into Resolve. The added filler-split XML is structurally tested for frame ranges, contiguous record offsets, and retained audio; that does not establish speech-detection quality on a recording.
 - Additional Gemini API charges apply. Cost estimates use reported usage and configured model pricing, with the same uncertainty as other analysis costs.
 
 ## Verification, October 10, 2026

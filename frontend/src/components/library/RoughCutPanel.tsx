@@ -17,6 +17,7 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
   const [mode, setMode] = useState<RoughCutDraft['mode']>(asset.rough_cut?.mode || 'cleanup')
   const [minutes, setMinutes] = useState(Math.min(10, Math.max(0.5, (asset.technical.duration_seconds || 1200) / 120)))
   const [brief, setBrief] = useState(asset.rough_cut?.brief || '')
+  const [removeFillers, setRemoveFillers] = useState(asset.rough_cut?.remove_fillers || false)
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [working, setWorking] = useState(false)
@@ -34,6 +35,10 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
   const sourceBusy = ['queued', 'analyzing', 'processing', 'deleting'].includes(asset.status)
   const moments = useMemo(() => new Map((draft?.moments || []).map(moment => [moment.moment_id, moment])), [draft?.moments])
   const selected = useMemo(() => new Set(edits.map(clip => clip.moment_id)), [edits])
+  const cleanedParents = useMemo(() => new Set(edits.flatMap(clip => {
+    const parent = moments.get(clip.moment_id)?.original_moment_id
+    return parent ? [parent] : []
+  })), [edits, moments])
   const total = Math.round(edits.reduce((sum, clip) => sum + clip.end_seconds - clip.start_seconds, 0) * 1000) / 1000
   const valid = edits.length > 0 && edits.every(c => Number.isFinite(c.start_seconds) && Number.isFinite(c.end_seconds) && c.end_seconds > c.start_seconds)
   const shown = edits.map((clip, index) => ({ clip, index, moment: moments.get(clip.moment_id) })).filter(({ moment }) => !query || `${moment?.text} ${moment?.visual} ${moment?.reason}`.toLowerCase().includes(query.toLowerCase()))
@@ -100,7 +105,7 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
     if (!configured) { onConfigure(); return }
     mutationRef.current++; stop(); setWorking(true); setError('')
     try {
-      const value = await generateRoughCut(asset.job_id, mode, Math.round(minutes * 60), brief, proxyMode)
+      const value = await generateRoughCut(asset.job_id, mode, Math.round(minutes * 60), brief, proxyMode, removeFillers)
       setDraft(value); setEdits([]); setPage(0); onRefresh()
     } catch (cause) { setError(errorMessage(cause)) } finally { setWorking(false) }
   }
@@ -133,7 +138,17 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
     } catch (cause) { setError(errorMessage(cause)) }
     finally { if (url) setTimeout(() => URL.revokeObjectURL(url!), 1000); setWorking(false) }
   }
-  function add(moment: CutMoment) { stop(); setEdits(previous => [...previous, { moment_id: moment.moment_id, start_seconds: moment.start_seconds, end_seconds: moment.end_seconds }]) }
+  function add(moment: CutMoment) {
+    stop()
+    setEdits(previous => {
+      const replacement = { moment_id: moment.moment_id, start_seconds: moment.start_seconds, end_seconds: moment.end_seconds }
+      const firstPart = previous.findIndex(clip => moments.get(clip.moment_id)?.original_moment_id === moment.moment_id)
+      if (firstPart < 0) return [...previous, replacement]
+      const next = previous.filter(clip => moments.get(clip.moment_id)?.original_moment_id !== moment.moment_id)
+      next.splice(firstPart, 0, replacement)
+      return next
+    })
+  }
 
   return <section className="rc-panel" aria-label="Podcast and talking-head rough cut">
     <div className="rc-heading"><div><h2>Rough cut</h2><p>Find the clearest take. Keep the dialogue and on-screen moments that matter.</p></div>
@@ -144,6 +159,7 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
       {mode === 'condense' && <label className="lw-field">Target minutes<input type="number" min="0.5" max="120" step="0.5" value={minutes} disabled={running || working} onChange={event => setMinutes(event.target.valueAsNumber)} /></label>}
       <label className="lw-field rc-brief">Editing brief<textarea rows={2} maxLength={3000} value={brief} disabled={running || working} onChange={event => setBrief(event.target.value)} placeholder="Keep the product demonstration. Remove repeated explanations. Preserve the speaker’s tone." /></label>
     </div>
+    <label className="rc-filler-option"><input type="checkbox" checked={removeFillers} disabled={running || working} onChange={event => setRemoveFillers(event.target.checked)} /><span><strong>Remove filler words</strong><small>Extra listening pass for um, uh, er and similar hesitations. Adds API usage and may create more cuts; review the joins.</small></span></label>
     {!asset.preview_url && <p>Import a local recording to build a rough cut.</p>}
     {asset.technical.has_audio === false && <p>This video has no audio track.</p>}
     <p className="lw-model-note">Gemini listens to the recording and checks the picture. Additional API charges apply.</p>
@@ -155,6 +171,7 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
       <div className="rc-actions"><button className="lw-button" disabled={!valid || running || !asset.preview_url} onClick={() => playing ? stop() : preview(edits)}>{playing ? 'Stop preview' : 'Play rough cut'}</button><strong>{duration(total)} / {duration(draft?.source_seconds || asset.technical.duration_seconds)} source</strong></div>
       <p className="lw-model-note">Preview skips between source excerpts. AI timing is approximate; review the joins.</p>
       {draft?.rationale && <details className="lw-details"><summary>Why these excerpts?</summary><p>{draft.rationale}</p></details>}
+      {draft?.filler_removal && <details className="lw-details"><summary>{draft.filler_removal.removed_count ? `Removed ${draft.filler_removal.removed_count} filler sections · ${draft.filler_removal.removed_seconds.toFixed(2)}s` : 'Filler check: no clear removals found'}</summary><p className="lw-model-note">Listen to the detected filler audio and review the joins. Restore an original excerpt below to undo its filler cuts; manual edits may restore these detections.</p><div className="rc-filler-review">{draft.filler_spans?.map((span, index) => <button key={`${span.start_time}-${index}`} className="lw-text-button" disabled={!asset.preview_url} onClick={() => preview([{ moment_id: `removed:${index}`, start_seconds: span.start_seconds, end_seconds: span.end_seconds }])}>{span.start_time}–{span.end_time} · {span.text}</button>)}</div></details>}
       {draft?.warnings.map(warning => <p className="lw-model-note" key={warning}>{warning}</p>)}
       {draft?.cost_estimate?.estimated_cost_usd != null && <p className="lw-model-note">Estimated API cost for this draft: ${draft.cost_estimate.estimated_cost_usd.toFixed(4)} USD</p>}
       {draft?.status === 'ready' && <div className="rc-actions"><button className="lw-button lw-button-primary" disabled={!dirty || !valid || working} onClick={save}>{dirty ? 'Save changes' : 'Saved'}</button><button className="lw-button" disabled={dirty || working || !valid} onClick={() => download('fcpxml')}>Export timeline XML</button><button className="lw-text-button" disabled={dirty || working || !valid} onClick={() => download('json')}>JSON</button></div>}
@@ -164,7 +181,7 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
       <label className="lw-field">Search excerpts<input type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} placeholder="Search dialogue, gestures or edit notes" /></label>
       {rows.length > 0 && <ol className="rc-list">{rows.map(({ clip, index, moment }) => <li key={clip.moment_id}>
         <div className="rc-row-heading"><button className="lw-text-button" onClick={() => preview([clip])} disabled={!asset.preview_url}>Play excerpt {index + 1}</button><div><button className="lw-button" aria-label={`Move excerpt ${index + 1} earlier`} disabled={index === 0 || working} onClick={() => move(index, -1)}>↑</button><button className="lw-button" aria-label={`Move excerpt ${index + 1} later`} disabled={index === edits.length - 1 || working} onClick={() => move(index, 1)}>↓</button><button className="lw-text-button" disabled={working} onClick={() => { stop(); setEdits(previous => previous.filter((_, i) => i !== index)) }}>Remove</button></div></div>
-        <p><SearchHighlight text={moment?.text || ''} query={query} /></p>
+        {moment?.text_is_context && <small>Original excerpt context · part {moment.part_index}/{moment.part_count}</small>}<p><SearchHighlight text={moment?.text || ''} query={query} /></p>
         {moment?.visual && <p className="lw-model-note"><SearchHighlight text={moment.visual} query={query} /></p>}
         {moment?.reason && <small><SearchHighlight text={moment.reason} query={query} /></small>}
         <div className="rc-trims"><label>In (seconds)<input type="number" step="0.01" min={moment?.window_start} max={clip.end_seconds} value={Number.isFinite(clip.start_seconds) ? clip.start_seconds : ''} disabled={working} onChange={event => trim(index, 'start_seconds', event.target.valueAsNumber)} /></label><label>Out (seconds)<input type="number" step="0.01" min={clip.start_seconds} max={moment?.window_end} value={Number.isFinite(clip.end_seconds) ? clip.end_seconds : ''} disabled={working} onChange={event => trim(index, 'end_seconds', event.target.valueAsNumber)} /></label></div>
@@ -172,7 +189,7 @@ export function RoughCutPanel({ asset, active, onRefresh, onConfigure, configure
       {shown.length > 30 && <div className="rc-actions"><button className="lw-button" disabled={displayPage === 0} onClick={() => setPage(displayPage - 1)}>Previous</button><span>{displayPage + 1}/{Math.ceil(shown.length / 30)}</span><button className="lw-button" disabled={(displayPage + 1) * 30 >= shown.length} onClick={() => setPage(displayPage + 1)}>Next</button></div>}
       {!edits.length && !running && <p>Generate a cut to review the selected excerpts here.</p>}
       {!!draft?.moments.length && <details className="lw-details"><summary>{running ? 'Speech found so far' : 'Other takes and omitted excerpts'}</summary>
-        <div className="rc-omitted">{draft.moments.filter(moment => !selected.has(moment.moment_id) && (!query || `${moment.text} ${moment.visual}`.toLowerCase().includes(query.toLowerCase()))).map(moment => <article key={moment.moment_id}><button className="lw-text-button" onClick={() => preview([moment])}>{duration(moment.start_seconds)} · {moment.kind.replaceAll('_', ' ')}</button><p><SearchHighlight text={moment.text} query={query} /></p>{moment.reason && <small>{moment.reason}</small>}{draft.status === 'ready' && <button className="lw-button" disabled={working} onClick={() => add(moment)}>Add to cut</button>}</article>)}</div>
+        <div className="rc-omitted">{draft.moments.filter(moment => !selected.has(moment.moment_id) && (!query || `${moment.text} ${moment.visual}`.toLowerCase().includes(query.toLowerCase()))).map(moment => <article key={moment.moment_id}><button className="lw-text-button" onClick={() => preview([moment])}>{duration(moment.start_seconds)} · {moment.kind.replaceAll('_', ' ')}</button><p><SearchHighlight text={moment.text} query={query} /></p>{moment.reason && <small>{moment.reason}</small>}{draft.status === 'ready' && <button className="lw-button" disabled={working} onClick={() => add(moment)}>{cleanedParents.has(moment.moment_id) ? 'Restore original excerpt' : 'Add to cut'}</button>}</article>)}</div>
       </details>}
     </div></div>
   </section>

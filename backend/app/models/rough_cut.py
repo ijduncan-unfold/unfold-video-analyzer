@@ -8,6 +8,7 @@ class RoughCutRequest(BaseModel):
     target_seconds: int = Field(default=600, ge=30, le=7200)
     brief: str = Field(default='', max_length=3000)
     proxy_mode: Literal['auto', 'always', 'off'] = 'auto'
+    remove_fillers: bool = False
 
 
 class SpeechMoment(BaseModel):
@@ -26,6 +27,16 @@ class SpeechMoments(BaseModel):
 class CutSelection(BaseModel):
     moment_ids: list[str] = Field(max_length=2000)
     rationale: str = Field(default='', max_length=3000)
+
+
+class FillerSpan(BaseModel):
+    start_time: str
+    end_time: str
+    text: str = Field(min_length=1, max_length=80)
+
+
+class FillerSpans(BaseModel):
+    fillers: list[FillerSpan] = Field(max_length=150)
 
 
 class CutClipEdit(BaseModel):

@@ -40,12 +40,13 @@ Open a local recording's **Rough cut** tab to generate an editable sequence with
 
 - **Clean up the take** preserves the substance while choosing clearer takes and removing false starts, genuinely redundant explanations, and production chatter.
 - **Make it shorter** adds a target duration and an editing brief. Gemini considers dialogue alongside visible demonstrations, gestures, reactions, and distractions.
+- **Remove filler words** is optional and off by default. It adds a closer audio pass over selected speech in twenty-second windows, removing detected nonlexical um/uh/er-style hesitations inside useful sentences. Proposed removals can be auditioned; original excerpts remain available to restore. Extra calls contribute to the displayed API cost. Existing drafts need **Generate again** with the checkbox enabled.
 - Read/search the speech excerpts and edit notes, preview the proposed sequence, adjust in/out points, remove or restore excerpts, and reorder them. Save the review before exporting.
 - Download **timeline FCPXML** for Resolve or Final Cut Pro, or **JSON** for the edit list. The sequence references the original recording and retains audio; it does not render a new MP4. Relink the original in the editor.
 
 This is a separate, explicitly requested Gemini pass; previous shot analysis is not required. Two-minute speech windows arrive progressively. The Proxy control applies to rough cuts as well as shot analysis: Auto chooses based on the source, Always uses ten-minute temporary uploads, and Off uploads the original. The draft, speech evidence, selection reasons, and usage-based API cost persist in the library. Cancellation/restart retain discovered speech; retry starts a new draft. It never changes the original recording or overwrites the existing shot/transcript analysis.
 
-AI sentence timing and editorial choices need review. The target length is approximate, and a faithful complete thought may take longer. This is not word-aligned filler removal, automatic multicamera switching, or a polished final edit. Timeline imports remain subject to the supported frame-rate/orientation rules below. [Implementation and test details](docs/PODCAST_ROUGH_CUT.md).
+AI sentence and filler timing need review. Filler cuts use approximate audible boundaries snapped inward to source frames; they are not forced word alignment and may miss some fillers. The target length is approximate, and a faithful complete thought may take longer. Automatic multicamera switching and polished final edits are not provided. Timeline imports remain subject to the supported frame-rate/orientation rules below. [Implementation and test details](docs/PODCAST_ROUGH_CUT.md).
 
 ![Rough cut workspace using an isolated synthetic-speech recording with a plain blue picture.](docs/screenshots/podcast-rough-cut.png)
 

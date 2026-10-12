@@ -34,7 +34,9 @@ async def create_cut(job_id: str, body: RoughCutRequest, api_key: str | None = D
         raise HTTPException(400, 'Connect Gemini in Settings to generate a rough cut')
     try:
         draft = rough_cut.new_draft(job, body)
-    except (OSError, ValueError):
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except OSError:
         raise HTTPException(400, 'Rough cuts require an available local video with audio and a measured duration')
     if not claim_rough_cut(job_id, draft):
         raise HTTPException(409, 'This video is busy. Finish or cancel its current analysis first.')
