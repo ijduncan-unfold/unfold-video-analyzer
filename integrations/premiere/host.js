@@ -58,8 +58,30 @@ function markerKey(name, start, duration, comments) {
 }
 
 const PROJECT_META_NS = "http://ns.adobe.com/premierePrivateProjectMetaData/1.0/";
+const DM_NS = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
+const DC_NS = "http://purl.org/dc/elements/1.1/";
+const XMP_FIELDS = {
+  description: [DC_NS, "description", "alt"], keywords: [DC_NS, "subject", "bag"],
+  notes: [DM_NS, "logComment"], scene: [DM_NS, "scene"], shot: [DM_NS, "shotNumber"],
+  take: [DM_NS, "takeNumber", "integer"], camera_roll: [DM_NS, "tapeName"], camera: [DM_NS, "cameraLabel"],
+  production_title: [DM_NS, "projectName"], director: [DM_NS, "director"], cinematographer: [DM_NS, "directorPhotography"],
+  shot_type: [DM_NS, "shotSize"], camera_movement: [DM_NS, "cameraMove"], location: [DM_NS, "shotLocation"],
+};
 const METADATA_COLUMNS = new Set(["Column.PropertyText.Description", "Column.Intrinsic.LogNote", "Column.PropertyText.Scene", "Column.PropertyText.Shot", "Column.Intrinsic.TapeName",
-  "VideoAnalyzerKeywords", "VideoAnalyzerTake", "VideoAnalyzerCamera", "VideoAnalyzerProduction", "VideoAnalyzerDirector", "VideoAnalyzerCinematographer", "VideoAnalyzerShotType", "VideoAnalyzerCameraMovement", "VideoAnalyzerLocation", "VideoAnalyzerColors", "VideoAnalyzerSubjects", "VideoAnalyzerDialogue"]);
+  "VideoAnalyzerKeywords", "VideoAnalyzerTake", "VideoAnalyzerCamera", "VideoAnalyzerProduction", "VideoAnalyzerDirector", "VideoAnalyzerCinematographer", "VideoAnalyzerShotType", "VideoAnalyzerCameraMovement", "VideoAnalyzerLocation", "VideoAnalyzerColors", "VideoAnalyzerSubjects", "VideoAnalyzerDialogue",
+  "VideoAnalyzerClipDescriptions", "VideoAnalyzerDetails", "VideoAnalyzerSlates", "VideoAnalyzerTechnical"]);
+
+function analysisFields(record) {
+  const shots = Array.isArray(record.shots) ? record.shots : [];
+  const timed = shot => String(shot.start_time || shot.start_seconds || "0") + "–" + String(shot.end_time || shot.end_seconds || "");
+  return [
+    ["VideoAnalyzerClipDescriptions", "Clip descriptions", shots.map(shot => timed(shot) + " · Clip " + shot.shot_number + "\n" + (shot.visual_description || "")).join("\n\n")],
+    ["VideoAnalyzerDetails", "Detailed analysis", JSON.stringify({ summary: record.summary, analysis: record.analysis,
+      clips: shots.map(shot => ({ ...shot, thumbnail_url: undefined, thumbnail: undefined })) }, null, 2)],
+    ["VideoAnalyzerSlates", "Slate readings", shots.filter(shot => shot.slates && shot.slates.length).map(shot => timed(shot) + "\n" + JSON.stringify(shot.slates, null, 2)).join("\n\n")],
+    ["VideoAnalyzerTechnical", "Source inspection", JSON.stringify(record.technical || {}, null, 2)],
+  ].filter(([, , value]) => value && value !== "{}").map(([premiere, label, value]) => ({ premiere, label, value }));
+}
 function createHost(injectedApi, injectedXmp) {
   let api = injectedApi;
   function getApi() {
@@ -324,7 +346,7 @@ function createHost(injectedApi, injectedXmp) {
   async function syncMetadata(binding, mapping) {
     const { project, projectItem } = await resolveBinding(binding);
     const ppro = getApi(), metadata = ppro.Metadata;
-    for (const name of ["getProjectMetadata", "createSetProjectMetadataAction", "addPropertyToProjectMetadataSchema"]) requiredMethod(metadata, name);
+    for (const name of ["getProjectMetadata", "createSetProjectMetadataAction", "addPropertyToProjectMetadataSchema", "getXMPMetadata", "createSetXMPMetadataAction"]) requiredMethod(metadata, name);
     requiredMethod(project, "lockedAccess"); requiredMethod(project, "executeTransaction");
     let toolkit = injectedXmp;
     if (!toolkit) { try { toolkit = require("uxp").xmp; } catch (_) { /* capability error below */ } }
@@ -336,12 +358,60 @@ function createHost(injectedApi, injectedXmp) {
     const packet = await metadata.getProjectMetadata(projectItem);
     if (typeof packet !== "string") fail("METADATA_READ_FAILED", "Premiere could not read this clip's project metadata.");
     const xmp = new toolkit.XMPMeta(packet);
+    const filePacket = await metadata.getXMPMetadata(projectItem);
+    if (typeof filePacket !== "string") fail("METADATA_READ_FAILED", "Premiere could not read this clip's XMP metadata.");
+    const fileXmp = new toolkit.XMPMeta(filePacket);
+    toolkit.XMPMeta.registerNamespace(DM_NS, "xmpDM");
+    toolkit.XMPMeta.registerNamespace(DC_NS, "dc");
     const read = (document, key) => { const value = document.getProperty(PROJECT_META_NS, key); return value == null ? "" : String(value.value === undefined ? value : value.value); };
+    const propertyValue = value => value == null ? "" : String(value.value === undefined ? value : value.value);
+    const readNative = (document, key) => {
+      const [ns, name, type] = XMP_FIELDS[key];
+      // Native UXP's array accessors throw on a property that does not exist.
+      if (document.getProperty(ns, name) == null) return type === "bag" ? [] : "";
+      // This UXP build rejects an empty generic language despite the XMP docs.
+      if (type === "alt") { requiredMethod(document, "getLocalizedText"); return propertyValue(document.getLocalizedText(ns, name, "en", "x-default")); }
+      if (type === "bag") {
+        requiredMethod(document, "countArrayItems"); requiredMethod(document, "getArrayItem");
+        return Array.from({ length: document.countArrayItems(ns, name) }, (_, index) => propertyValue(document.getArrayItem(ns, name, index + 1)));
+      }
+      return propertyValue(document.getProperty(ns, name));
+    };
     let prior = {};
     try { prior = JSON.parse(read(xmp, "VideoAnalyzerReceipt") || "{}"); } catch (_) { /* unrecognized prior ownership: preserve all existing values */ }
     if (!prior || typeof prior !== "object" || Array.isArray(prior)) prior = {};
+    let priorXmp = {};
+    try { priorXmp = JSON.parse(read(xmp, "VideoAnalyzerXMPReceipt") || "{}"); } catch (_) { /* preserve unowned native values */ }
+    if (!priorXmp || typeof priorXmp !== "object" || Array.isArray(priorXmp)) priorXmp = {};
     const proposed = {}, labels = {}, preserved = [];
+    const nativeProposed = {}, nativeOwned = {}, nativeChanges = {};
     for (const field of mapping.fields) {
+      if (!field || !Object.prototype.hasOwnProperty.call(XMP_FIELDS, field.key) || typeof field.value !== "string" || !field.value) continue;
+      const type = XMP_FIELDS[field.key][2];
+      if (type === "integer" && (!/^\d+$/.test(field.value) || !Number.isSafeInteger(Number(field.value)))) continue;
+      nativeProposed[field.key] = type === "bag" ? (Array.isArray(field.xmp_value) ? field.xmp_value.filter(value => typeof value === "string" && value) : field.value.split(/,\s*/).filter(Boolean)) :
+        type === "integer" ? String(Number(field.value)) : field.value;
+    }
+    for (const key of new Set([...Object.keys(nativeProposed), ...Object.keys(priorXmp)])) {
+      if (!Object.prototype.hasOwnProperty.call(XMP_FIELDS, key)) continue;
+      const current = readNative(fileXmp, key);
+      const empty = Array.isArray(current) ? current.length === 0 : !current;
+      if (!empty && (!Object.prototype.hasOwnProperty.call(priorXmp, key) || JSON.stringify(current) !== JSON.stringify(priorXmp[key]))) { preserved.push("XMP:" + key); continue; }
+      const value = nativeProposed[key] === undefined ? (Array.isArray(current) ? [] : "") : nativeProposed[key];
+      nativeOwned[key] = value;
+      if (JSON.stringify(current) === JSON.stringify(value)) continue;
+      nativeChanges[key] = value;
+      const [ns, name, type] = XMP_FIELDS[key];
+      if (type === "bag") {
+        requiredMethod(fileXmp, "deleteProperty"); requiredMethod(fileXmp, "appendArrayItem");
+        if (!toolkit.XMPConst || toolkit.XMPConst.PROP_IS_ARRAY === undefined) fail("UNSUPPORTED_API", "Premiere did not expose XMP keyword arrays.");
+        fileXmp.deleteProperty(ns, name);
+        value.forEach(item => fileXmp.appendArrayItem(ns, name, item, 0, toolkit.XMPConst.PROP_IS_ARRAY));
+      } else if (type === "alt") { requiredMethod(fileXmp, "setLocalizedText"); fileXmp.setLocalizedText(ns, name, "en", "x-default", value); }
+      else if (type === "integer" && !value) { requiredMethod(fileXmp, "deleteProperty"); fileXmp.deleteProperty(ns, name); }
+      else fileXmp.setProperty(ns, name, type === "integer" ? Number(value) : value);
+    }
+    for (const field of [...mapping.fields, ...analysisFields(mapping.record)]) {
       if (!field || !METADATA_COLUMNS.has(field.premiere) || typeof field.value !== "string" || !field.value) continue;
       proposed[field.premiere] = field.value; labels[field.premiere] = "Video Analyzer · " + String(field.label || field.key);
     }
@@ -354,8 +424,10 @@ function createHost(injectedApi, injectedXmp) {
     }
     changes.VideoAnalyzerAnalysis = record;
     changes.VideoAnalyzerReceipt = JSON.stringify(owned);
+    changes.VideoAnalyzerXMPReceipt = JSON.stringify(nativeOwned);
     labels.VideoAnalyzerAnalysis = "Video Analyzer · Complete analysis JSON";
     labels.VideoAnalyzerReceipt = "Video Analyzer · Sync record";
+    labels.VideoAnalyzerXMPReceipt = "Video Analyzer · XMP sync record";
     for (const key of Object.keys(changes)) {
       if (key.startsWith("VideoAnalyzer")) {
         if (!ppro.Constants || !ppro.Constants.MetadataType || ppro.Constants.MetadataType.TEXT === undefined) fail("UNSUPPORTED_API", "Premiere did not expose text metadata fields.");
@@ -367,19 +439,32 @@ function createHost(injectedApi, injectedXmp) {
     }
     await resolveBinding(binding);
     if (await metadata.getProjectMetadata(projectItem) !== packet) fail("METADATA_CHANGED", "Clip metadata changed during sync. Try again; your edits were preserved.");
+    if (await metadata.getXMPMetadata(projectItem) !== filePacket) fail("METADATA_CHANGED", "Clip XMP changed during sync. Try again; your edits were preserved.");
     let committed = false;
-    // Use project metadata, never the file-XMP writer. Premiere's own metadata
-    // linking preferences can mirror linked standard fields to file XMP.
+    // Premiere owns XMP persistence (embedded metadata or sidecars). Never open
+    // or rewrite the source ourselves; preserve all unrelated packet properties.
     project.lockedAccess(() => {
       committed = project.executeTransaction(compound => {
-        compound.addAction(metadata.createSetProjectMetadataAction(projectItem, xmp.serialize(), Object.keys(changes)));
+        if (Object.keys(nativeChanges).length && compound.addAction(metadata.createSetXMPMetadataAction(projectItem, fileXmp.serialize())) === false) fail("METADATA_WRITE_FAILED", "Premiere rejected the XMP metadata action.");
+        if (compound.addAction(metadata.createSetProjectMetadataAction(projectItem, xmp.serialize(), Object.keys(changes))) === false) fail("METADATA_WRITE_FAILED", "Premiere rejected the project metadata action.");
       }, "Sync Video Analyzer metadata");
     });
     if (committed !== true) fail("METADATA_WRITE_FAILED", "Premiere did not confirm the metadata transaction.");
-    const after = new toolkit.XMPMeta(await metadata.getProjectMetadata(projectItem));
-    if (Object.entries(changes).some(([key, value]) => read(after, key) !== value)) fail("METADATA_VERIFY_FAILED", "Premiere did not confirm every metadata field. Inspect project metadata before retrying.");
+    let unconfirmed = [], nativeUnconfirmed = [];
+    // Premiere can return the old packet briefly after a successful transaction.
+    // Verify both packets with a bounded wait rather than repeating the write.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const after = new toolkit.XMPMeta(await metadata.getProjectMetadata(projectItem));
+      unconfirmed = Object.entries(changes).filter(([key, value]) => read(after, key) !== value).map(([key]) => key);
+      const nativeAfter = new toolkit.XMPMeta(await metadata.getXMPMetadata(projectItem));
+      nativeUnconfirmed = Object.entries(nativeChanges).filter(([key, value]) => JSON.stringify(readNative(nativeAfter, key)) !== JSON.stringify(value)).map(([key]) => key);
+      if (!unconfirmed.length && !nativeUnconfirmed.length) break;
+      if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+    if (unconfirmed.length) fail("METADATA_VERIFY_FAILED", "Premiere did not confirm: " + unconfirmed.map(key => labels[key] || key).join(", ") + ". Inspect project metadata before retrying.");
+    if (nativeUnconfirmed.length) fail("METADATA_VERIFY_FAILED", "Premiere did not confirm every XMP field. Inspect file metadata before retrying.");
     await resolveBinding(binding);
-    return { updated: Object.keys(changes).length - 2, preserved: preserved.length, complete_record: true };
+    return { updated: Object.keys(changes).length - 3 + Object.keys(nativeChanges).length, preserved: preserved.length, complete_record: true };
   }
   async function bindingForId(id, expectedProjectId) {
     const selection = await getSelection();

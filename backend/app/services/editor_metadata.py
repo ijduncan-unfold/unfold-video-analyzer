@@ -15,12 +15,12 @@ FIELDS = (
     ('take', 'Take', 'Take', 'xmpDM:takeNumber', 'VideoAnalyzerTake'),
     ('camera_roll', 'Camera roll', 'Roll/Card', 'xmpDM:tapeName', 'Column.Intrinsic.TapeName'),
     ('camera', 'Camera', 'Camera #', 'xmpDM:cameraLabel', 'VideoAnalyzerCamera'),
-    ('production_title', 'Production', 'Production Name', 'va:productionTitle', 'VideoAnalyzerProduction'),
+    ('production_title', 'Production', 'Production Name', 'xmpDM:projectName', 'VideoAnalyzerProduction'),
     ('director', 'Director', 'Director', 'xmpDM:director', 'VideoAnalyzerDirector'),
     ('cinematographer', 'Cinematographer', 'DOP', 'xmpDM:directorPhotography', 'VideoAnalyzerCinematographer'),
     ('shot_type', 'Shot type', 'Shot Type', 'xmpDM:shotSize', 'VideoAnalyzerShotType'),
     ('camera_movement', 'Camera movement', 'Move', 'xmpDM:cameraMove', 'VideoAnalyzerCameraMovement'),
-    ('location', 'Location', 'Location', 'va:location', 'VideoAnalyzerLocation'),
+    ('location', 'Location', 'Location', 'xmpDM:shotLocation', 'VideoAnalyzerLocation'),
     ('colors', 'Colors', None, 'va:colors', 'VideoAnalyzerColors'),
     ('subjects', 'Subjects', None, 'va:subjects', 'VideoAnalyzerSubjects'),
     ('transcript', 'Dialogue', None, 'va:transcript', 'VideoAnalyzerDialogue'),
@@ -76,6 +76,9 @@ def map_fields(metadata, shots, transcript, summary=None, shot_scope=False):
     fields = [{'key': key, 'label': label, 'value': values[key], 'origin': origins.get(key, 'Analysis'),
                'resolve': resolve, 'xmp': xmp, 'premiere': premiere}
               for key, label, resolve, xmp, premiere in FIELDS if values.get(key)]
+    for field in fields:
+        if field['key'] == 'keywords':
+            field['xmp_value'] = _unique(keywords)
     return {'fields': fields, 'conflicts': conflicts}
 
 

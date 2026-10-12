@@ -387,7 +387,7 @@ def _xmp_document(data: dict) -> str:
         _element(bag, "rdf", "li", tag)
     _element(desc, "xmp", "CreatorTool", "Video Analyzer")
     _element(desc, "xmpDM", "client", meta.get("client", ""))
-    _element(desc, "xmpDM", "projectName", meta.get("project", ""))
+    _element(desc, "xmpDM", "projectName", meta.get("project") or mapped.get('production_title', ''))
     _element(desc, "xmpDM", "logComment", meta.get("notes", ""))
     if technical.get("frame_rate_fraction") or technical.get("frame_rate"):
         _element(desc, "xmpDM", "videoFrameRate", technical.get("frame_rate_fraction") or technical["frame_rate"])
@@ -405,6 +405,7 @@ def _xmp_document(data: dict) -> str:
     # nonnumeric take labels in our namespace, rather than invalid XMP integers.
     for key, name in (('scene', 'scene'), ('shot', 'shotNumber'), ('camera_roll', 'tapeName'),
                       ('camera', 'cameraLabel'), ('director', 'director'),
+                      ('location', 'shotLocation'),
                       ('cinematographer', 'directorPhotography'), ('shot_type', 'shotSize'),
                       ('camera_movement', 'cameraMove')):
         if mapped.get(key):

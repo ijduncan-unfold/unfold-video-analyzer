@@ -11,14 +11,16 @@ Both panels have **Sync metadata** for the currently loaded source. This is an e
 | Human notes | Comments and structured record | Log Note | xmpDM:logComment |
 | Slate scene / shot / take | Scene / Shot / Take | Scene / Shot / Video Analyzer Take | xmpDM:scene / shotNumber / takeNumber |
 | Camera roll / camera identifier | Roll/Card / Camera # | Tape Name / Video Analyzer Camera | xmpDM:tapeName / cameraLabel |
-| Production title | Production Name | Video Analyzer Production | va:productionTitle |
+| Production title | Production Name | Video Analyzer Production; native XMP Project Name | xmpDM:projectName |
 | Director / cinematographer | Director / DOP | Video Analyzer Director / Cinematographer | xmpDM:director / directorPhotography |
 | Framing / movement | Shot Type / Move | Video Analyzer Shot Type / Camera Movement | xmpDM:shotSize / cameraMove |
-| Location | Location and Keywords | Video Analyzer Location | va:location |
+| Location | Location and Keywords | Video Analyzer Location; native XMP Shot Location | xmpDM:shotLocation |
 | Colors / subjects | Keywords and structured record | Video Analyzer Colors / Subjects | va:colors / subjects |
 | Dialogue | Timed text in Comments and structured record; SRT export | Video Analyzer Dialogue and complete record; SRT export | va:transcript and complete record |
-| Lighting, narrative, sound, evidence, section context, custom analysis, annotations | Complete Comments record and third-party metadata | Video Analyzer Complete analysis JSON | va:analysisRecord |
-| Original technical facts and source timecode | Retained in the record; native source interpretation is unchanged | Retained in the record; native source interpretation is unchanged | va:technical and sourceTimecode |
+| Lighting, narrative, sound, evidence, section context, custom analysis, annotations | Complete Comments record and third-party metadata | Video Analyzer Detailed analysis and Complete analysis JSON | va:analysisRecord |
+| Every clip description with its source-relative interval | Retained in the record | Video Analyzer Clip descriptions | va:analysisRecord |
+| Every slate, including conflicting readings, raw text and ambiguous dates | Retained in the record | Video Analyzer Slate readings | va:analysisRecord |
+| Original technical facts and source timecode | Retained in the record; native source interpretation is unchanged | Video Analyzer Source inspection and complete record; native source interpretation is unchanged | va:technical and sourceTimecode |
 
 Names in the Resolve mapping use the native field names observed in the installed Studio SDK's clip-property snapshot. Every native metadata write is checked by reading the fields back. Host versions can differ: rejected fields are reported as errors, never silently counted as exported.
 
@@ -32,7 +34,7 @@ Sync fills empty native fields and updates values previously written by this int
 
 The panels cap a complete source metadata record at 4 million JavaScript characters (approximately 4 MB for ASCII); Resolve's individual shot export retains its existing 200,000-character limit. Oversized records produce an explicit error with JSON/XMP as alternatives, rather than truncating a transcript. Provider credentials and original directory paths are excluded from portable records.
 
-Premiere writes through the project-metadata API, not the file-XMP API. **Premiere's own metadata linking/writing preferences can mirror linked standard fields into file XMP**. Review those preferences when originals must remain read-only. Resolve edits Media Pool metadata. The analyzer does not render, duplicate, delete, change frame-rate interpretation or alter source timecode as part of sync.
+Premiere sync writes both project metadata and the source item's standard XMP packet through Adobe's Metadata API. Director of Photography, Director, Scene, Take, Tape Name, Camera Label, Project Name, Shot Size, Camera Move and Shot Location use the Dynamic Media schema. Description uses localized Dublin Core text and Keywords use an unordered array. Premiere manages persistence to embedded metadata or sidecars according to its own settings; the analyzer does not directly open or rewrite source files. Resolve edits Media Pool metadata. Sync does not render or duplicate media, change frame-rate interpretation or alter source timecode.
 
 ## Dialogue and After Effects limits
 
@@ -42,7 +44,7 @@ Resolve's SDK offers native audio transcription, but no documented external tran
 
 After Effects shares Adobe's XMP model and can turn source XMP markers into layer markers. We export compatible standard XMP fields plus the complete custom record; **there is no After Effects plugin or automatic sidecar ingestion implemented here**. File format, metadata import and marker preferences determine what After Effects reads. An AE bridge would need explicit application of the sidecar and conversion of timed records into its layer markers.
 
-The new sync paths have automated tests for mapping, source identity, complete-record preservation, human edits, stale sessions and failed/readback-inconsistent writes. Native acceptance of these newly promoted fields still needs testing inside Premiere and Resolve; the earlier live Resolve shot/subclip checks do not validate these new sync actions.
+The sync paths have automated tests for mapping, source identity, complete-record preservation, human edits, stale sessions and failed/readback-inconsistent writes. Premiere 0.1.19 was checked in the running Windows editor with Sony F55 media: standard Director and Director of Photography fields populated, and project metadata retained the complete analysis, dialogue, clip descriptions, slate readings and source inspection. Premiere can briefly return stale packets after a transaction; sync verifies both packets with a bounded wait. Resolve acceptance for these newer mappings remains separate.
 
 ## Primary references
 

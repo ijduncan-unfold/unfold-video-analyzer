@@ -30,6 +30,9 @@ def test_mapping_carries_slate_provenance_distinct_from_section_and_full_dialogu
     fields = {item['key']: item for item in mapping['fields']}
     assert fields['scene']['value'] == '012B' and fields['scene']['origin'] == 'Slate reading · unreviewed'
     assert fields['camera_roll']['resolve'] == 'Roll/Card'
+    assert fields['cinematographer']['xmp'] == 'xmpDM:directorPhotography'
+    assert fields['production_title']['xmp'] == 'xmpDM:projectName'
+    assert 'Blue' in fields['keywords']['xmp_value']
     assert 'Alex: Meet me outside.' in fields['transcript']['value']
     assert fields['keywords']['value'].lower().count('blue') == 1
     assert 'approved' in fields['keywords']['value']
@@ -64,6 +67,7 @@ def test_xmp_is_lossless_and_maps_production_fields_without_inventing_take_or_ti
     assert root.find('.//xmpDM:takeNumber', NS).text == '3'
     assert root.find('.//xmpDM:tapeName', NS).text == 'A001'
     assert root.find('.//xmpDM:directorPhotography', NS).text == 'J. Doe'
+    assert root.find('.//xmpDM:projectName', NS).text == 'Night film'
     assert 'Blue' in [item.text for item in root.findall('.//dc:subject/rdf:Bag/rdf:li', NS)]
     record = json.loads(root.find('.//va:analysisRecord', NS).text)
     assert record['transcript'] == job.transcript
