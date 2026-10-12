@@ -22,6 +22,7 @@ const paths = {
   download: <><path d="M12 3v13m-5-5 5 5 5-5M4 18v3h16v-3" /></>,
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10v.01" /></>,
+  warning: <><path d="m12 3 10 18H2Z" /><path d="M12 9v5m0 3v.01" /></>,
   refresh: <><path d="M20 7V3l-3 3a8 8 0 1 0 3 10M20 7h-5" /></>,
   bookmark: <path d="M6 3h12v18l-6-4-6 4Z" />,
   shield: <><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z" /><path d="m8 12 3 3 5-6" /></>,

@@ -68,3 +68,8 @@ class FolderMove(BaseModel):
     model_config = ConfigDict(extra='forbid')
     job_ids: list[str] = Field(min_length=1, max_length=500)
     folder_id: str | None = Field(default=None, max_length=100)
+
+
+class SourceStatusRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    job_ids: list[str] = Field(min_length=1, max_length=100)

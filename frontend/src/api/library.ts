@@ -268,6 +268,11 @@ export interface PlaybackStatus {
 export function getPlaybackStatus(id: string, signal?: AbortSignal) {
   return request<PlaybackStatus>(`/api/library/${encodeURIComponent(id)}/playback-status`, { signal })
 }
+export function getSourceStatus(ids: string[], signal?: AbortSignal) {
+  return request<{ sources: Record<string, boolean | null> }>('/api/library/source-status', {
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_ids: ids }),
+  })
+}
 export function getProjects(signal?: AbortSignal, folderId = '') {
   return request<{ projects: LibraryProject[]; total: number }>(`/api/library/projects?${new URLSearchParams({ folder_id: folderId })}`, { signal })
 }

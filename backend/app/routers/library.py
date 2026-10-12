@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, Response
 
 from app.config import settings
 from app.dependencies import get_api_key
-from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove
+from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest
 from app.services.job_store import get_job, list_jobs, update_job, claim_analysis, cut_is_active
 from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
@@ -119,6 +119,13 @@ async def projects(folder_id: str = ''):
                         'filename': job.filename, 'status': job.status, 'shot_count': view['shot_count'],
                         'folder_id': job.folder_id, 'has_local_media': bool(job.local_path or job.viewing_path)})
     return {'projects': imports, 'total': len(imports)}
+
+
+@router.post('/source-status')
+async def original_source_status(body: SourceStatusRequest):
+    from app.services.source_availability import source_status
+    jobs = [get_job(ident) for ident in dict.fromkeys(body.job_ids)]
+    return {'sources': await source_status(jobs)}
 
 
 @router.get('/folders')
