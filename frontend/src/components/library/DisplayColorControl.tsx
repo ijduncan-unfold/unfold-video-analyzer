@@ -19,7 +19,7 @@ export function DisplayColorControl({ asset, disabled, onRefresh, onPause, onPre
     finally { setSaving(false); onPreparing(false) }
   }
   return <details className="vw-display-color">
-    <summary>Display color</summary>
+    <summary>Advanced display color</summary>
     <p>{asset.technical.viewing_proxy?.viewing_transform || 'As decoded · no display LUT applied'}</p>
     {asset.technical.camera_model && <small>Camera: {asset.technical.camera_model}{/inspire\s*3|ronin\s*4d|zenmuse\s*x9/i.test(asset.technical.camera_model) ? ' · Use the X9 transform if recorded in D-Log.' : ''}</small>}
     <div className="vw-display-controls">
