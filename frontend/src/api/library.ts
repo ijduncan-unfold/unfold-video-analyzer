@@ -258,6 +258,16 @@ export function getLibrary(filters: { q?: string; production?: string; scene?: s
 export function getAsset(id: string, signal?: AbortSignal) {
   return request<AssetDetail>(`/api/library/${encodeURIComponent(id)}`, { signal })
 }
+export interface PlaybackStatus {
+  available: boolean
+  original_offline?: boolean
+  kind?: 'original' | 'viewing_proxy' | 'cached_proxy'
+  needs_transcode?: boolean
+  message: string
+}
+export function getPlaybackStatus(id: string, signal?: AbortSignal) {
+  return request<PlaybackStatus>(`/api/library/${encodeURIComponent(id)}/playback-status`, { signal })
+}
 export function getProjects(signal?: AbortSignal, folderId = '') {
   return request<{ projects: LibraryProject[]; total: number }>(`/api/library/projects?${new URLSearchParams({ folder_id: folderId })}`, { signal })
 }

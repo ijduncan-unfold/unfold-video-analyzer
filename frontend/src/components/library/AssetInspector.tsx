@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { analyzeAsset, cancelAnalysis, deleteAsset, getShots, saveMetadata, saveShot } from '../../api/library'
+import { analyzeAsset, cancelAnalysis, deleteAsset, getShots, getPlaybackStatus, saveMetadata, saveShot } from '../../api/library'
 import type { AssetDetail, AssetMetadata, Capabilities, LibraryShot, ProxyMode, ShotAnnotation } from '../../api/library'
 import type { Shot, Slate } from '../../api/types'
+import { playbackError as describePlaybackError } from './playbackError'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from './Icon'
 import { bytes, duration, errorMessage, splitTags, timestamp } from './format'
@@ -47,6 +48,29 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const [loopPreview, setLoopPreview] = useState(false)
   const [preparingDisplay, setPreparingDisplay] = useState(false)
   const [preparingPlayback, setPreparingPlayback] = useState(!!asset.technical.playback_proxy_required)
+  const [playbackError, setPlaybackError] = useState('')
+  const [playbackNotice, setPlaybackNotice] = useState('')
+  const playbackCheck = useRef<AbortController | null>(null)
+  useEffect(() => () => playbackCheck.current?.abort(), [asset.job_id, asset.preview_url])
+  async function checkPlayback(failed: boolean) {
+    playbackCheck.current?.abort()
+    const controller = new AbortController()
+    playbackCheck.current = controller
+    if (failed) setPlaybackError('Checking playback availability…')
+    try {
+      const status = await getPlaybackStatus(asset.job_id, controller.signal)
+      if (controller.signal.aborted) return
+      setPlaybackError(failed ? describePlaybackError(status) : '')
+      setPlaybackNotice(!failed && status.original_offline ? status.message : '')
+    } catch {
+      if (!controller.signal.aborted && failed) setPlaybackError('Could not check playback availability. Make sure Video Analyzer is running, then retry playback.')
+    }
+  }
+  function retryPlayback() {
+    setPlaybackError(''); setPlaybackNotice('')
+    setPreparingPlayback(!!asset.technical.playback_proxy_required)
+    video.current?.load()
+  }
   const [matchCutFromShot, setMatchCutFromShot] = useState(false)
   const [draft, setDraft] = useState<AssetMetadata>(() => ({ ...asset.metadata }))
   const [baseline, setBaseline] = useState(() => JSON.stringify(asset.metadata))
@@ -187,8 +211,9 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
     <div className={`vw-layout ${(tab === 'export' || tab === 'match cuts' || tab === 'rough cut') ? 'is-export' : ''}`}>
       <div className="vw-viewer" hidden={tab === 'export' || tab === 'match cuts' || tab === 'rough cut'}>
         <div className="lw-preview">{preparingPlayback && <p className="lw-model-note" role="status">Preparing playback proxy… Original media stays in place.</p>}
-          {asset.preview_url ? <video ref={video} src={asset.preview_url} poster={asset.thumbnail_url || undefined} controls loop={loopPreview} preload="metadata" onError={() => { setPreparingPlayback(false); setError('Playback proxy could not be loaded. Try a full-length H.264 MP4 viewing proxy.') }} onLoadedMetadata={() => { setPreparingPlayback(false); if (video.current && initialSeconds != null) video.current.currentTime = initialSeconds }} onTimeUpdate={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} onSeeked={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} /> : <div className="lw-no-preview"><Icon name="film" size={32} /><span>{asset.youtube_url ? 'Source video on YouTube' : 'Preview unavailable for this format'}</span>{asset.youtube_url && <a href={asset.youtube_url} target="_blank" rel="noreferrer">Open source ↗</a>}</div>}
+          {asset.preview_url ? <video ref={video} src={asset.preview_url} poster={asset.thumbnail_url || undefined} controls loop={loopPreview} preload="metadata" onError={() => { setPreparingPlayback(false); void checkPlayback(true) }} onLoadedMetadata={() => { setPreparingPlayback(false); void checkPlayback(false); if (video.current && initialSeconds != null) video.current.currentTime = initialSeconds }} onTimeUpdate={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} onSeeked={event => { if (tab === 'transcript') setPlaybackSeconds(event.currentTarget.currentTime) }} /> : <div className="lw-no-preview"><Icon name="film" size={32} /><span>{asset.youtube_url ? 'Source video on YouTube' : 'Preview unavailable for this format'}</span>{asset.youtube_url && <a href={asset.youtube_url} target="_blank" rel="noreferrer">Open source ↗</a>}</div>}
         </div>
+        {playbackError && <div className="lw-inline-error" role="alert">{playbackError} <button className="lw-text-button" onClick={retryPlayback}>Retry playback</button></div>}{playbackNotice && <p className="lw-model-note" role="status">{playbackNotice}</p>}
         {asset.preview_url && <div className="vw-preview-facts"><span>{duration(asset.technical.duration_seconds)}{asset.technical.camera_frame_count != null ? ` · ${asset.technical.camera_frame_count} frames` : ''}</span><label><input type="checkbox" checked={loopPreview} onChange={event => setLoopPreview(event.target.checked)} /> Loop preview</label></div>}
         {selectedShot && tab !== 'transcript' && <div className="vw-shot-context">
           <div className="vw-shot-transport"><strong>Clip {String(selectedShot.shot_number).padStart(2, '0')}</strong><time>{selectedShot.start_time} – {selectedShot.end_time}</time><div><button className="lw-icon-button" aria-label="Previous clip" disabled={selectedIndex === 0 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex - 1])}><Icon name="chevron" style={{ transform: 'rotate(180deg)' }} /></button><button className="lw-icon-button" aria-label="Next clip" disabled={selectedIndex >= shots.length - 1 || !asset.preview_url} onClick={() => playShot(shots[selectedIndex + 1])}><Icon name="chevron" /></button></div></div>

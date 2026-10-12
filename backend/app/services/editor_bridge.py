@@ -109,13 +109,23 @@ def source_fingerprint(path):
     return hashlib.sha256(identity.encode('utf-8')).hexdigest(), resolved, stat.st_size
 
 
-def ensure_source_unchanged(job):
+class OriginalMediaOffline(HTTPException):
+    def __init__(self):
+        super().__init__(409, 'The original media is offline. Relink it in your editor and load the selection again.')
+
+
+class ViewingProxyOffline(HTTPException):
+    def __init__(self):
+        super().__init__(409, 'The linked viewing proxy is offline. Relink it before using this analysis.')
+
+
+def ensure_original_unchanged(job):
     if job.media_origin != 'external':
         return
     try:
         fingerprint, _, _ = source_fingerprint(job.local_path)
     except (OSError, ValueError):
-        raise HTTPException(409, 'The original media is offline. Relink it in your editor and load the selection again.')
+        raise OriginalMediaOffline()
     if not hmac.compare_digest(fingerprint, job.source_fingerprint):
         raise HTTPException(409, 'The source file changed. Load the editor selection again before using this analysis.')
     if job.camera_companions is not None:
@@ -127,13 +137,21 @@ def ensure_source_unchanged(job):
             raise HTTPException(409, 'A camera recording part or sidecar is missing or offline. Import the recording again.')
         if current != job.camera_companions:
             raise HTTPException(409, 'A camera recording part or sidecar changed. Import the recording again.')
-    if job.viewing_path:
+
+
+def ensure_viewing_unchanged(job):
+    if job.media_origin == 'external' and job.viewing_path:
         try:
             current, _, _ = source_fingerprint(job.viewing_path)
         except (OSError, ValueError):
-            raise HTTPException(409, 'The linked viewing proxy is offline. Relink it before using this analysis.')
+            raise ViewingProxyOffline()
         if not hmac.compare_digest(current, job.viewing_fingerprint):
             raise HTTPException(409, 'The linked viewing proxy changed. Import the original and proxy again.')
+
+
+def ensure_source_unchanged(job):
+    ensure_original_unchanged(job)
+    ensure_viewing_unchanged(job)
 
 
 def editor_sources(job_id, host=None):

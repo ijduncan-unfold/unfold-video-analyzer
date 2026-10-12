@@ -8,6 +8,8 @@ Match cuts can search **All media**, **This media**, or **Selected media / folde
 
 Library filters use recorded **Production, Scene, Take, Camera roll, and Cinematographer** slate metadata, plus analysis and personal tags. A manually assigned production label is also searchable. Media filters match any slate in a source; clip filters match the slate on that clip. Scene and take selections must match the same board. Dropdowns show metadata available in the selected folder, with missing fields disabled. Review status, rights, and collection controls have been removed from the library and clip editor; older stored values are preserved for compatibility.
 
+On Windows, generated viewing and playback proxies live in `%LOCALAPPDATA%\VideoAnalyzer\media\<media ID>\`, separate from linked originals. Available proxies keep playing when the original NAS or drive is offline. The player reports an offline original separately from a missing proxy or browser decode failure, and offers **Retry playback** after reconnection. Source and proxy changes still invalidate playback; analysis and editor operations retain their original-media identity checks.
+
 ## Camera previews and display color
 
 Camera previews preserve anamorphic framing in square pixels, including JPEG thumbnails and vision frames. Very short recordings show their fractional duration and decoded frame count, with a **Loop preview** control. Mac `._` resource files and `__MACOSX` folders are ignored during import.

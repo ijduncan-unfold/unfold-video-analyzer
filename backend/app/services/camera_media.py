@@ -10,7 +10,10 @@ import httpx
 from fastapi import HTTPException
 
 from app.config import settings
-from app.services.editor_bridge import ensure_source_unchanged, source_fingerprint, _check_interpreted_rate
+from app.services.editor_bridge import (
+    ensure_source_unchanged, ensure_original_unchanged, ensure_viewing_unchanged,
+    OriginalMediaOffline, ViewingProxyOffline, source_fingerprint, _check_interpreted_rate,
+)
 from app.services.job_store import Job, create_job, list_jobs
 from app.services.media_probe import probe_media, create_poster, _stop_process
 from app.utils.media_process import hidden_process_kwargs
@@ -26,12 +29,51 @@ def viewing_media(job):
     return job.viewing_path or job.local_path
 
 
+def playback_source(job):
+    """Allow offline viewing copies; keep analysis and native-edit identity checks strict."""
+    offline = False
+    try:
+        ensure_original_unchanged(job)
+    except OriginalMediaOffline:
+        offline = True
+    folder = Path(settings.upload_dir) / job.job_id
+    if folder.resolve().parent != Path(settings.upload_dir).resolve():
+        raise ValueError('Invalid asset cache directory')
+    target = folder / 'playback.mp4'
+    def present(path):
+        try:
+            return bool(path) and Path(path).is_file() and Path(path).stat().st_size > 0
+        except OSError:
+            return False
+    viewing = bool(job.viewing_path)
+    if viewing:
+        try:
+            ensure_viewing_unchanged(job)
+            viewing = present(job.viewing_path)
+        except ViewingProxyOffline:
+            viewing = False
+    source = job.viewing_path if viewing else job.local_path
+    facts = (job.technical.get('viewing_proxy') or job.technical) if viewing else job.technical
+    needs_transcode = bool(viewing or job.technical.get('playback_proxy_required')) and not browser_playable(facts, source)
+    if present(target) and (needs_transcode or not viewing and (offline or bool(job.viewing_path))):
+        return {'path': str(target), 'mime': 'video/mp4', 'needs_transcode': False,
+                'original_offline': offline, 'kind': 'cached_proxy'}
+    if not viewing and offline:
+        raise HTTPException(404, 'Original media is offline and no cached playback proxy is available. Reconnect the NAS or source drive, then retry playback.')
+    if job.viewing_path and not viewing:
+        raise HTTPException(404, 'The viewing proxy is missing or offline and no cached playback proxy is available. Reconnect its drive or regenerate the proxy from the original.')
+    if not present(source):
+        raise HTTPException(404, 'Original media is missing or offline and no cached playback proxy is available. Reconnect the source drive, then retry playback.')
+    return {'path': source, 'mime': get_mime_type(source) if viewing else job.mime_type,
+            'needs_transcode': needs_transcode, 'original_offline': offline,
+            'kind': 'viewing_proxy' if viewing else 'original'}
+
+
 async def browser_media(job):
-    source = viewing_media(job)
-    if not job.viewing_path and not job.technical.get('playback_proxy_required'):
-        return source, job.mime_type
-    if browser_playable(job.technical.get('viewing_proxy') or job.technical, source):
-        return source, get_mime_type(source)
+    playback = await asyncio.to_thread(playback_source, job)
+    source = playback['path']
+    if not playback['needs_transcode']:
+        return source, playback['mime']
     # A small, app-owned playback proxy; original and user-provided proxies are read-only.
     folder = Path(settings.upload_dir) / job.job_id
     if folder.resolve().parent != Path(settings.upload_dir).resolve():
@@ -39,7 +81,7 @@ async def browser_media(job):
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / 'playback.mp4'
     async with _preview_locks.setdefault(job.job_id, asyncio.Lock()):
-        if not target.is_file():
+        if not target.is_file() or not target.stat().st_size:
             temporary = folder / f'playback-{uuid.uuid4().hex}.mp4'
             proc = await asyncio.create_subprocess_exec('ffmpeg', '-nostdin', '-v', 'error', '-i', source,
                 '-map', '0:v:0', '-map', '0:a:0?', '-vf', VIEWING_SCALE,
@@ -51,7 +93,7 @@ async def browser_media(job):
                 await asyncio.wait_for(proc.communicate(), timeout=1200)
                 if proc.returncode or not temporary.is_file() or not temporary.stat().st_size:
                     raise ValueError('Playback proxy could not be prepared. Link a decodable full-length MP4 viewing proxy.')
-                ensure_source_unchanged(job)
+                await asyncio.to_thread(playback_source, job)
                 temporary.replace(target)
             finally:
                 if proc.returncode is None:

@@ -194,8 +194,6 @@ async def edit_shot(job_id: str, shot_number: int, annotation: ShotAnnotation,
 @router.get('/{job_id}/media')
 async def media(job_id: str):
     job = require_job(job_id)
-    if not job.local_path or not Path(job.local_path).is_file():
-        raise HTTPException(404, 'Local media is unavailable for this asset')
     # Starlette FileResponse handles HTTP Range for seeking without loading the file into memory.
     from app.services.camera_media import browser_media
     try:
@@ -203,6 +201,18 @@ async def media(job_id: str):
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     return FileResponse(path, media_type=mime)
+
+
+@router.get('/{job_id}/playback-status')
+async def playback_status(job_id: str):
+    from app.services.camera_media import playback_source
+    try:
+        state = await asyncio.to_thread(playback_source, require_job(job_id))
+    except (HTTPException, ValueError) as exc:
+        return {'available': False, 'message': exc.detail if isinstance(exc, HTTPException) else str(exc)}
+    return {'available': True, 'original_offline': state['original_offline'], 'kind': state['kind'],
+            'needs_transcode': state['needs_transcode'],
+            'message': 'Original media is offline. Playing the available proxy.' if state['original_offline'] else ''}
 
 
 @router.get('/{job_id}/poster')
