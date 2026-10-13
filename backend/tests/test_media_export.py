@@ -1,13 +1,15 @@
 """Combined original-media handoffs, isolated fixtures; no provider requests."""
 import copy
+import csv
 import io
 import json
 import xml.etree.ElementTree as ET
 import zipfile
+import pytest
 from dataclasses import asdict
 
 from app.services.job_store import create_job, update_job
-from app.services.media_export import combined_project
+from app.services.media_export import combined_project, resolve_metadata_csv
 
 
 def prepare(asset, tmp_path):
@@ -70,6 +72,68 @@ def test_bin_only_preserves_media_without_sequence(asset, tmp_path):
     assert root.find('.//sequence') is None
     assert len(root.findall('project/children/bin/children/clip')) == 2
     assert len(root.findall('.//file/pathurl')) == 2
+
+
+@pytest.mark.parametrize('technical', [
+    {'variable_frame_rate': True, 'nominal_frame_rate_verified': False, 'nominal_frame_rate_fraction': '30/1'},
+    {'sample_aspect_ratio': '2:1', 'rotation': 90},
+])
+def test_legacy_bin_lets_premiere_interpret_whole_originals(asset, tmp_path, technical):
+    job = prepare(asset, tmp_path)
+    job.technical.update(technical)
+    before = asdict(job)
+    root = ET.fromstring(combined_project([job], 'Originals', 'bin'))
+    master = root.find('project/children/bin/children/clip')
+    assert master.findtext('.//file/pathurl').endswith('original%20A.mov')
+    assert master.findtext('ismasterclip') == 'TRUE'
+    assert master.findtext('logginginfo/lognote')
+    assert root.find('.//sequence') is None
+    assert master.find('in') is None and master.find('out') is None
+    assert master.findtext('rate/timebase') in ('25', '30')
+    assert len(master.findall('.//clipitem')) == 3
+    for tag in ('pixelaspectratio', 'anamorphic', 'timecode'):
+        assert root.find('.//' + tag) is None
+    assert asdict(job) == before
+
+
+@pytest.mark.parametrize('technical', [
+    {'frame_rate': None, 'frame_rate_fraction': None},
+    {'duration_seconds': None},
+    {'audio_channels': []},
+])
+def test_legacy_bin_does_not_invent_required_source_facts(asset, tmp_path, technical):
+    job = prepare(asset, tmp_path)
+    job.technical.update(technical)
+    with pytest.raises(ValueError):
+        combined_project([job], 'Originals', 'bin')
+
+
+def test_legacy_bin_available_while_timeline_blocked(client, asset, tmp_path):
+    job = prepare(asset, tmp_path)
+    update_job(job.job_id, technical={**job.technical,
+        'nominal_frame_rate_fraction': '30/1', 'nominal_frame_rate_verified': False})
+    body = {'job_ids': [job.job_id], 'format': 'premiere_xml', 'layout': 'bin'}
+    assert client.post('/api/library/media-export-options', json=body).json()['available']
+    exported = client.post('/api/library/media-export', json={**body,
+        'include_metadata': False, 'analysis_versions': {job.job_id: 'saved-run'}})
+    assert exported.status_code == 200
+    assert ET.fromstring(exported.content).find('.//file/pathurl') is not None
+    body['layout'] = 'timeline'
+    assert not client.post('/api/library/media-export-options', json=body).json()['available']
+
+
+def test_resolve_csv_uses_original_file_identity_and_preserves_quoted_metadata(asset, tmp_path):
+    job = prepare(asset, tmp_path)
+    job.local_path = r'C:\Camera A\take.MXF'
+    job.metadata['notes'] = 'A hero says "hello", then poses.\nSecond line.'
+    other = copy.deepcopy(job)
+    other.job_id = 'camera-b'
+    other.local_path = r'C:\Camera B\take.MXF'
+    rows = list(csv.DictReader(io.StringIO(resolve_metadata_csv([job, other]).lstrip('\ufeff'))))
+    assert [row['File Name'] for row in rows] == ['take.MXF', 'take.MXF']
+    assert [row['Clip Directory'] for row in rows] == [r'C:\Camera A', r'C:\Camera B']
+    assert all('"hello",' in row['Description'] and '\nSecond line.' in row['Description'] for row in rows)
+    assert all('Start TC' not in row for row in rows)
 
 
 def test_audio_link_indices_after_silent_source(asset, tmp_path):
@@ -138,6 +202,10 @@ def test_combined_cosplay_exports_use_corrections_in_logging_markers_and_sidecar
             'analysis_versions': {job.job_id: 'saved-run', other.job_id: 'saved-run'}})
         assert response.status_code == 200
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            resolve_rows = list(csv.DictReader(io.StringIO(archive.read('Resolve metadata.csv').decode('utf-8-sig'))))
+            assert len(resolve_rows) == 2
+            assert all('Gordon Freeman' in row['Description'] and 'Half-Life' in row['Keywords'] for row in resolve_rows)
+            assert all('Iron Man' not in row['Keywords'] for row in resolve_rows)
             root = ET.fromstring(archive.read('Video Analyzer.xml'))
             targets = root.findall('.//bin/children/clip') + root.findall('.//sequence/media/video/track/clipitem')
             assert len(targets) == (4 if layout == 'timeline' else 2)
@@ -156,6 +224,7 @@ def test_combined_cosplay_exports_use_corrections_in_logging_markers_and_sidecar
                 keywords = [node.text for node in sidecar.findall('.//dc:subject/rdf:Bag/rdf:li', ns)]
                 assert 'Gordon Freeman' in keywords and 'Half-Life' in keywords
                 assert 'Iron Man' not in keywords
+                assert 'Gordon Freeman' in sidecar.findtext('.//dc:description/rdf:Alt/rdf:li', namespaces=ns)
             assert 'Gordon Freeman' in archive.read('clips.csv').decode('utf-8')
             record = json.loads(archive.read('library.json'))
             assert record['assets'][0]['shot_annotations']['1']['cosplay'][0]['character'] == 'Gordon Freeman'
