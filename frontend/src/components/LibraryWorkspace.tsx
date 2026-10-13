@@ -15,6 +15,7 @@ import { useSourceAvailability } from './library/useSourceAvailability'
 import { duration, errorMessage } from './library/format'
 import { analysisFacts, analysisStageLabel, isActiveAnalysis } from './library/analysisProgress'
 import { DeleteProjectsDialog } from './library/DeleteProjectsDialog'
+import { PremiereSelectionDialog } from './library/PremiereSelectionDialog'
 import { MediaExportDialog } from './library/MediaExportDialog'
 import type { DeletionProject } from './library/DeleteProjectsDialog'
 import { LibraryFolders, FolderMovePicker, SHOT_DRAG_TYPE } from './library/LibraryFolders'
@@ -62,6 +63,7 @@ export function LibraryWorkspace() {
   const [batchResults, setBatchResults] = useState<BatchAnalysisResult[]>([])
   const batchLock = useRef(false)
   const [deletingProjects, setDeletingProjects] = useState<DeletionProject[] | null>(null)
+  const [premiereMedia, setPremiereMedia] = useState<DeletionProject[] | null>(null)
   const [exportingMedia, setExportingMedia] = useState<DeletionProject[] | null>(null)
   const [detail, setDetail] = useState<AssetDetail | null>(null)
   const [detailError, setDetailError] = useState('')
@@ -348,12 +350,23 @@ export function LibraryWorkspace() {
     try {
       const selected: DeletionProject[] = []
       for (let offset = 0; ; offset += 500) {
-        const result = await getLibrary({ q: query, ...metadataFilters, tag, folder_id: folderId, sort: 'name', limit: 500, offset })
-        if (currentLibraryContext.current !== context) return
-        selected.push(...result.assets.filter(asset => !isActiveAnalysis(asset.status) && asset.status !== 'deleting').map(asset => ({ id: asset.job_id, title: asset.metadata.title || asset.filename })))
-        if (offset + result.assets.length >= result.total || !result.assets.length) break
+        if (searchMode === 'shots') {
+          const result = await getShots({ q: query, ...metadataFilters, tag, folder_id: folderId, job_id: shotProjectId || undefined, limit: 500, offset })
+          if (currentLibraryContext.current !== context) return
+          selected.push(...result.shots.map(shot => ({ id: shot.job_id, title: shot.filename })))
+          if (offset + result.shots.length >= result.total || !result.shots.length) break
+        } else {
+          const result = await getLibrary({ q: query, ...metadataFilters, tag, folder_id: folderId, sort: 'name', limit: 500, offset })
+          if (currentLibraryContext.current !== context) return
+          selected.push(...result.assets.filter(asset => !isActiveAnalysis(asset.status) && asset.status !== 'deleting').map(asset => ({ id: asset.job_id, title: asset.metadata.title || asset.filename })))
+          if (offset + result.assets.length >= result.total || !result.assets.length) break
+        }
       }
-      if (currentLibraryContext.current === context) setCheckedProjects([...new Map(selected.map(item => [item.id, item])).values()])
+      if (currentLibraryContext.current === context) {
+        const unique = [...new Map(selected.map(item => [item.id, item])).values()]
+        setCheckedProjects(unique)
+        return unique
+      }
     } catch (err) { setError(errorMessage(err)) }
     finally { setSelectingAll(false) }
   }
@@ -397,10 +410,15 @@ export function LibraryWorkspace() {
           </div>
         </header>
         <div className="lf-scope-heading"><h2>{folderId === 'unfiled' ? 'Unfiled' : folders?.folders.find(folder => folder.id === folderId)?.name || 'All media'}</h2><span>{searchMode === 'assets' ? `${library?.total || 0} media ${library?.total === 1 ? 'item' : 'items'}` : shotProjectId ? 'Clips from the selected media' : 'Clips across this library folder'}</span></div>
+        <div className="lw-project-selection" role="group" aria-label="Premiere selections">
+          <label className="premiere-character">Character<select aria-label="Find character" value={metadataFilters.character} onChange={event => setMetadataFilters(previous => ({ ...previous, character: event.target.value }))}><option value="">All characters</option>{library?.facets.character?.map(character => <option key={character}>{character}</option>)}</select></label>
+          <button className="lw-button lw-button-primary" disabled={selectingAll || queueing || moving || loading || !(searchMode === 'assets' ? library?.total : shotTotal)} onClick={() => void selectAllMatching().then(media => { if (media?.length) setPremiereMedia(media) })}>{selectingAll ? 'Collecting matches…' : 'Save matches for Premiere'}</button>
+          <button className="lw-text-button" onClick={() => setPremiereMedia([])}>Saved selections</button>
+        </div>
         {searchMode === 'assets' && (assets.length > 0 || checkedProjects.length > 0) && <div className="lw-project-selection" role="group" aria-label="Media selection">
           <label><input type="checkbox" aria-label="Select media on this page" checked={allPageSelected} disabled={queueing || moving || loading || !selectableProjects.length} onChange={event => setCheckedProjects(previous => event.target.checked ? [...previous, ...selectableProjects.filter(asset => !previous.some(item => item.id === asset.job_id)).map(asset => ({ id: asset.job_id, title: asset.metadata.title || asset.filename }))] : previous.filter(item => !selectableProjects.some(asset => asset.job_id === item.id)))} />Select page</label>
           {(library?.total || 0) > pageSize && <button className="lw-text-button" disabled={selectingAll || queueing || moving} onClick={() => void selectAllMatching()}>{selectingAll ? 'Selecting…' : `Select all ${library?.total} matches`}</button>}
-          {(!!checkedProjects.length || queueing) && <><span>{checkedProjects.length} selected</span><button className="lw-text-button" disabled={queueing || moving} onClick={() => setCheckedProjects([])}>Clear selection</button><FolderMovePicker folders={folders?.folders || []} ids={checkedProjects.map(item => item.id)} disabled={queueing || moving} onMove={moveShots} /><div className="lw-batch-analysis"><select aria-label="Selected media analysis type" disabled={queueing} value={batchMode} onChange={event => setBatchMode(event.target.value as AnalysisMode)}><option value="flash_pro">Full analysis</option><option value="flash_only">Clips and tags</option><option value="cosplay">Cosplay</option></select><button className="lw-button lw-button-primary" disabled={selectingAll || queueing || moving || !checkedProjects.length} onClick={() => void analyzeSelected()}><Icon name="spark" size={16} />{queueing ? 'Queueing…' : 'Analyze selected'}</button></div><button className="lw-button" disabled={selectingAll || queueing || moving || checkedProjects.length > 1000} onClick={() => setExportingMedia([...checkedProjects])}><Icon name="download" size={16} />Export selected</button><button className="lw-button lw-button-danger" disabled={queueing || moving} onClick={() => setDeletingProjects(checkedProjects)}><Icon name="trash" size={15} />Delete selected</button></>}
+          {(!!checkedProjects.length || queueing) && <><span>{checkedProjects.length} selected</span><button className="lw-text-button" disabled={queueing || moving} onClick={() => setCheckedProjects([])}>Clear selection</button><FolderMovePicker folders={folders?.folders || []} ids={checkedProjects.map(item => item.id)} disabled={queueing || moving} onMove={moveShots} /><div className="lw-batch-analysis"><select aria-label="Selected media analysis type" disabled={queueing} value={batchMode} onChange={event => setBatchMode(event.target.value as AnalysisMode)}><option value="flash_pro">Full analysis</option><option value="flash_only">Clips and tags</option><option value="cosplay">Cosplay</option></select><button className="lw-button lw-button-primary" disabled={selectingAll || queueing || moving || !checkedProjects.length} onClick={() => void analyzeSelected()}><Icon name="spark" size={16} />{queueing ? 'Queueing…' : 'Analyze selected'}</button></div><button className="lw-button" disabled={selectingAll || queueing || moving || checkedProjects.length > 1000} onClick={() => setPremiereMedia([...checkedProjects])}>Save selection for Premiere</button><button className="lw-button" disabled={selectingAll || queueing || moving || checkedProjects.length > 1000} onClick={() => setExportingMedia([...checkedProjects])}><Icon name="download" size={16} />Timeline / XML export</button><button className="lw-button lw-button-danger" disabled={queueing || moving} onClick={() => setDeletingProjects(checkedProjects)}><Icon name="trash" size={15} />Delete selected</button></>}
         </div>}
         {!!batchResults.length && <div className="lw-batch-notice"><div role="status">{batchResults.filter(result => result.accepted).length} media items queued{queueing ? '…' : '.'}</div>{batchResults.filter(result => !result.accepted).map(result => <p className="lw-inline-error" role="alert" key={result.id}>{projects?.find(item => item.id === result.id)?.title || result.id}: {result.error}</p>)}{!queueing && <button className="lw-text-button" onClick={() => setBatchResults([])}>Dismiss</button>}</div>}
         {searchMode === 'shots' && <div className="lw-project-scope">
@@ -431,7 +449,8 @@ export function LibraryWorkspace() {
     </main>
     {selection && (detail?.job_id === selection.id ? <AssetInspector key={`${selection.id}-${selection.shot || 'asset'}`} asset={detail} initialSeconds={selection.seconds} initialShot={selection.shot} capabilities={capabilities} onClose={() => setSelection(current => current?.id === selection.id ? null : current)} onRefresh={refreshLibrary} onConfigure={() => setSettings(true)} onRemoved={note => setUploadNotice(`Media removed.${note ? ` ${note}` : ''}`)} /> : <main className="lw-inspector lw-video-workspace lw-video-workspace-loading" aria-label="Video workspace"><button className="lw-button lw-back-to-library" data-video-back onClick={() => setSelection(null)}><Icon name="back" />Back to library</button>{detailError ? <><p role="alert">{detailError}</p><button className="lw-button" onClick={refreshLibrary}>Try again</button></> : <p role="status">Opening media…</p>}</main>)}
     {deletingProjects && <DeleteProjectsDialog projects={deletingProjects} onClose={() => setDeletingProjects(null)} onDeleted={projectsDeleted} />}
-    {exportingMedia && <MediaExportDialog media={exportingMedia} onClose={() => setExportingMedia(null)} />}
+    {premiereMedia && <PremiereSelectionDialog media={premiereMedia} initialName={metadataFilters.character || query || 'Comic Con selects'} onClose={() => setPremiereMedia(null)} onLoad={saved => { setCheckedProjects(saved.job_ids.map(id => ({ id, title: projects?.find(item => item.id === id)?.title || id }))); setSearchMode('assets'); setPremiereMedia(null) }} />}
+    {exportingMedia && <MediaExportDialog media={exportingMedia} onClose={() => setExportingMedia(null)} onSavePremiere={() => { setPremiereMedia(exportingMedia); setExportingMedia(null) }} />}
     {settings && <SettingsDialog capabilities={capabilities} onClose={() => setSettings(false)} />}
   </div>
 }

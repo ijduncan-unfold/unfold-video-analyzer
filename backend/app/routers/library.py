@@ -8,7 +8,7 @@ from starlette.background import BackgroundTask
 
 from app.config import settings
 from app.dependencies import get_api_key
-from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest, MediaExportSelection, MediaExportRequest
+from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest, MediaExportSelection, MediaExportRequest, PremiereSelectionRequest
 from app.services.job_store import get_job, list_jobs, update_job, claim_analysis, cut_is_active
 from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
@@ -20,6 +20,18 @@ from app.services.cosplay import matches_cosplay, job_cosplay, cosplay_facets, s
 
 router = APIRouter(prefix='/api/library')
 _poster_locks = {}
+
+
+@router.get('/premiere-selections')
+async def list_premiere_selections():
+    from app.services.premiere_selections import selections
+    return {'selections': await asyncio.to_thread(selections)}
+
+
+@router.post('/premiere-selections', status_code=201)
+async def save_premiere_selection(body: PremiereSelectionRequest):
+    from app.services.premiere_selections import save_selection
+    return await asyncio.to_thread(save_selection, body.name, body.job_ids)
 
 
 async def export_media_jobs(ids):

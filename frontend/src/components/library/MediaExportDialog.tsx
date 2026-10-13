@@ -5,9 +5,10 @@ import { errorMessage } from './format'
 import { Icon } from './Icon'
 import './MediaExportDialog.css'
 
-export function MediaExportDialog({ media, onClose }: {
+export function MediaExportDialog({ media, onClose, onSavePremiere }: {
   media: { id: string; title: string }[]
   onClose: () => void
+  onSavePremiere: () => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const lock = useRef(false)
@@ -63,6 +64,7 @@ export function MediaExportDialog({ media, onClose }: {
 
   return <dialog ref={dialog} className="lw-settings-dialog me-dialog" aria-labelledby="media-export-title" onCancel={event => { if (lock.current) event.preventDefault(); else onClose() }}>
     <header className="lw-dialog-heading"><h2 id="media-export-title">Export {media.length} selected media</h2><button className="lw-icon-button" aria-label="Close export" disabled={busy} onClick={onClose}><Icon name="close" /></button></header>
+    <p>For a Premiere bin with searchable metadata, <button className="lw-text-button" disabled={busy} onClick={onSavePremiere}>Save selection for Premiere</button>. Native import works with whole recordings even when timeline timing is unverified.</p>
     <p>Import all selected original recordings into Premiere or Resolve. Your saved analysis becomes descriptions, logging notes and markers.</p>
     <fieldset disabled={busy}>
       <label className="me-field">Project / timeline name<input value={title} maxLength={200} onChange={event => setTitle(event.target.value)} /></label>

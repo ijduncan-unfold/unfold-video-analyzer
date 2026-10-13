@@ -367,3 +367,15 @@ export function exportUrl(id: string, format: ExportFormat, shotNumbers?: number
   params.set('format', format)
   return `/api/library/${encodeURIComponent(id)}/export?${params}`
 }
+
+export interface PremiereSelection {
+  id: string; name: string; job_ids: string[]; count: number; created_at: string
+}
+export function getPremiereSelections() {
+  return request<{ selections: PremiereSelection[] }>('/api/library/premiere-selections')
+}
+export function savePremiereSelection(name: string, ids: string[]) {
+  return request<PremiereSelection>('/api/library/premiere-selections', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, job_ids: ids }),
+  })
+}

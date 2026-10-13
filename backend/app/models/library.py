@@ -89,3 +89,15 @@ class MediaExportRequest(MediaExportSelection):
     layout: Literal['timeline', 'bin'] = 'timeline'
     include_metadata: bool = True
     analysis_versions: dict[str, str] = Field(max_length=1000)
+
+
+class PremiereSelectionRequest(MediaExportSelection):
+    name: str = Field(min_length=1, max_length=160)
+
+    @field_validator('name')
+    @classmethod
+    def selection_name(cls, value):
+        value = ' '.join(value.split())
+        if not value:
+            raise ValueError('Enter a selection name')
+        return value

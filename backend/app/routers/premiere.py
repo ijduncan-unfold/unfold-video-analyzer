@@ -1,5 +1,6 @@
 """Authenticated loopback API for the Premiere UXP companion panel."""
 import os
+import asyncio
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,6 +17,24 @@ from app.services.library_export import export_library
 from app.services.editor_metadata import editor_metadata
 
 router = APIRouter(prefix='/api/editor/premiere', dependencies=[Depends(require_editor)])
+
+
+@router.get('/selections')
+async def saved_selections():
+    from app.services.premiere_selections import selections
+    return {'selections': await asyncio.to_thread(selections)}
+
+
+@router.get('/selections/{selection_id}/plan')
+async def selection_plan(selection_id: str):
+    from app.services.premiere_selections import import_plan
+    return await asyncio.to_thread(import_plan, selection_id)
+
+
+@router.get('/selections/{selection_id}/items/{job_id}')
+async def selection_metadata(selection_id: str, job_id: str):
+    from app.services.premiere_selections import import_metadata
+    return await asyncio.to_thread(import_metadata, selection_id, job_id)
 
 
 @router.get('/health')
