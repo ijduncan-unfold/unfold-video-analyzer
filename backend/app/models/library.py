@@ -84,9 +84,13 @@ class MediaExportSelection(BaseModel):
     job_ids: list[str] = Field(min_length=1, max_length=1000)
 
 
-class MediaExportRequest(MediaExportSelection):
-    title: str = Field(default='Video Analyzer selects', min_length=1, max_length=200)
+class MediaExportOptionsRequest(MediaExportSelection):
+    format: Literal['premiere_xml', 'fcpxml', 'resolve', 'edl'] = 'premiere_xml'
     layout: Literal['timeline', 'bin'] = 'timeline'
+
+
+class MediaExportRequest(MediaExportOptionsRequest):
+    title: str = Field(default='Video Analyzer selects', min_length=1, max_length=200)
     include_metadata: bool = True
     analysis_versions: dict[str, str] = Field(max_length=1000)
 

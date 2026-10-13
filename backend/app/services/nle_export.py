@@ -11,7 +11,10 @@ from app.services.source_timing import verified_rate
 
 
 def _source_timing(data: dict) -> tuple[Fraction, int, Decimal]:
-    rate, source_start, duration, basis = _fcpxml_timing(data)
+    try:
+        rate, source_start, duration, basis = _fcpxml_timing(data)
+    except ValueError as exc:
+        raise ValueError(str(exc).replace("FCPXML", "EDL")) from exc
     if basis != 'embedded_source_timecode':
         raise ValueError('EDL export requires a known embedded source timecode in HH:MM:SS:FF format')
     return rate, source_start, duration
@@ -129,6 +132,25 @@ def export_edl(job) -> str:
     return "\n".join(lines)
 
 
+def format_attributes(technical, fps):
+    width, height = technical.get('width'), technical.get('height')
+    if any(type(value) is not int or value <= 0 for value in (width, height)):
+        raise ValueError('FCPXML timeline requires known positive source dimensions; use the media event instead.')
+    if technical.get('rotation', 0) not in (None, 0):
+        raise ValueError('FCPXML timeline cannot map rotated media yet; use the media event or Resolve import instead.')
+    attributes = dict(frameDuration=f"{fps.denominator}/{fps.numerator}s", width=str(width), height=str(height))
+    aspect = technical.get('sample_aspect_ratio')
+    if aspect not in (None, '', 'N/A'):
+        try:
+            ratio = Fraction(str(aspect).replace(':', '/'))
+            if ratio <= 0:
+                raise ValueError()
+        except (ValueError, ZeroDivisionError) as exc:
+            raise ValueError('Invalid pixel aspect ratio; use the media event or Resolve import instead.') from exc
+        attributes.update(paspH=str(ratio.numerator), paspV=str(ratio.denominator))
+    return attributes
+
+
 def export_fcpxml(job, *, preserve_order=False, title=None) -> str:
     """FCPXML 1.11 media references. Place original media beside XML or relink.
 
@@ -140,11 +162,7 @@ def export_fcpxml(job, *, preserve_order=False, title=None) -> str:
     data = job_data(job)
     fps, source_start, duration, timing_basis = _fcpxml_timing(data)
     technical = data.get("technical") or {}
-    width, height = technical.get("width"), technical.get("height")
-    if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
-        raise ValueError("FCPXML requires known positive source width and height")
-    if technical.get("rotation", 0) not in (0, None):
-        raise ValueError("FCPXML export of rotated media requires a verified orientation mapping; use JSON or XMP")
+    attributes = format_attributes(technical, fps)
     shots = _nle_shots(data, fps, duration, preserve_order=preserve_order)
     filename = source_filename(data.get("filename"))
     time = lambda frames: f"{frames * fps.denominator}/{fps.numerator}s"
@@ -153,7 +171,7 @@ def export_fcpxml(job, *, preserve_order=False, title=None) -> str:
     if timing_basis == "source_relative_file_zero":
         root.append(ET.Comment("Source-relative file-zero timing: no embedded source timecode was available. Zero is the media file origin, not an asserted original timecode."))
     resources = ET.SubElement(root, "resources")
-    ET.SubElement(resources, "format", id="r1", frameDuration=f"{fps.denominator}/{fps.numerator}s", width=str(width), height=str(height))
+    ET.SubElement(resources, "format", id="r1", **attributes)
     asset = ET.SubElement(resources, "asset", id="r2", name=filename, start=time(source_start),
                           duration=time(_frames(duration, fps)), hasVideo="1", format="r1",
                           hasAudio="1" if technical.get("has_audio") else "0")

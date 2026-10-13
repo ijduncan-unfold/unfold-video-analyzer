@@ -335,18 +335,22 @@ export function deleteAsset(id: string) {
   })
 }
 export type ExportFormat = 'json' | 'csv' | 'xmp' | 'srt' | 'edl' | 'fcpxml' | 'premiere_xml'
+export type MediaExportFormat = 'premiere_xml' | 'fcpxml' | 'resolve' | 'edl'
 export interface MediaExportOptions {
+  format: MediaExportFormat
+  layout: 'timeline' | 'bin'
+  reason?: string | null
   available: boolean
   items: { id: string; title: string; filename: string; available: boolean; reason: string | null; analysis_version: string; analyzed: boolean; partial: boolean }[]
 }
-export function getMediaExportOptions(ids: string[], signal?: AbortSignal) {
+export function getMediaExportOptions(ids: string[], format: MediaExportFormat, layout: 'timeline' | 'bin', signal?: AbortSignal) {
   return request<MediaExportOptions>('/api/library/media-export-options', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_ids: ids }), signal,
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_ids: ids, format, layout }), signal,
   })
 }
-export function downloadMediaExport(ids: string[], title: string, layout: 'timeline' | 'bin', includeMetadata: boolean, versions: Record<string, string>, signal?: AbortSignal) {
+export function downloadMediaExport(ids: string[], title: string, layout: 'timeline' | 'bin', includeMetadata: boolean, versions: Record<string, string>, format: MediaExportFormat, signal?: AbortSignal) {
   return fetch('/api/library/media-export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ job_ids: ids, title, layout, include_metadata: includeMetadata, analysis_versions: versions }), signal })
+    body: JSON.stringify({ job_ids: ids, title, layout, include_metadata: includeMetadata, format, analysis_versions: versions }), signal })
 }
 export interface ExportOptions {
   scope: 'selected_shots' | 'asset'

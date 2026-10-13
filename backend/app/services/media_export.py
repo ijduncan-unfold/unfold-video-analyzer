@@ -7,6 +7,7 @@ import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from fastapi import HTTPException
 from pathlib import Path
 
 from app.services.library_export import export_library, iter_shots, job_data, portable_document, segment_times, source_filename
@@ -36,21 +37,49 @@ def source_project(job):
     return ET.fromstring(export_premiere_xml(full_media(job)))
 
 
-def export_checks(jobs):
+EXPORT_FILES = {
+    'premiere_xml': ('Video Analyzer.xml', 'application/xml'),
+    'fcpxml': ('Video Analyzer.fcpxml', 'application/xml'),
+    'edl': ('Video Analyzer.edl', 'text/plain'),
+    'resolve': ('Import into Resolve.py', 'text/x-python'),
+}
+
+
+def export_content(jobs, title, layout, format):
+    from app.services.alternate_media_export import combined_fcpxml, combined_edl, resolve_script
+    if format == 'fcpxml':
+        return combined_fcpxml(jobs, title, layout)
+    if format == 'resolve':
+        return resolve_script(jobs, title)
+    if format == 'edl':
+        return combined_edl(jobs, title)
+    if format != 'premiere_xml':
+        raise ValueError('Unknown media export format')
+    return combined_project(jobs, title, layout)
+
+
+def export_checks(jobs, format='premiere_xml', layout='timeline'):
     items = []
     for job in jobs:
         reason = None
         try:
-            source_project(job)
-        except ValueError as exc:
-            reason = str(exc)
+            export_content([job], 'Selection', layout, format)
+        except (ValueError, OSError, HTTPException) as exc:
+            reason = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
         items.append({'id': job.job_id, 'filename': source_filename(job.filename),
                       'title': job.metadata.get('title') or source_filename(job.filename),
                       'available': reason is None, 'reason': reason,
                       'analysis_version': str(job.analysis_config.get('started_at') or ''),
                       'analyzed': bool(job.flash_result),
                       'partial': job.status in ('queued', 'analyzing', 'processing', 'error')})
-    return {'items': items, 'available': all(item['available'] for item in items)}
+    collection_reason = None
+    if format == 'edl' and all(item['available'] for item in items):
+        try:
+            export_content(jobs, 'Selection', layout, format)
+        except ValueError as exc:
+            collection_reason = str(exc)
+    return {'items': items, 'available': all(item['available'] for item in items) and not collection_reason,
+            'reason': collection_reason, 'format': format, 'layout': layout}
 
 
 def logging(parent, job):
@@ -200,9 +229,10 @@ def combined_csv(jobs):
     return output.getvalue()
 
 
-def build_download(jobs, title, layout, include_metadata):
-    content = combined_project(jobs, title, layout)
-    temporary = tempfile.NamedTemporaryFile(prefix='video-analyzer-export-', suffix='.zip' if include_metadata else '.xml', delete=False)
+def build_download(jobs, title, layout, include_metadata, format='premiere_xml'):
+    content = export_content(jobs, title, layout, format)
+    main_file, _ = EXPORT_FILES[format]
+    temporary = tempfile.NamedTemporaryFile(prefix='video-analyzer-export-', suffix='.zip' if include_metadata else Path(main_file).suffix, delete=False)
     path = Path(temporary.name)
     temporary.close()
     try:
@@ -210,7 +240,7 @@ def build_download(jobs, title, layout, include_metadata):
             path.write_text(content, encoding='utf-8')
             return path
         with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr('Video Analyzer.xml', content)
+            archive.writestr(main_file, content)
             archive.writestr('library.json', json.dumps({'schema': 'video-analyzer.collection', 'schema_version': '1.0',
                 'assets': [portable_document(job) for job in jobs]}, ensure_ascii=False, indent=2))
             archive.writestr('clips.csv', combined_csv(jobs))
@@ -219,18 +249,30 @@ def build_download(jobs, title, layout, include_metadata):
                 stem = re.sub(r'[^\w .-]', '_', Path(source_filename(job.filename)).stem)[:100].strip(' .') or 'media'
                 folder = f'metadata/{index:04d}_{stem}'
                 record = {'id': job.job_id, 'filename': source_filename(job.filename), 'files': [], 'unavailable': {}}
-                for format in ('xmp', 'srt'):
+                for sidecar_format in ('xmp', 'srt'):
                     try:
-                        result, _, extension = export_library(job, format)
+                        result, _, extension = export_library(job, sidecar_format)
                     except ValueError as exc:
-                        record['unavailable'][format] = str(exc)
+                        record['unavailable'][sidecar_format] = str(exc)
                         continue
                     name = f'{folder}/{stem}.{extension}'
                     archive.writestr(name, result)
                     record['files'].append(name)
                 records.append(record)
             archive.writestr('manifest.json', json.dumps({'media_count': len(jobs), 'media_included': False, 'items': records}, ensure_ascii=False, indent=2))
-            archive.writestr('Read me.txt', 'Extract this package, then import Video Analyzer.xml into Premiere (File > Import) or Resolve (File > Import > Timeline). The media bin contains whole original recordings; the optional timeline follows your selection order. Original video is referenced, not copied. Relink if a source has moved or is offline.\n\nDescriptions, source-relative analysis/dialogue markers and logging notes are in the XML. Editors differ in which XML metadata fields they expose. library.json and the XMP sidecars retain complete saved analysis; use the editor integration to sync supported native metadata fields. Subtitle files retain source-relative times, not combined-timeline times. manifest.json lists absent/invalid subtitle exports. AI timestamps are approximate. Mixed frame-rate timeline lengths round to sequence frames without changing the source in/out points.\n')
+            instructions = {
+                'premiere_xml': 'Import Video Analyzer.xml into Premiere (File > Import) or Resolve (File > Import > Timeline). Whole sources are in the bin; the optional timeline follows selection order.',
+                'fcpxml': 'Import Video Analyzer.fcpxml into Final Cut Pro (File > Import > XML). For a timeline, Resolve also accepts FCPXML via File > Import > Timeline. Media-event-only import is intended for Final Cut; use the Resolve package for a Resolve bin. Event-only exports let the editor discover native duration, cadence and aspect ratio. Timeline exports carry exact source rates and explicit known pixel aspect ratios. Notes and keywords contain reviewed descriptions and tags.',
+                'resolve': "Open the intended project in DaVinci Resolve. Extract Import into Resolve.py. Open Workspace > Console, select Python 3, and execute: exec(open('/absolute/path/Import into Resolve.py', encoding='utf-8').read()). Substitute the actual extracted script path; Windows can use forward slashes. Requires a working Resolve Python scripting runtime. The script imports whole originals into a named Media Pool bin, applies Description/Keywords and full analysis in Comments, preserves existing populated fields, and verifies the writes. It does not create a timeline. Native codec support is determined by Resolve and its version/platform. Rerunning reuses the selection bin and preserves editor changes. If a source changed, export a fresh package; no silent skips.",
+                'edl': 'Import original media into your editor, then conform Video Analyzer.edl as a CMX3600 EDL. Video only: audio, codecs and pixel aspect are not encoded. Assign/map the generated VA000001 etc. reel IDs using EDL reels.csv (source paths also appear in comments); duplicate basenames require explicit reel mapping. All events use one verified non-drop rate and known embedded timecode. Comments are not a substitute for native searchable metadata; retain the accompanying metadata files.',
+            }
+            if format == 'edl':
+                reels = io.StringIO(newline='')
+                writer = csv.writer(reels)
+                writer.writerow(['Reel', 'File Name', 'File Path'])
+                writer.writerows((f'VA{index:06d}', source_filename(job.filename), job.local_path) for index, job in enumerate(jobs, 1))
+                archive.writestr('EDL reels.csv', reels.getvalue())
+            archive.writestr('Read me.txt', instructions[format] + '\n\nOriginal files are referenced in place, not copied or rendered. Keep their drives mounted, preserve camera sidecars and folder structure, and relink if moved. Format compatibility does not add RAW decoder support to the receiving editor.\n\nThe package retains complete saved analysis in library.json and XMP, plus combined CSV and available source-relative SRT. Editor metadata exposure varies by importer. manifest.json lists unavailable sidecars. No new analysis is performed. These handoffs contain original filesystem paths. Native editor acceptance remains unverified for the new formats.\n')
         return path
     except BaseException:
         path.unlink(missing_ok=True)

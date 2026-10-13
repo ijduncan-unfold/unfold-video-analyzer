@@ -78,3 +78,7 @@ Library search, character and franchise filters can be saved with **Save matches
 The authenticated panel checks each original's identity and fetches the latest corrections immediately before importing it. Missing or changed originals stop the import with a visible error. Completed clips remain in the bin; retry reuses those clips and preserves manually edited metadata fields. Keep the original storage mounted and the companion running. Video is linked in place, not copied, and this operation makes no analysis requests. The current Mac panel requires the trusted localhost HTTPS setup described in the [integration instructions](../integrations/premiere/README.md#install-and-connect-on-apple-silicon-mac).
 
 Native bin creation, file import, metadata readback, retry, source/project changes and panel requests are covered by injected tests. Acceptance of this new selection import inside installed Premiere remains pending.
+
+## Alternative selected-media formats
+
+Library **Export options** offers FCPXML media events/timelines, native Resolve import and CMX3600 EDL alongside legacy XML. FCPXML uses notes, keywords and resource metadata. Native Resolve import writes searchable fields and full Comments without timeline timing or pixel-aspect mapping. EDL only retains comments and references for video conform; use its accompanying metadata package for the complete record. See [format choices and exact import steps](MEDIA_HANDOFFS.md).

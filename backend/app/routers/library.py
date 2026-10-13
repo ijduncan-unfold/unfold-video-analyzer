@@ -8,7 +8,7 @@ from starlette.background import BackgroundTask
 
 from app.config import settings
 from app.dependencies import get_api_key
-from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest, MediaExportSelection, MediaExportRequest, PremiereSelectionRequest
+from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest, MediaExportSelection, MediaExportRequest, MediaExportOptionsRequest, PremiereSelectionRequest
 from app.services.job_store import get_job, list_jobs, update_job, claim_analysis, cut_is_active
 from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
@@ -47,25 +47,26 @@ async def export_media_jobs(ids):
 
 
 @router.post('/media-export-options')
-async def media_export_options(body: MediaExportSelection):
+async def media_export_options(body: MediaExportOptionsRequest):
     from app.services.media_export import export_checks
     jobs = await export_media_jobs(body.job_ids)
-    return await asyncio.to_thread(export_checks, jobs)
+    return await asyncio.to_thread(export_checks, jobs, body.format, body.layout)
 
 
 @router.post('/media-export')
 async def export_selected_media(body: MediaExportRequest):
-    from app.services.media_export import build_download
+    from app.services.media_export import build_download, EXPORT_FILES
     jobs = await export_media_jobs(body.job_ids)
     versions = {job.job_id: str(job.analysis_config.get('started_at') or '') for job in jobs}
     if body.analysis_versions != versions:
         raise HTTPException(409, 'Selected analysis changed. Check the selection again before exporting.')
     try:
-        path = await asyncio.to_thread(build_download, jobs, body.title.strip() or 'Video Analyzer selects', body.layout, body.include_metadata)
+        path = await asyncio.to_thread(build_download, jobs, body.title.strip() or 'Video Analyzer selects', body.layout, body.include_metadata, body.format)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
-    return FileResponse(path, media_type='application/zip' if body.include_metadata else 'application/xml',
-        filename='Video Analyzer media export.' + ('zip' if body.include_metadata else 'xml'),
+    main_file, mime = EXPORT_FILES[body.format]
+    return FileResponse(path, media_type='application/zip' if body.include_metadata else mime,
+        filename='Video Analyzer media export.zip' if body.include_metadata else main_file,
         background=BackgroundTask(path.unlink, missing_ok=True))
 
 

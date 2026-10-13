@@ -26,7 +26,7 @@ Cosplay uses the existing primary Gemini model in a focused shot-analysis pass. 
 
 Cosplay analysis now leads the standard editor Description with costume details and appends the original scene description. Character, franchise and variant names become Keywords. The Metadata tab previews the effective values; review corrections before using Sync metadata in Premiere 0.1.20 or Resolve 0.1.3. Separate labeled cosplay fields retain the detailed identifications. See [the editor mapping](EDITOR_METADATA.md#cosplay-metadata) for native sync, XMP/XML exports and import limitations. No reanalysis is needed for existing saved costume results.
 
-From the Media library, **Timeline / XML export** bundles up to 1,000 recordings into one editor XML and optional metadata ZIP. Combined descriptions, shot markers, CSV and XMP use the reviewed costume identifications; raw model suggestions remain in the archival JSON. The timeline references complete original recordings and requires verified source timing.
+From the Media library, the legacy XML choice in **Export options** bundles up to 1,000 recordings into one editor XML and optional metadata ZIP. Combined descriptions, shot markers, CSV and XMP use the reviewed costume identifications; raw model suggestions remain in the archival JSON. The timeline references complete original recordings and requires verified source timing.
 
 For a searchable Premiere bin of complete recordings, use **Find character** or the search and metadata filters, then **Save matches for Premiere**. Name the fixed selection (for example “Wonder Woman”), and in Premiere integration **0.1.21+** choose **Saved analyzer selections → Import clips + metadata**. This imports the originals and current corrected Description, Keywords and cosplay fields. Multiple matching segments share one source recording; all pages are included. This route does not require verified constant frame timing or another Gemini pass. The existing timeline/XML timing checks still apply to cut-based exports.
 
@@ -47,3 +47,5 @@ npm --prefix frontend test
 npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
+
+Alternative handoffs include FCPXML media events/timelines, a Resolve native import package and CMX3600 EDL. Use a whole-file event or Resolve import for original media whose timing or pixel aspect cannot be mapped by legacy XML. [Format choices and import instructions](MEDIA_HANDOFFS.md).
