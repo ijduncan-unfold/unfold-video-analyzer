@@ -92,6 +92,12 @@ A drawn outline is compared against the candidate silhouettes already identified
 
 ## Export useful information
 
+From the **Media** library, check individual recordings (or **Select page**) and choose **Export selected**. The combined editor XML references every selected whole original, in selection order, and creates a timeline for Premiere or Resolve. **Media bin only** creates a Premiere import containing the selected sources without a timeline. Analysis clip ranges and dialogue appear as markers, rather than splitting the originals into subclips.
+
+**Include complete metadata package** downloads one ZIP containing `Video Analyzer.xml`, combined JSON and CSV, each source's XMP sidecar, and available source-timed SRT transcripts. Extract it, then import the XML using **File → Import** in Premiere or **File → Import → Timeline** in Resolve. Original video is referenced in place, not copied. The first selected source sets the timeline frame rate and dimensions; source in/out points keep their own frame rate. Relink media if its original location is unavailable.
+
+XML carries descriptions, scene/take logging, full analysis in logging notes, and source-relative markers. Editors expose different XML fields; the JSON/XMP retain the complete record, and the editor integrations can sync supported native metadata fields. SRTs retain each source's times, not combined-timeline offsets. A manifest lists absent or invalid subtitle exports. Unknown/unsupported source timing, orientation or audio layout is reported per source and blocks the combined XML; nothing is silently dropped. Exporting saved results makes no Gemini calls.
+
 The dedicated Export screen supports the whole project or one or more selected shots. Available formats depend on the saved analysis and source timing; unavailable options explain what is missing.
 
 ![Export workspace with whole-video and selected-shot scope.](docs/screenshots/export-workspace.png)

@@ -4,10 +4,11 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
+from starlette.background import BackgroundTask
 
 from app.config import settings
 from app.dependencies import get_api_key
-from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest
+from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest, MediaExportSelection, MediaExportRequest
 from app.services.job_store import get_job, list_jobs, update_job, claim_analysis, cut_is_active
 from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
@@ -17,6 +18,41 @@ from app.services.library_filters import library_facets, matches_metadata, match
 
 router = APIRouter(prefix='/api/library')
 _poster_locks = {}
+
+
+async def export_media_jobs(ids):
+    if len(set(ids)) != len(ids):
+        raise HTTPException(422, 'Select each media item only once.')
+    jobs = [require_job(id) for id in ids]
+    from app.services.source_timing import refresh_export_source
+    semaphore = asyncio.Semaphore(4)
+    async def refresh(job):
+        async with semaphore:
+            return await refresh_export_source(job)
+    return await asyncio.gather(*(refresh(job) for job in jobs))
+
+
+@router.post('/media-export-options')
+async def media_export_options(body: MediaExportSelection):
+    from app.services.media_export import export_checks
+    jobs = await export_media_jobs(body.job_ids)
+    return await asyncio.to_thread(export_checks, jobs)
+
+
+@router.post('/media-export')
+async def export_selected_media(body: MediaExportRequest):
+    from app.services.media_export import build_download
+    jobs = await export_media_jobs(body.job_ids)
+    versions = {job.job_id: str(job.analysis_config.get('started_at') or '') for job in jobs}
+    if body.analysis_versions != versions:
+        raise HTTPException(409, 'Selected analysis changed. Check the selection again before exporting.')
+    try:
+        path = await asyncio.to_thread(build_download, jobs, body.title.strip() or 'Video Analyzer selects', body.layout, body.include_metadata)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return FileResponse(path, media_type='application/zip' if body.include_metadata else 'application/xml',
+        filename='Video Analyzer media export.' + ('zip' if body.include_metadata else 'xml'),
+        background=BackgroundTask(path.unlink, missing_ok=True))
 
 
 def require_job(job_id):
