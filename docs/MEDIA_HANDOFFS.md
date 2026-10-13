@@ -1,6 +1,6 @@
 # Selected-media handoffs
 
-Select original recordings in the library, then choose **Export options**. Search and character/franchise filters also feed the existing selection tools. All formats reference originals in place; none render proxies or bundle video bytes. Preserve camera sidecars and folder structure and keep the source drives mounted. Handoffs contain the original filesystem paths.
+Choose **Export** in the library. Inside the modal, **Include** selects checked recordings or all current search matches. **Premiere · saved selection** saves that scope or reopens existing Premiere selections; all file formats are in the same menu. Search and character/franchise filters also feed the existing selection tools. All formats reference originals in place; none render proxies or bundle video bytes. Preserve camera sidecars and folder structure and keep the source drives mounted. Handoffs contain the original filesystem paths.
 
 | Choice | Best use | Required source facts | Metadata and limitations |
 |---|---|---|---|

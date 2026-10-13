@@ -1,14 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
-import { downloadMediaExport, getMediaExportOptions } from '../../api/library'
-import type { MediaExportOptions, MediaExportFormat } from '../../api/library'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { downloadMediaExport, getMediaExportOptions, getPremiereSelections, getProjects, savePremiereSelection } from '../../api/library'
+import type { MediaExportOptions, MediaExportFormat, PremiereSelection } from '../../api/library'
 import { errorMessage } from './format'
 import { Icon } from './Icon'
 import './MediaExportDialog.css'
 
-export function MediaExportDialog({ media, onClose, onSavePremiere }: {
-  media: { id: string; title: string }[]
+type Media = { id: string; title: string }
+type Destination = MediaExportFormat | 'premiere_selection'
+
+export function MediaExportDialog({ selectedMedia, initialName, matchCount, onCollectMatches, onClose }: {
+  selectedMedia: Media[]
+  initialName: string
+  matchCount: number
+  onCollectMatches: () => Promise<Media[] | undefined>
   onClose: () => void
-  onSavePremiere: () => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const lock = useRef(false)
@@ -18,14 +23,25 @@ export function MediaExportDialog({ media, onClose, onSavePremiere }: {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [title, setTitle] = useState('Video Analyzer selects')
+  const [title, setTitle] = useState(initialName.slice(0, 160))
   const [layout, setLayout] = useState<'timeline' | 'bin'>('bin')
-  const [format, setFormat] = useState<MediaExportFormat>('fcpxml')
-  const options = checkedOptions?.format === format && checkedOptions?.layout === layout ? checkedOptions : null
-  const extension = { premiere_xml: 'xml', fcpxml: 'fcpxml', resolve: 'py', edl: 'edl' }[format]
-  const [includeMetadata, setIncludeMetadata] = useState(true)
+  const [format, setFormat] = useState<Destination>('fcpxml')
+  const [scope, setScope] = useState<'selected' | 'matches' | 'saved'>(selectedMedia.length ? 'selected' : 'matches')
+  const [matches, setMatches] = useState<Media[] | null>(null)
+  const [matchError, setMatchError] = useState('')
+  const [loaded, setLoaded] = useState<{ name: string; media: Media[] } | null>(null)
+  const [selections, setSelections] = useState<PremiereSelection[]>([])
+  const [savedKey, setSavedKey] = useState('')
+  const media = scope === 'selected' ? selectedMedia : scope === 'saved' ? loaded?.media || [] : matches || []
+  const collecting = scope === 'matches' && matches === null && !matchError
+  const nativePremiere = format === 'premiere_selection'
   const idsKey = JSON.stringify(media.map(item => item.id))
+  const selectionKey = idsKey + title.trim()
+  const options = checkedOptions?.format === format && checkedOptions?.layout === layout && JSON.stringify(checkedOptions.items.map(item => item.id)) === idsKey ? checkedOptions : null
+  const extension = nativePremiere ? '' : { premiere_xml: 'xml', fcpxml: 'fcpxml', resolve: 'py', edl: 'edl' }[format]
+  const [includeMetadata, setIncludeMetadata] = useState(true)
   const details = new Map(options?.items.map(item => [item.id, item]))
+  const collectMatches = useEffectEvent(onCollectMatches)
 
   useEffect(() => {
     const element = dialog.current!
@@ -33,6 +49,25 @@ export function MediaExportDialog({ media, onClose, onSavePremiere }: {
     return () => { downloadController.current?.abort(); element.close() }
   }, [])
   useEffect(() => {
+    if (scope !== 'matches' || matches !== null) return
+    let active = true
+    collectMatches().then(result => {
+      if (!active) return
+      if (result) setMatches(result)
+      else setMatchError('Could not collect this search. Close Export and try again.')
+    }).catch(cause => { if (active) setMatchError(errorMessage(cause)) })
+    return () => { active = false }
+  }, [scope, matches])
+  useEffect(() => {
+    if (!nativePremiere) return
+    let active = true
+    getPremiereSelections().then(result => {
+      if (active) setSelections(previous => [...new Map([...result.selections, ...previous].map(item => [item.id, item])).values()])
+    }).catch(cause => { if (active) setError(errorMessage(cause)) })
+    return () => { active = false }
+  }, [nativePremiere])
+  useEffect(() => {
+    if (format === 'premiere_selection' || !JSON.parse(idsKey).length || JSON.parse(idsKey).length > 1000) return
     const controller = new AbortController()
     getMediaExportOptions(JSON.parse(idsKey), format, layout, controller.signal).then(result => {
       if (!controller.signal.aborted) setOptions(result)
@@ -40,8 +75,29 @@ export function MediaExportDialog({ media, onClose, onSavePremiere }: {
     return () => controller.abort()
   }, [idsKey, retry, format, layout])
 
+  async function loadSelection(selection: PremiereSelection) {
+    if (lock.current) return
+    lock.current = true; setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await getProjects()
+      const names = new Map(result.projects.map(item => [item.id, item.title || item.filename]))
+      setLoaded({ name: selection.name, media: selection.job_ids.map(id => ({ id, title: names.get(id) || 'Unavailable recording' })) })
+      setTitle(selection.name); setScope('saved'); setSavedKey(JSON.stringify(selection.job_ids) + selection.name)
+    } catch (cause) { setError(errorMessage(cause)) }
+    finally { lock.current = false; setBusy(false) }
+  }
+  async function saveSelection() {
+    if (lock.current || !media.length || media.length > 1000 || !title.trim() || savedKey === selectionKey) return
+    lock.current = true; setBusy(true); setError(''); setNotice('')
+    try {
+      const selection = await savePremiereSelection(title.trim(), media.map(item => item.id))
+      setSavedKey(selectionKey); setSelections(previous => [selection, ...previous])
+      setNotice(`“${selection.name}” saved for Premiere · ${selection.count} ${selection.count === 1 ? 'recording' : 'recordings'}.`)
+    } catch (cause) { setError(errorMessage(cause)) }
+    finally { lock.current = false; setBusy(false) }
+  }
   async function download() {
-    if (lock.current || !options?.available) return
+    if (lock.current || !options?.available || format === 'premiere_selection') return
     lock.current = true; setBusy(true); setError(''); setNotice('')
     const controller = new AbortController()
     downloadController.current = controller
@@ -66,30 +122,37 @@ export function MediaExportDialog({ media, onClose, onSavePremiere }: {
   }
 
   return <dialog ref={dialog} className="lw-settings-dialog me-dialog" aria-labelledby="media-export-title" onCancel={event => { if (lock.current) event.preventDefault(); else onClose() }}>
-    <header className="lw-dialog-heading"><h2 id="media-export-title">Export {media.length} selected media</h2><button className="lw-icon-button" aria-label="Close export" disabled={busy} onClick={onClose}><Icon name="close" /></button></header>
-    <p>For native Premiere import, <button className="lw-text-button" disabled={busy} onClick={onSavePremiere}>Save selection for Premiere</button>.</p>
-    <p>Send the selected original recordings and their saved metadata to your editor.</p>
+    <header className="lw-dialog-heading"><h2 id="media-export-title">Export</h2><button className="lw-icon-button" aria-label="Close export" disabled={busy} onClick={onClose}><Icon name="close" /></button></header>
+    <p>Send original recordings and their saved metadata to your editor.</p>
     <fieldset disabled={busy}>
-      <label className="me-field">Project / timeline name<input value={title} maxLength={200} onChange={event => setTitle(event.target.value)} /></label>
-      <label className="me-field">Export format<select value={format} onChange={event => { const next = event.target.value as MediaExportFormat; setFormat(next); setError(''); setNotice(''); if (next === 'edl') setLayout('timeline'); if (next === 'resolve') setLayout('bin') }}>
+      <label className="me-field">Include<select value={scope} disabled={collecting} onChange={event => { setScope(event.target.value as typeof scope); setMatchError(''); setError(''); setNotice('') }}>
+        <option value="selected" disabled={!selectedMedia.length}>Selected recordings ({selectedMedia.length})</option>
+        <option value="matches">All search matches ({matchCount})</option>
+        {loaded && <option value="saved">Saved selection: {loaded.name} ({loaded.media.length})</option>}
+      </select></label>
+      <label className="me-field">Export format<select value={format} onChange={event => { const next = event.target.value as Destination; setFormat(next); setError(''); setNotice(''); if (next === 'edl') setLayout('timeline'); if (next === 'resolve') setLayout('bin') }}>
+        <option value="premiere_selection">Premiere · saved selection</option>
         <option value="fcpxml">Final Cut Pro XML (.fcpxml)</option>
         <option value="resolve">DaVinci Resolve native media import (.py)</option>
         <option value="edl">CMX3600 EDL (.edl) · video only</option>
         <option value="premiere_xml">Premiere / Resolve legacy XML (.xml)</option>
       </select></label>
+      <label className="me-field">{nativePremiere ? 'Selection name' : 'Project / timeline name'}<input value={title} maxLength={160} onChange={event => setTitle(event.target.value)} /></label>
       {(format === 'fcpxml' || format === 'premiere_xml') && <label className="me-field">Create<select value={layout} onChange={event => { setLayout(event.target.value as 'timeline' | 'bin'); setNotice('') }}><option value="bin">{format === 'fcpxml' ? 'Media event only · Final Cut Pro' : 'Media bin only · Premiere'}</option><option value="timeline">{format === 'fcpxml' ? 'Timeline + media event · Final Cut / Resolve' : 'Timeline + media bin · Premiere / Resolve'}</option></select></label>}
-      <p className="me-hint">{format === 'resolve' ? 'Original video/audio and searchable metadata in a Resolve bin, without XML timing or pixel-aspect checks. Run the included script in Resolve’s Python 3 console; the package includes instructions.' : format === 'edl' ? 'Video-only conform list; requires matching frame rates and known non-drop timecode. Import originals separately and map reel IDs. Choose the package for reel mapping and full metadata.' : format === 'fcpxml' && layout === 'bin' ? 'Whole originals with descriptions and keywords. Final Cut discovers native timing and pixel aspect. For a Resolve bin, choose native Resolve import.' : 'Whole recordings in selection order. Timeline exports require reliable source timing. FCPXML carries known non-square pixel aspect ratios directly; the legacy XML route retains its stricter mapping checks.'}</p>
-      <label className="me-checkbox"><input type="checkbox" checked={includeMetadata} onChange={event => setIncludeMetadata(event.target.checked)} /><span>Include complete metadata package<small>Handoff, instructions, full JSON, CSV, XMP and available SRT transcripts in one ZIP.</small></span></label>
+      <p className="me-hint">{nativePremiere ? 'Save a fixed selection of originals with searchable metadata. In the Premiere panel (0.1.21+), connect and choose Saved analyzer selections → Import clips + metadata. Keep the companion running.' : format === 'resolve' ? 'Original video/audio and searchable metadata in a Resolve bin, without XML timing or pixel-aspect checks. Run the included script in Resolve’s Python 3 console; the package includes instructions.' : format === 'edl' ? 'Video-only conform list; requires matching frame rates and known non-drop timecode. Import originals separately and map reel IDs. Choose the package for reel mapping and full metadata.' : format === 'fcpxml' && layout === 'bin' ? 'Whole originals with descriptions and keywords. Final Cut discovers native timing and pixel aspect. For a Resolve bin, choose native Resolve import.' : 'Whole recordings in selection order. Timeline exports require reliable source timing. FCPXML carries known non-square pixel aspect ratios directly; the legacy XML route retains its stricter mapping checks.'}</p>
+      {!nativePremiere && <label className="me-checkbox"><input type="checkbox" checked={includeMetadata} onChange={event => setIncludeMetadata(event.target.checked)} /><span>Include complete metadata package<small>Handoff, instructions, full JSON, CSV, XMP and available SRT transcripts in one ZIP.</small></span></label>}
     </fieldset>
-    <p className="me-hint">Originals are linked in place. Keep drives and camera sidecars available. The receiving editor must support their codec.</p>
-    {!options && !error && <p role="status">Checking selected media…</p>}
-    <ul className="me-media-list">{media.map(item => {
+    {collecting ? <p role="status">Collecting all search matches…</p> : <p>{media.length} original {media.length === 1 ? 'recording' : 'recordings'} included. Originals stay in place.</p>}
+    {media.length > 1000 && <p className="me-error" role="alert">Refine this selection to 1,000 recordings or fewer.</p>}
+    {!nativePremiere && !!media.length && media.length <= 1000 && !options && !error && <p role="status">Checking selected media…</p>}
+    <details className="me-recordings"><summary>Included recordings ({media.length})</summary><ul className="me-media-list">{media.map(item => {
       const detail = details.get(item.id)
       return <li key={item.id}><strong>{item.title}</strong>{detail && <>{!detail.available && <span className="me-error">{detail.reason}</span>}{!detail.analyzed && <small>No saved clip analysis; original media metadata will be included.</small>}{detail.partial && <small>Includes currently saved results; analysis may be incomplete.</small>}</>}</li>
-    })}</ul>
-    {options && !options.available && <p className="me-error" role="alert">{options.reason || 'Some media cannot use this format and layout. Choose a media event or Resolve import, or resolve the issues above. No media will be silently skipped.'}</p>}
-    {error && <p className="me-error" role="alert">{error}</p>}
+    })}</ul></details>
+    {!nativePremiere && options && !options.available && <p className="me-error" role="alert">{options.reason || 'Some recordings cannot use this format and layout. Expand Included recordings for details, or choose a media event or native import.'}</p>}
+    {nativePremiere && <details className="me-recordings"><summary>Saved Premiere selections ({selections.length})</summary><ul className="me-media-list">{selections.map(selection => <li key={selection.id}><strong>{selection.name}</strong><small>{selection.count} {selection.count === 1 ? 'recording' : 'recordings'}</small><button className="lw-text-button" disabled={busy || collecting} onClick={() => void loadSelection(selection)}>Use this selection</button></li>)}</ul>{!selections.length && <p>No saved selections yet.</p>}</details>}
+    {(error || (scope === 'matches' && matchError)) && <p className="me-error" role="alert">{error || matchError}</p>}
     {notice && <p role="status">{notice}</p>}
-    <footer className="lw-dialog-actions"><button className="lw-button" disabled={busy} onClick={() => { setError(''); setOptions(null); setRetry(value => value + 1) }}>Check again</button><button className="lw-button" disabled={busy} onClick={onClose}>Close</button><button className="lw-button lw-button-primary" disabled={busy || !options?.available || !title.trim()} onClick={() => void download()}><Icon name="download" size={16} />{busy ? 'Preparing export…' : includeMetadata ? 'Download editor package' : `Download .${extension}`}</button></footer>
+    <footer className="lw-dialog-actions">{!nativePremiere && <button className="lw-button" disabled={busy} onClick={() => { setError(''); setOptions(null); setRetry(value => value + 1) }}>Check again</button>}<button className="lw-button" disabled={busy} onClick={onClose}>Close</button><button className="lw-button lw-button-primary" disabled={busy || collecting || !media.length || media.length > 1000 || !title.trim() || (nativePremiere ? savedKey === selectionKey : !options?.available)} onClick={() => void (nativePremiere ? saveSelection() : download())}><Icon name="download" size={16} />{busy ? 'Preparing export…' : nativePremiere ? savedKey === selectionKey ? 'Saved for Premiere' : scope === 'matches' ? 'Save matches for Premiere' : 'Save selection for Premiere' : includeMetadata ? 'Download editor package' : `Download .${extension}`}</button></footer>
   </dialog>
 }
