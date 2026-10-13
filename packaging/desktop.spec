@@ -11,7 +11,8 @@ frontend = root / "frontend" / "dist"
 if not (frontend / "index.html").is_file():
     raise SystemExit("Build frontend first: npm --prefix frontend run build")
 
-datas = [(str(frontend), "frontend/dist")]
+datas = [(str(frontend), "frontend/dist"),
+         (str(root / "backend/app/services/resolve_import_template.py"), "app/services")]
 python_license = next(iter(Path(sys.base_prefix).glob("LICENSE*")), None)
 if python_license is not None:
     datas.append((str(python_license), "desktop-docs/python"))

@@ -69,6 +69,7 @@ const XMP_FIELDS = {
 };
 const METADATA_COLUMNS = new Set(["Column.PropertyText.Description", "Column.Intrinsic.LogNote", "Column.PropertyText.Scene", "Column.PropertyText.Shot", "Column.Intrinsic.TapeName",
   "VideoAnalyzerKeywords", "VideoAnalyzerTake", "VideoAnalyzerCamera", "VideoAnalyzerProduction", "VideoAnalyzerDirector", "VideoAnalyzerCinematographer", "VideoAnalyzerShotType", "VideoAnalyzerCameraMovement", "VideoAnalyzerLocation", "VideoAnalyzerColors", "VideoAnalyzerSubjects", "VideoAnalyzerDialogue",
+  "VideoAnalyzerSceneDescription", "VideoAnalyzerCosplayDescription", "VideoAnalyzerCosplayCharacters", "VideoAnalyzerCosplayFranchises", "VideoAnalyzerCosplayVariants", "VideoAnalyzerCosplayIdentification",
   "VideoAnalyzerClipDescriptions", "VideoAnalyzerDetails", "VideoAnalyzerSlates", "VideoAnalyzerTechnical"]);
 
 function analysisFields(record) {
@@ -482,6 +483,74 @@ function createHost(injectedApi, injectedXmp) {
     }, label); });
     if (committed !== true) fail("EDIT_TRANSACTION_FAILED", "Premiere did not confirm this edit. Inspect the Project panel and timeline before retrying.");
   }
+  async function importSelection(plan, expectedProjectId, loadMetadata, progress = () => {}) {
+    if (!plan || plan.schema !== "unfold.premiere-selection" || !/^[a-f0-9-]{36}$/.test(plan.id || "") ||
+        typeof plan.name !== "string" || !plan.name.trim() || plan.name.length > 160 ||
+        !Array.isArray(plan.items) || !plan.items.length || plan.items.length > 1000 || typeof loadMetadata !== "function") {
+      fail("INVALID_SELECTION", "Refresh the saved analyzer selection before importing.");
+    }
+    const seen = new Set();
+    for (const item of plan.items) {
+      if (!item || typeof item.id !== "string" || !item.id || seen.has(item.id) ||
+          typeof item.media_path !== "string" || !/^([a-z]:[\\/]|\\\\|\/)/i.test(item.media_path)) {
+        fail("INVALID_SELECTION", "Selection contains invalid or duplicate media references.");
+      }
+      seen.add(item.id);
+    }
+    const project = await activeProject(expectedProjectId);
+    const projectId = identity(project).id;
+    requiredMethod(project, "importFiles");
+    const root = await project.getRootItem();
+    requiredMethod(root, "getItems"); requiredMethod(root, "createBinAction");
+    const binName = plan.name + " · " + plan.id.slice(0, 8);
+    const findBin = async () => (await root.getItems()).filter(item => item.name === binName && asFolder(item));
+    let candidates = await findBin();
+    if (candidates.length > 1) fail("AMBIGUOUS_BIN", "More than one bin has this selection name. Rename the duplicate before retrying.");
+    if (!candidates.length) {
+      await activeProject(projectId);
+      commit(project, "Create Unfold selection bin", () => root.createBinAction(binName, false));
+      candidates = await findBin();
+    }
+    if (candidates.length !== 1) fail("BIN_VERIFY_FAILED", "Premiere did not confirm the selection bin. Inspect the Project panel before retrying.");
+    const target = candidates[0], folder = asFolder(target);
+    const summary = { imported: 0, reused: 0, synced: 0, preserved: 0, bin: binName };
+    const findClip = async path => {
+      const matches = [];
+      for (const item of await folder.getItems()) {
+        const result = await describeClip(item, await itemId(item));
+        if (result.descriptor && normalizedPath(result.descriptor.media_path, isWindowsPath(path)) === normalizedPath(path, isWindowsPath(path))) matches.push(result.descriptor);
+      }
+      if (matches.length > 1) fail("AMBIGUOUS_SOURCE", "Duplicate source clips exist in the selection bin. Resolve them before retrying.");
+      return matches[0];
+    };
+    try {
+      for (const item of plan.items) {
+        // Fetch current corrections and recheck original identity immediately before import.
+        const current = await loadMetadata(item.id);
+        if (!current || current.media_path !== item.media_path || !current.mapping ||
+            !current.mapping.record || !current.mapping.record.asset || current.mapping.record.asset.id !== item.id) {
+          fail("SOURCE_CHANGED", "The saved source changed. Reload this selection before importing.");
+        }
+        await activeProject(projectId);
+        let descriptor = await findClip(item.media_path);
+        if (!descriptor) {
+          const result = await project.importFiles([item.media_path], true, target, false);
+          await activeProject(projectId);
+          descriptor = await findClip(item.media_path);
+          if (result !== true || !descriptor) fail("IMPORT_VERIFY_FAILED", "Premiere did not confirm this original in the selection bin. Inspect it before retrying.");
+          summary.imported++;
+        } else summary.reused++;
+        const result = await syncMetadata({ project_id: projectId, ...descriptor }, current.mapping);
+        summary.synced++; summary.preserved += result.preserved || 0;
+        progress({ ...summary, total: plan.items.length });
+      }
+      await activeProject(projectId);
+      return summary;
+    } catch (error) {
+      error.message += " " + summary.imported + " originals imported, " + summary.reused + " reused, " + summary.synced + " metadata records synced. Completed clips remain in the selection bin; retry reuses them.";
+      throw error;
+    }
+  }
   async function prepareSubclip(binding, range) {
     const { project, clip, descriptor } = await resolveBinding(binding);
     const ppro = getApi();
@@ -595,7 +664,7 @@ function createHost(injectedApi, injectedXmp) {
     return { inserted: true, name: result.name, position: position.seconds, start: result.start, end: result.end };
   }
   return {
-    getProjectIdentity, getSelection, getSelectedMedia, resolveBinding, openSource, addMarkers, syncMetadata, makeSubclip, insertClip,
+    getProjectIdentity, getSelection, getSelectedMedia, resolveBinding, openSource, addMarkers, syncMetadata, importSelection, makeSubclip, insertClip,
     openSourceAt: async (id, seconds, projectId) => openSource(await bindingForId(id, projectId), seconds),
     addSourceMarkers: async (id, cues, projectId) => addMarkers(await bindingForId(id, projectId), cues),
   };
@@ -616,6 +685,7 @@ module.exports = {
   openSourceAt: (...args) => defaultCall("openSourceAt", args),
   addMarkers: (...args) => defaultCall("addMarkers", args),
   addSourceMarkers: (...args) => defaultCall("addSourceMarkers", args),
+  importSelection: (...args) => defaultCall("importSelection", args),
   syncMetadata: (...args) => defaultCall("syncMetadata", args),
   makeSubclip: (...args) => defaultCall("makeSubclip", args),
   insertClip: (...args) => defaultCall("insertClip", args),

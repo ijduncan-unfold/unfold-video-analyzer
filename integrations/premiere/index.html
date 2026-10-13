@@ -22,6 +22,8 @@
       <p id="message" class="message" role="status" aria-live="polite">Connecting to Video Analyzer...</p>
       <div id="workspace" class="workspace hidden">
         <p id="project-name" class="project-name"></p>
+        <sp-button id="saved-selections" type="button" class="full-width" variant="primary">Saved analyzer selections</sp-button>
+        <div id="saved-selection-list" class="asset-picker hidden" role="list" aria-label="Saved analyzer selections"></div>
         <sp-button id="load-selection" type="button" class="full-width" variant="secondary">Load Premiere selection</sp-button>
         <sp-button id="refresh-analysis" type="button" class="full-width" disabled variant="secondary">Reload saved results</sp-button>
         <sp-button id="asset-toggle" type="button" class="asset-toggle" aria-expanded="false" variant="secondary">Choose a clip</sp-button>

@@ -148,13 +148,17 @@ function prepareShots(binding, pack, timing) {
     if (startFrame < 0 || endFrame < startFrame || endFrame >= timing.frames) fail("INVALID_SHOT", "This shot has no valid source frame range.");
     const key = SHOT_NAMESPACE + require("node:crypto").createHash("sha256").update(JSON.stringify([pack.asset_id, binding.item_id, pathKey(binding.media_path), startFrame, endFrame])).digest("hex");
     const name = (String(pack.filename || "Source").replace(/\.[^.]+$/, "") + " · Shot " + String(shot.shot_number).padStart(2, "0")).slice(0, 200);
-    const description = typeof shot.visual_description === "string" ? shot.visual_description : "";
+    const mappedFields = shot.editor_metadata && shot.editor_metadata.fields || [];
+    const mappedDescription = mappedFields.find(field => field.key === "description" && typeof field.value === "string");
+    const description = mappedDescription ? mappedDescription.value : typeof shot.visual_description === "string" ? shot.visual_description : "";
     const keywordFields = [shot.tags, shot.human_tags, shot.shot_type, shot.camera_movement, shot.mood, shot.subjects, shot.actions, shot.dominant_colors, shot.location, shot.project_metadata && shot.project_metadata.tags];
     for (const slate of shot.slates || []) {
       for (const field of ['production_title', 'scene', 'take', 'slate_shot', 'camera_roll', 'camera', 'director', 'cinematographer', 'date', 'sound_roll']) {
         if (typeof slate[field] === 'string' && slate[field].trim()) keywordFields.push(field.replaceAll('_', ' ') + ': ' + slate[field].trim());
       }
     }
+    const mappedKeywords = mappedFields.find(field => field.key === "keywords");
+    if (mappedKeywords) keywordFields.push(Array.isArray(mappedKeywords.xmp_value) ? mappedKeywords.xmp_value : String(mappedKeywords.value || "").split(","));
     const keywords = [...new Set(keywordFields.flatMap(keywordValues).map(v => v.trim()).filter(Boolean))];
     // shot-package contains public shot facts plus explicitly scoped section,
     // asset and dialogue context, never provider credentials or raw API usage.
@@ -170,6 +174,17 @@ function prepareShots(binding, pack, timing) {
     if (json.length > 200000) fail("METADATA_LIMIT", "This shot's metadata exceeds Resolve's preview export limit. Export its JSON from the full analyzer instead.");
     return { key, name, description, keywords, nativeFields, record, json, startFrame, endFrame };
   }).sort((a, b) => a.startFrame - b.startFrame || a.endFrame - b.endFrame);
+}
+// Replace only keyword contributions owned by this integration. Preserve editor
+// keywords, including ones that already matched before the first sync.
+function mergeKeywords(current, previous, proposed) {
+  const split = value => String(value || "").split(",").map(v => v.trim()).filter(Boolean);
+  const prior = new Set(split(previous).map(v => v.toLowerCase()));
+  const human = split(current).filter(v => !prior.has(v.toLowerCase()));
+  const humanKeys = new Set(human.map(v => v.toLowerCase()));
+  const owned = split(proposed).filter(v => !humanKeys.has(v.toLowerCase()));
+  const unique = values => [...new Map(values.map(v => [v.toLowerCase(), v])).values()].join(", ");
+  return { value: unique([...human, ...owned]), owned: unique(owned) };
 }
 function createHost(resolve) {
   async function thirdPartyPlan(item, fields, previous, recordName, previousRecord) {
@@ -476,10 +491,11 @@ function createHost(resolve) {
         if (!created && (!receipt || receipt.record.key !== plan.key)) fail("SHOT_CHANGED", "This saved shot's identity changed. Inspect the Media Pool before retrying.");
         let humanComments = receipt && receipt.record.key === plan.key ? (String(before.Comments || "").slice(0, receipt.start) + String(before.Comments || "").slice(receipt.end)).trim() : String(before.Comments || "").trim();
         if (created && before.Description && before.Description !== plan.description) humanComments += (humanComments ? "\n\n" : "") + "Source description: " + before.Description;
-        const keywords = [...new Set(String(before.Keywords || "").split(",").concat(plan.keywords).map(v => v.trim()).filter(Boolean))].join(", ");
+        const keywordPlan = mergeKeywords(before.Keywords, receipt && receipt.record.native_fields && receipt.record.native_fields.Keywords, plan.keywords.join(", "));
+        const keywords = keywordPlan.value;
         const metadata = { Keywords: keywords, Comments: (humanComments ? humanComments + "\n\n" : "") + RECORD_START + plan.json + RECORD_END,
           Description: !created && receipt && before.Description !== receipt.record.description ? String(before.Description || "") : plan.description };
-        const ownedFields = {};
+        const ownedFields = { Keywords: keywordPlan.owned };
         const previousFields = receipt && receipt.record.native_fields || {};
         for (const field of new Set([...Object.keys(plan.nativeFields), ...Object.keys(previousFields)])) {
           if (!NATIVE_SHOT_FIELDS.has(field)) continue;
@@ -587,7 +603,11 @@ function createHost(resolve) {
     for (const field of mapping.fields) {
       if (!field || typeof field.value !== "string") continue;
       if (field.resolve === "Description" || NATIVE_SHOT_FIELDS.has(nativeField(field.resolve))) proposed[nativeField(field.resolve)] = field.value;
-      if (field.resolve === "Keywords") changes.Keywords = [...new Set(String(before.Keywords || "").split(",").concat(field.value.split(",")).map(value => value.trim()).filter(Boolean))].join(", ");
+      if (field.resolve === "Keywords") proposed.Keywords = field.value;
+    }
+    if (proposed.Keywords !== undefined || previous.Keywords !== undefined) {
+      const keywords = mergeKeywords(before.Keywords, previous.Keywords, proposed.Keywords);
+      changes.Keywords = keywords.value; owned.Keywords = keywords.owned;
     }
     for (const field of new Set([...Object.keys(proposed), ...Object.keys(previous)])) {
       if (field !== "Description" && !NATIVE_SHOT_FIELDS.has(field)) continue;

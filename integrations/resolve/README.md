@@ -27,3 +27,5 @@ Run the portable integration tests without Resolve or its SDK:
 ```sh
 node --test integrations/resolve/tests/*.test.cjs
 ```
+
+Cosplay metadata update 0.1.3: saved Cosplay analyses lead Description with character, franchise, costume and identification status, preserving the original scene description. Keywords and separate labeled cosplay fields use your corrections. See [Cosplay metadata](../../docs/EDITOR_METADATA.md#cosplay-metadata). Updated packages are required for the new fields; native editor acceptance of this update remains pending.

@@ -79,3 +79,70 @@ def test_xmp_is_lossless_and_maps_production_fields_without_inventing_take_or_ti
     root = ET.fromstring(export_library(job, 'xmp')[0])
     assert root.find('.//xmpDM:takeNumber', NS) is None
     assert 'MOS' in root.find('.//va:editorMapping', NS).text
+
+
+def cosplay_footage():
+    job = footage()
+    job.analysis_config = {'mode': 'cosplay'}
+    job.technical.update(frame_rate=24, width=1280, height=720, has_audio=False)
+    job.flash_result['scenes'][0]['shots'][0]['cosplay'] = [
+        {'character': 'Iron Man', 'franchise': 'Marvel', 'identification': 'suggested'}]
+    job.shot_annotations['1']['cosplay'] = [
+        {'character': 'Gordon Freeman', 'franchise': 'Half-Life', 'costume_variant': 'HEV Suit',
+         'visible_details': 'Orange armor, glasses & lambda logo', 'activity': 'Posing', 'identification': 'confirmed'},
+        {'character': '', 'franchise': '', 'visible_details': 'Red armor',
+         'possible_characters': ['Samus Aran'], 'identification': 'unknown'}]
+    job.flash_result['scenes'][0]['shots'][1]['cosplay'] = [
+        {'character': 'Batman', 'franchise': 'DC', 'identification': 'suggested'}]
+    return job
+
+
+def test_cosplay_leads_description_preserves_scene_and_uses_reviewed_identifications():
+    job = cosplay_footage()
+    mapping = editor_metadata(job, include_record=True)
+    fields = {field['key']: field for field in mapping['fields']}
+    description = fields['description']['value']
+    assert 'Gordon Freeman · Half-Life · HEV Suit [Confirmed by you]' in description
+    assert '[Suggested]' in description and '[Unknown]' in description
+    assert 'Possible characters (unconfirmed): Samus Aran' in description
+    assert 'A person in blue' in description and 'Producer notes' in description
+    assert 'Iron Man' not in description
+    assert fields['scene_description']['value'] == 'A person in blue\n\nAn empty room'
+    assert {'Cosplay', 'Gordon Freeman', 'Half-Life', 'HEV Suit', 'Batman'}.issubset(fields['keywords']['xmp_value'])
+    assert 'Samus Aran' not in fields['keywords']['xmp_value']
+    assert fields['cosplay_characters']['value'] == 'Gordon Freeman · Batman'
+    shot_fields = {field['key']: field['value'] for field in mapping['shot_fields']['1']}
+    assert 'Batman' not in shot_fields['description']
+    assert mapping['record']['shots'][0]['cosplay'][0]['character'] == 'Gordon Freeman'
+    assert job.flash_result['scenes'][0]['shots'][0]['cosplay'][0]['character'] == 'Iron Man'
+    job.analysis_config['mode'] = 'flash_only'
+    fields = {field['key']: field['value'] for field in editor_metadata(job)['fields']}
+    assert fields['description'] == 'Producer notes'  # General modes retain their existing description.
+    assert 'Gordon Freeman' in fields['cosplay_description']
+
+
+def test_cosplay_xmp_xml_and_fcpxml_match_inspector_and_honor_selection_and_clearing():
+    job = cosplay_footage()
+    job.metadata['tags'].append('armor, orange')
+    root = ET.fromstring(export_library(job, 'xmp', [1])[0])
+    description = root.findtext('.//dc:description/rdf:Alt/rdf:li', namespaces=NS)
+    assert 'Gordon Freeman' in description and 'Batman' not in description
+    assert 'Iron Man' not in description
+    tags = [item.text for item in root.findall('.//dc:subject/rdf:Bag/rdf:li', NS)]
+    assert 'armor, orange' in tags and 'Gordon Freeman' in tags and 'Samus Aran' not in tags
+    assert root.findtext('.//va:cosplayCharacters', namespaces=NS) == 'Gordon Freeman'
+    assert 'Gordon Freeman' in root.findtext('.//xmpDM:comment', namespaces=NS)
+    shot = json.loads(root.findtext('.//va:shotMetadata', namespaces=NS))
+    assert shot['cosplay'][0]['character'] == 'Gordon Freeman'
+    xml = ET.fromstring(export_library(job, 'premiere_xml', [1])[0])
+    assert 'Gordon Freeman' in xml.findtext('.//logginginfo/description')
+    assert 'Iron Man' not in xml.findtext('.//logginginfo/description')
+    log = json.loads(xml.findtext('.//logginginfo/lognote'))
+    assert log['editor_metadata']['cosplay_characters'] == 'Gordon Freeman'
+    fcpxml = ET.fromstring(export_library(job, 'fcpxml', [1])[0])
+    assert 'Gordon Freeman' in fcpxml.findtext('.//asset-clip/note')
+    assert 'Half-Life' in [node.get('value') for node in fcpxml.findall('.//asset-clip/keyword')]
+    job.shot_annotations['1']['cosplay'] = []
+    root = ET.fromstring(export_library(job, 'xmp', [1])[0])
+    assert root.find('.//va:cosplayCharacters', NS) is None
+    assert 'Iron Man' not in root.findtext('.//dc:description/rdf:Alt/rdf:li', namespaces=NS)

@@ -801,3 +801,40 @@ test("endpoint validation and manifest allow exactly the local HTTP and HTTPS tr
   assert.deepEqual(manifest.requiredPermissions.network.domains.sort(), ["http://localhost:8000", "https://localhost:8443"].sort());
   assert.deepEqual(manifest.requiredPermissions.launchProcess.schemes.sort(), ["http", "https"]);
 });
+
+test('saved analyzer selections fetch fresh media and metadata before native import', async () => {
+  const h = harness(); await h.start(); await h.panel.connect();
+  const plan = { schema: 'unfold.premiere-selection', id: 'saved', name: 'Wonder Woman', items: [{ id: 'clip-a', media_path: 'C:\\footage\\clip-a.mp4' }] };
+  const metadata = { media_path: plan.items[0].media_path, mapping: { fields: [], record: { asset: { id: 'clip-a' } } } };
+  h.intercept(request => {
+    if (request.pathname.endsWith('/selections')) return h.json({ selections: [{ id: 'saved', name: 'Wonder Woman', count: 1 }] });
+    if (request.pathname.endsWith('/selections/saved/plan')) return h.json(plan);
+    if (request.pathname.endsWith('/selections/saved/items/clip-a')) return h.json(metadata);
+  });
+  h.host.getProjectIdentity = async () => ({ id: 'project-a' });
+  let imports = 0;
+  h.host.importSelection = async (received, project, load, progress) => {
+    imports++; assert.deepEqual(received, plan); assert.equal(project, 'project-a');
+    assert.deepEqual(await load('clip-a'), metadata); progress({ synced: 1, total: 1 });
+    return { synced: 1, imported: 1, reused: 0, preserved: 0, bin: 'Wonder Woman' };
+  };
+  await h.panel.savedSelections();
+  assert.match(h.el('saved-selection-list').textContent, /Wonder Woman/);
+  const button = descendants(h.el('saved-selection-list'), el => el.tagName === 'sp-button')[0];
+  await button.fire('click');
+  assert.equal(imports, 1); assert.match(h.el('message').textContent, /1 clips ready/);
+  assert.equal(h.requests.filter(request => request.pathname.endsWith('/analyze')).length, 0);
+  assert.equal(h.panel.getState().busy.selection, false);
+});
+
+test('disconnect during saved selection preflight prevents import', async () => {
+  const h = harness(); await h.start(); await h.panel.connect();
+  h.host.getProjectIdentity = async () => ({ id: 'project-a' });
+  h.host.importSelection = async () => assert.fail('Disconnected panel must not import');
+  h.intercept(async request => {
+    if (request.pathname.endsWith('/selections/saved/plan')) {
+      await h.panel.disconnect(); return h.json({ items: [{ id: 'clip-a' }] });
+    }
+  });
+  await assert.rejects(h.panel.importSavedSelection('saved'), /Connection or workspace changed/);
+});

@@ -4,10 +4,11 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
+from starlette.background import BackgroundTask
 
 from app.config import settings
 from app.dependencies import get_api_key
-from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest
+from app.models.library import AssetMetadata, ShotAnnotation, AnalyzeRequest, FolderName, FolderMove, SourceStatusRequest, MediaExportSelection, MediaExportRequest, MediaExportOptionsRequest, PremiereSelectionRequest
 from app.services.job_store import get_job, list_jobs, update_job, claim_analysis, cut_is_active
 from app.services.job_runner import start_job, cancel_job
 from app.services.library_service import (
@@ -15,8 +16,58 @@ from app.services.library_service import (
 )
 from app.services.library_filters import library_facets, matches_metadata, matches_tag
 
+from app.services.cosplay import matches_cosplay, job_cosplay, cosplay_facets, searchable_flash
+
 router = APIRouter(prefix='/api/library')
 _poster_locks = {}
+
+
+@router.get('/premiere-selections')
+async def list_premiere_selections():
+    from app.services.premiere_selections import selections
+    return {'selections': await asyncio.to_thread(selections)}
+
+
+@router.post('/premiere-selections', status_code=201)
+async def save_premiere_selection(body: PremiereSelectionRequest):
+    from app.services.premiere_selections import save_selection
+    return await asyncio.to_thread(save_selection, body.name, body.job_ids)
+
+
+async def export_media_jobs(ids):
+    if len(set(ids)) != len(ids):
+        raise HTTPException(422, 'Select each media item only once.')
+    jobs = [require_job(id) for id in ids]
+    from app.services.source_timing import refresh_export_source
+    semaphore = asyncio.Semaphore(4)
+    async def refresh(job):
+        async with semaphore:
+            return await refresh_export_source(job)
+    return await asyncio.gather(*(refresh(job) for job in jobs))
+
+
+@router.post('/media-export-options')
+async def media_export_options(body: MediaExportOptionsRequest):
+    from app.services.media_export import export_checks
+    jobs = await export_media_jobs(body.job_ids)
+    return await asyncio.to_thread(export_checks, jobs, body.format, body.layout)
+
+
+@router.post('/media-export')
+async def export_selected_media(body: MediaExportRequest):
+    from app.services.media_export import build_download, EXPORT_FILES
+    jobs = await export_media_jobs(body.job_ids)
+    versions = {job.job_id: str(job.analysis_config.get('started_at') or '') for job in jobs}
+    if body.analysis_versions != versions:
+        raise HTTPException(409, 'Selected analysis changed. Check the selection again before exporting.')
+    try:
+        path = await asyncio.to_thread(build_download, jobs, body.title.strip() or 'Video Analyzer selects', body.layout, body.include_metadata, body.format)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    main_file, mime = EXPORT_FILES[body.format]
+    return FileResponse(path, media_type='application/zip' if body.include_metadata else mime,
+        filename='Video Analyzer media export.zip' if body.include_metadata else main_file,
+        background=BackgroundTask(path.unlink, missing_ok=True))
 
 
 def require_job(job_id):
@@ -48,6 +99,7 @@ def _filtered(jobs, project='', review_status='', tag='', rights_status='', coll
 async def library(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
                   tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
                   production: str = '', scene: str = '', take: str = '', camera_roll: str = '', cinematographer: str = '',
+                  character: str = '', franchise: str = '', identification: str = Query(default='', pattern='^(|suggested|confirmed|unknown)$'),
                   sort: str = Query(default='relevance', pattern='^(name|newest|relevance)$'),
                   limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     jobs = list_jobs()
@@ -56,8 +108,10 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
     for job in _filtered(jobs, project, review_status, tag, rights_status, collection, folder_id):
         if not matches_metadata(job, metadata_filters):
             continue
+        if not matches_cosplay(job_cosplay(job), character, franchise, identification):
+            continue
         public = asset_view(job)
-        score = search_score(q, [job.filename, public['metadata'], public['technical'], job.summary, job.flash_result,
+        score = search_score(q, [job.filename, public['metadata'], public['technical'], job.summary, searchable_flash(job),
                                  job.deep_results, job.shot_annotations,
                                  public_search_metadata(job.custom_result), public_transcript_segments(job)])
         if score >= 0:
@@ -78,6 +132,7 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
         'facets': {'projects': sorted({j.metadata.get('project') for j in jobs if j.metadata.get('project')}),
                    'tags': sorted({tag for j in jobs for tag in j.metadata.get('tags', [])}),
                    'collections': sorted({v for j in jobs for v in j.metadata.get('collections', [])}),
+                   **cosplay_facets(_filtered(jobs, folder_id=folder_id)),
                    **library_facets(_filtered(jobs, folder_id=folder_id))},
         'stats': {'assets': len(jobs), 'shots': sum(asset_view(j)['shot_count'] for j in jobs),
                   'reviewed': sum(j.metadata.get('review_status') == 'reviewed' for j in jobs),
@@ -88,6 +143,7 @@ async def library(q: str = Query(default='', max_length=500), project: str = '',
 async def search_shots(q: str = Query(default='', max_length=500), project: str = '', review_status: str = '',
                        tag: str = '', rights_status: str = '', collection: str = '', folder_id: str = '',
                        production: str = '', scene: str = '', take: str = '', camera_roll: str = '', cinematographer: str = '',
+                       character: str = '', franchise: str = '', identification: str = Query(default='', pattern='^(|suggested|confirmed|unknown)$'),
                        job_id: str | None = Query(default=None, max_length=200),
                        limit: int = Query(default=200, ge=1, le=500), offset: int = Query(default=0, ge=0)):
     matches = []
@@ -96,6 +152,8 @@ async def search_shots(q: str = Query(default='', max_length=500), project: str 
     metadata_filters = dict(production=production, scene=scene, take=take, camera_roll=camera_roll, cinematographer=cinematographer)
     for job in _filtered(scoped, project=project, rights_status=rights_status, collection=collection, folder_id=folder_id):
         for shot in shot_views(job):
+            if not matches_cosplay(shot['cosplay'], character, franchise, identification):
+                continue
             if not matches_metadata(job, metadata_filters, shot):
                 continue
             if review_status and shot['review_status'] != review_status:
@@ -182,8 +240,11 @@ async def edit_asset(job_id: str, metadata: AssetMetadata):
 @router.patch('/{job_id}/shots/{shot_number}')
 async def edit_shot(job_id: str, shot_number: int, annotation: ShotAnnotation,
                     expected_start_time: str | None = Query(default=None, max_length=100),
-                    expected_end_time: str | None = Query(default=None, max_length=100)):
+                    expected_end_time: str | None = Query(default=None, max_length=100),
+                    expected_analysis_started_at: str | None = Query(default=None, max_length=100)):
     job = require_job(job_id)
+    if expected_analysis_started_at is not None and expected_analysis_started_at != str(job.analysis_config.get('started_at') or ''):
+        raise HTTPException(409, 'The analysis changed. Reload the clip before saving identifications.')
     shot = next((s for s in shot_views(job) if s['shot_number'] == shot_number), None)
     guarded = expected_start_time is not None or expected_end_time is not None
     if guarded and (shot is None

@@ -72,6 +72,8 @@ def stitch_section(previous, shots):
     previous.mood = first.mood or previous.mood
     previous.evidence.extend(first.evidence)
     previous.slates.extend(first.slates)
+    known_costumes = {item.model_dump_json() for item in previous.cosplay}
+    previous.cosplay.extend(item for item in first.cosplay if item.model_dump_json() not in known_costumes)
     for key in ('subjects', 'actions', 'tags', 'dominant_colors', 'visible_text', 'logos', 'section_numbers'):
         setattr(previous, key, list(dict.fromkeys([*getattr(previous, key), *getattr(first, key)])))
     previous.analysis_warnings = list(dict.fromkeys(

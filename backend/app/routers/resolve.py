@@ -83,7 +83,8 @@ async def shots(job_id: str, q: str = Query(default='', max_length=500),
                 limit: int = Query(default=500, ge=1, le=500)):
     _resolve_job(job_id)
     return await search_shots(q=q, job_id=job_id, limit=limit, offset=0,
-                              project='', review_status='', tag='', rights_status='', collection='')
+                              project='', review_status='', tag='', rights_status='', collection='',
+                              character='', franchise='', identification='')
 
 
 @router.post('/assets/{job_id}/analyze', status_code=202)
@@ -113,7 +114,8 @@ async def shot_package(job_id: str, body: ShotPackageRequest):
             raise HTTPException(409, 'Shot timing changed. Refresh the shots before adding them to Resolve.')
         selected.append({key: value for key, value in shot.items()
                          if key not in {'preview_url', 'thumbnail_url', 'match_context', 'match_sources'}})
-        selected[-1]['editor_metadata'] = map_fields(shot.get('project_metadata') or {}, [shot], shot.get('transcript_segments') or [], shot_scope=True)
+        selected[-1]['editor_metadata'] = map_fields(shot.get('project_metadata') or {}, [shot], shot.get('transcript_segments') or [], shot_scope=True,
+                                                       cosplay_primary=(job.analysis_config or {}).get('mode') == 'cosplay')
     return {'asset_id': job.job_id, 'filename': job.filename,
             'analysis_session': body.analysis_session, 'technical': job.technical,
             'shots': sorted(selected, key=lambda shot: (shot['start_seconds'], shot['shot_number']))}

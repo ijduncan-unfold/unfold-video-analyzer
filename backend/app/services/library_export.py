@@ -28,8 +28,8 @@ SLATE_COLUMNS = (
 )
 EXPORT_FORMATS = (
     ("json", "JSON metadata"), ("csv", "CSV shot list"), ("xmp", "XMP sidecar"),
-    ("srt", "SRT subtitles"), ("edl", "EDL edit list"), ("fcpxml", "Final Cut Pro XML"),
-    ("premiere_xml", "Premiere XML"),
+    ("srt", "SRT subtitles"), ("edl", "EDL edit list"), ("fcpxml", "Final Cut Pro XML — Modern (.fcpxml)"),
+    ("premiere_xml", "Final Cut Pro XML — Legacy (.xml)"),
 )
 NS = {
     "x": "adobe:ns:meta/",
@@ -280,6 +280,7 @@ def _csv_document(data: dict) -> str:
                "Subjects", "Dominant Colors", "Mood", "Reviewed Tags", "Shot Notes",
                "Shot Review Status", "Source Frame Rate", "Source Timecode", "Timing Status",
                "AI Tags", "Actions", "Visible Text", "Potential Logos", "Location", "Transcript", "Evidence"]
+    headers += ['Cosplay Characters', 'Cosplay Franchises', 'Cosplay Identifications']
     headers += ['Slate ' + title for _, title in SLATE_COLUMNS] + ['Slate Observations']
     writer.writerow(headers)
     meta, technical = data.get("metadata") or {}, data.get("technical") or {}
@@ -293,7 +294,7 @@ def _csv_document(data: dict) -> str:
         # An asset can have valuable human metadata before AI analysis exists.
         row = common + [""] * 17 + [technical.get("frame_rate_fraction") or technical.get("frame_rate"),
                                      technical.get("source_timecode"), "No shot analysis available"] + [""] * 7
-        writer.writerow([_cell(value) for value in row] + [''] * (len(SLATE_COLUMNS) + 1))
+        writer.writerow([_cell(value) for value in row] + [''] * (len(SLATE_COLUMNS) + 4))
     for scene, shot, reviewed in shots:
         try:
             start, end = segment_times(shot, technical.get("duration_seconds"))
@@ -312,6 +313,11 @@ def _csv_document(data: dict) -> str:
                         shot.get("tags"), shot.get("actions"), shot.get("visible_text"), shot.get("logos"),
                         shot.get("location"), shot.get("transcript"),
                         json.dumps(_public(shot.get("evidence") or []), ensure_ascii=False)]
+        from app.services.cosplay import effective_cosplay
+        costumes = effective_cosplay(shot, reviewed)
+        row += ['; '.join(dict.fromkeys(c['character'] for c in costumes if c['character'])),
+                '; '.join(dict.fromkeys(c['franchise'] for c in costumes if c['franchise'])),
+                json.dumps(costumes, ensure_ascii=False)]
         slates = shot.get('slates') or []
         row += ['; '.join(dict.fromkeys(slate.get(key, '') for slate in slates if slate.get(key)))
                 for key, _ in SLATE_COLUMNS]
@@ -366,10 +372,11 @@ def _alt(parent, name: str, text: Any):
 
 
 def _xmp_document(data: dict) -> str:
-    from app.services.editor_metadata import map_fields
+    from app.services.editor_metadata import map_fields, effective_editor_shot
     meta, technical = data.get("metadata") or {}, data.get("technical") or {}
-    shots = [{**shot, 'human_tags': reviewed.get('tags', [])} for _, shot, reviewed in iter_shots(data)]
-    mapping = map_fields(meta, shots, data.get('transcript') or [], data.get('summary'))
+    shots = [effective_editor_shot(shot, reviewed) for _, shot, reviewed in iter_shots(data)]
+    mapping = map_fields(meta, shots, data.get('transcript') or [], data.get('summary'),
+                         cosplay_primary=(data.get('analysis_config') or {}).get('mode') == 'cosplay')
     mapped = {field['key']: field['value'] for field in mapping['fields']}
     root = ET.Element(f"{{{NS['x']}}}xmpmeta")
     rdf = _element(root, "rdf", "RDF")
@@ -381,7 +388,7 @@ def _xmp_document(data: dict) -> str:
     _element(desc, "dc", "format", data.get("mime_type", ""))
     subject = _element(desc, "dc", "subject")
     bag = _element(subject, "rdf", "Bag")
-    for tag in mapped.get('keywords', '').split(', '):
+    for tag in next((field['xmp_value'] for field in mapping['fields'] if field['key'] == 'keywords'), []):
         if not tag:
             continue
         _element(bag, "rdf", "li", tag)
@@ -436,14 +443,18 @@ def _xmp_document(data: dict) -> str:
         _element(marker, "xmpDM", "startTime", first)
         _element(marker, "xmpDM", "duration", last - first)
         _element(marker, "xmpDM", "name", f"Scene {scene.get('scene_number', '')} / Shot {shot.get('shot_number', '')}")
-        comment = [shot.get("visual_description", ""), f"Shot type: {shot.get('shot_type', '')}",
+        effective = effective_editor_shot(shot, reviewed)
+        shot_mapping = {field['key']: field['value'] for field in map_fields(
+            meta, [effective], [], shot_scope=True,
+            cosplay_primary=(data.get('analysis_config') or {}).get('mode') == 'cosplay')['fields']}
+        comment = [shot_mapping.get('description', ''), f"Shot type: {shot.get('shot_type', '')}",
                    f"Camera: {shot.get('camera_movement', '')}", f"Review: {reviewed.get('review_status', 'unreviewed')}"]
         if reviewed.get("notes"):
             comment.append(f"Reviewed notes: {reviewed['notes']}")
         if reviewed.get("tags"):
             comment.append("Reviewed tags: " + ", ".join(reviewed["tags"]))
         _element(marker, "xmpDM", "comment", "\n".join(comment))
-        _element(marker, "va", "shotMetadata", json.dumps(_public(shot), ensure_ascii=False))
+        _element(marker, "va", "shotMetadata", json.dumps(_public(effective), ensure_ascii=False))
     ET.indent(root)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")
 

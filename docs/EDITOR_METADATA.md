@@ -26,6 +26,20 @@ Names in the Resolve mapping use the native metadata API's keys. These can diffe
 
 Scalar slate fields are only assigned when readings agree. Multiple scenes/takes remain per-shot observations in the complete record; processing section indexes are never used as production scene numbers. Slate values retain their AI provenance and are unreviewed. XMP `takeNumber` is an integer; labels such as `MOS` and leading zeros remain intact in the structured record. Subjects can include objects, so they are not incorrectly assigned to Resolve's People field. A review status is not a Good Take or copyright assertion.
 
+## Cosplay metadata
+
+With a saved **Cosplay** analysis, Description starts with the effective costume identifications: character, franchise, variant, Suggested / Confirmed by you / Unknown status, visible details, activity and any explicitly unconfirmed alternatives. The original scene description follows under **Scene description**, and asset notes remain included. Other analysis modes keep their existing Description behavior and expose costume information in the separate fields. Changing the analysis picker alone does not change a saved analysis's metadata.
+
+Character, franchise and variant names also become Keywords. Uncertain alternative characters remain labeled in the description instead of becoming character keywords. Multiple costumes retain their own status and detail blocks, and whole-media descriptions label multiple clips by interval. Empty human overrides remove costumes; corrected names replace AI suggestions in active exported fields. Raw suggestions remain in the archival JSON record.
+
+Premiere panel **0.1.20** adds **Video Analyzer · Cosplay characters**, **Cosplay franchises**, **Costume variants**, **Cosplay identification**, **Cosplay description**, and **Scene description** project fields. Enable these through Metadata Display to inspect or sort them. Standard Description and XMP Keywords carry the same effective information.
+
+Resolve integration **0.1.3** uses Description and Keywords for both source sync and saved subclips. Read the labeled costume fields in Comments or SDK third-party metadata; these are not automatically installed as visible Resolve Custom columns. Repeated sync replaces keyword contributions owned by the integration while retaining editor keywords. Keywords written by older versions without ownership receipts cannot be safely distinguished from human keywords and remain preserved.
+
+The Metadata tab previews this mapping without another analysis call. XMP sidecars include the same description, keyword array and separate `va:cosplay*` properties. Premiere XML includes the composed description and mapped fields in logging info; FCPXML includes the description in clip notes and names as keywords. For native source metadata, use **Sync metadata** in the updated editor panel. XML importer behavior varies by editor/version; XMP sidecar association with an already imported file is not guaranteed. Source files are not rewritten by the analyzer.
+
+Cosplay mapping and editor-host writes have automated coverage, including corrections, unknown alternatives, selected exports and preservation of editor edits. Native acceptance of these cosplay fields inside Premiere and Resolve remains to be performed.
+
 ## Preserve information and editor edits
 
 Native fields provide convenient search and sorting; editor schemas cannot express every analysis detail. The complete versioned record retains the rest, including source-relative dialogue intervals, deep section analysis, custom results, shot annotations, rough-cut drafts and provenance. XMP now embeds that record alongside its standard fields. Exporting selected shots keeps the established selection scope and overlapping dialogue; section notes remain identified as section-wide context.
@@ -56,3 +70,15 @@ The sync paths have automated tests for mapping, source identity, complete-recor
 - [Adobe native Transcript API](https://developer.adobe.com/premiere-pro/uxp/ppro-reference/classes/transcript) and [transcript JSON specification](https://github.com/AdobeDocs/uxp-premiere-pro-samples/blob/main/sample-panels/premiere-api/assets/transcript_format_spec.json)
 - [After Effects XMP and source markers](https://helpx.adobe.com/uk/after-effects/desktop/work-with-footage-items/work-with-xmp-metadata/xmp-metadata.html)
 - Blackmagic's installed Resolve Studio scripting reference: `Support/Developer/Scripting/README.txt`, `MediaPoolItem.GetMetadata`, `SetMetadata`, `GetThirdPartyMetadata`, `SetThirdPartyMetadata`; [Blackmagic editor training](https://documents.blackmagicdesign.com/UserManuals/DaVinci-Resolve-18-Editors-Guide.pdf?_v=1680159610000) describes native metadata organization.
+
+## Saved selections from the library
+
+Open the library **Export** modal and choose **Premiere · saved selection**. **Include** chooses either **All search matches** or **Selected recordings**; the primary action saves that scope. **Saved Premiere selections** can be reopened inside the same modal and sent to any export format. These are persistent, fixed lists of up to 1,000 original recordings. Matching segments are deduplicated to their sources. In Premiere panel 0.1.21+, connect to the companion, choose **Saved analyzer selections**, then **Import clips + metadata** with a project open. A bin named after the selection (plus its short ID) receives the actual original files and the metadata mapping above. You can search the bin and edit its media normally. Premiere owns source decoding and timing, so whole-file imports do not need the verified constant cadence required by timeline XML.
+
+The authenticated panel checks each original's identity and fetches the latest corrections immediately before importing it. Missing or changed originals stop the import with a visible error. Completed clips remain in the bin; retry reuses those clips and preserves manually edited metadata fields. Keep the original storage mounted and the companion running. Video is linked in place, not copied, and this operation makes no analysis requests. The current Mac panel requires the trusted localhost HTTPS setup described in the [integration instructions](../integrations/premiere/README.md#install-and-connect-on-apple-silicon-mac).
+
+Native bin creation, file import, metadata readback, retry, source/project changes and panel requests are covered by injected tests. Acceptance of this new selection import inside installed Premiere remains pending.
+
+## Alternative selected-media formats
+
+Library **Export** offers FCPXML media events/timelines, native Resolve import and CMX3600 EDL alongside legacy XML. FCPXML uses notes, keywords and resource metadata. Native Resolve import writes searchable fields and full Comments without timeline timing or pixel-aspect mapping. EDL only retains comments and references for video conform; use its accompanying metadata package for the complete record. See [format choices and exact import steps](MEDIA_HANDOFFS.md).

@@ -1,4 +1,6 @@
-# Video Analyzer
+# Unfold Video Analyzer
+
+This fork adds a **Cosplay** analysis mode for booth and convention footage: character/franchise filters, costume variants, visible descriptions, activities, and editable suggested/confirmed/unknown identifications. Group clips match each depicted character. Select **Cosplay** in a media item's analysis menu or in the batch controls. **Select all matches** includes results beyond the current page. See [the Comic Con workflow and validation notes](docs/COSPLAY.md).
 
 Turn footage into a searchable shot library with Gemini analysis, visual match-cut discovery, editable metadata, and exports for the edit. Built for agency teams finding and reusing footage, and filmmakers exploring their material.
 
@@ -91,6 +93,18 @@ Local frame indexing publishes saved frames progressively and supports pause/res
 A drawn outline is compared against the candidate silhouettes already identified by Gemini. It does not add object tracking or guarantee that every person or object has been detected.
 
 ## Export useful information
+
+**Export** now includes Final Cut Pro XML (media event or timeline), a native Resolve media-import package, CMX3600 EDL, and the existing Premiere/Resolve XML. Media events and native Resolve import leave original timing/aspect discovery to the editor, so unverified cadence or anamorphic camera media does not inherit legacy XML restrictions. [Choose a handoff and read the import instructions](docs/MEDIA_HANDOFFS.md).
+
+For searchable **original clips in Premiere**, use the library search and **Find character** (for example Wonder Woman or Green Lantern), plus **Filters** for franchise and other metadata. Open **Export**, set **Include → All search matches** and **Export format → Premiere · saved selection**, then name and save the selection. This collects all matching pages; matching analyzed segments contribute their whole source recording once. For checked recordings, choose **Include → Selected recordings** in the same modal. Reopen existing sets under **Saved Premiere selections**.
+
+Install the [Premiere integration](integrations/premiere/README.md) **0.1.21 or newer**. With the companion running and a Premiere project open, connect the panel, click **Saved analyzer selections**, then **Import clips + metadata**. The panel creates a named bin containing actual original media references and synchronizes Description, Keywords and the detailed analysis fields. Premiere can search those clips and edit their picture and sound. Originals must remain accessible on the same computer; video files are not copied into the package. This whole-file route supports variable or unverified frame timing because Premiere reads the media itself. Saved selections retain fixed membership across restarts and fetch your latest metadata corrections when imported; retry reuses clips already imported into that selection's bin and preserves human metadata edits.
+
+For a combined timeline or XML handoff, from the **Media** library check individual recordings (or **Select page**) and choose **Export**. The legacy XML choice references every selected whole original, in selection order, and creates a timeline for Premiere or Resolve. **Media bin only** creates a Premiere import containing the selected sources without a timeline. Analysis clip ranges and dialogue appear as markers, rather than splitting the originals into subclips.
+
+**Include complete metadata package** downloads one ZIP containing `Video Analyzer.xml`, combined JSON and CSV, each source's XMP sidecar, and available source-timed SRT transcripts. Extract it, then import the XML using **File → Import** in Premiere or **File → Import → Timeline** in Resolve. Original video is referenced in place, not copied. The first selected source sets the timeline frame rate and dimensions; source in/out points keep their own frame rate. Relink media if its original location is unavailable.
+
+XML carries descriptions, scene/take logging, full analysis in logging notes, and source-relative markers. Editors expose different XML fields; the JSON/XMP retain the complete record, and the editor integrations can sync supported native metadata fields. SRTs retain each source's times, not combined-timeline offsets. A manifest lists absent or invalid subtitle exports. Unknown/unsupported source timing, orientation or audio layout is reported per source and blocks the combined XML; nothing is silently dropped. Exporting saved results makes no Gemini calls.
 
 The dedicated Export screen supports the whole project or one or more selected shots. Available formats depend on the saved analysis and source timing; unavailable options explain what is missing.
 

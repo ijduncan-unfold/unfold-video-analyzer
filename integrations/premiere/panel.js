@@ -180,6 +180,7 @@ function createPanel(dependencies) {
     const mutation = !!(state.busy.selection || state.busy.analyze || state.busy.markers || state.busy.metadata || state.busy.timeline);
     el("connect").disabled = !!state.busy.connect;
     el("disconnect").disabled = !state.connected || !!state.busy.connect;
+    el("saved-selections").disabled = !state.connected || mutation;
     el("load-selection").disabled = !state.connected || mutation;
     el("refresh-analysis").disabled = !state.connected || mutation;
     for (const button of state.resultActions) button.disabled = !state.connected || !binding() || mutation || state.resultsPending || state.nativeBlocked;
@@ -818,6 +819,41 @@ function createPanel(dependencies) {
     } finally { state.busy.markers = false; controls(); }
   }
 
+  async function savedSelections() {
+    if (!state.connected || state.busy.selection) return;
+    state.busy.selection = true; controls();
+    try {
+      const result = await request("/selections");
+      const list = el("saved-selection-list"); list.textContent = ""; show("saved-selection-list", true);
+      if (!result.selections.length) list.textContent = "In the library, search or filter characters, then choose Save matches for Premiere.";
+      for (const selection of result.selections) {
+        const row = document.createElement("div"); row.className = "source-entry";
+        const label = document.createElement("p"); label.textContent = selection.name + " · " + selection.count + " recordings"; row.appendChild(label);
+        const button = document.createElement("sp-button"); button.textContent = "Import clips + metadata";
+        button.setAttribute("variant", "primary");
+        button.addEventListener("click", () => importSavedSelection(selection.id).catch(error => message(error.message, true)));
+        row.appendChild(button); list.appendChild(row);
+      }
+    } finally { state.busy.selection = false; controls(); }
+  }
+  async function importSavedSelection(id) {
+    if (!state.connected || Object.values(state.busy).some(Boolean)) return;
+    state.busy.selection = true; stopPoll(); controls();
+    const scope = state.scope, token = state.token;
+    const current = () => { if (!state.connected || state.token !== token || state.scope !== scope) throw new Error("Connection or workspace changed. Reconnect before importing more clips."); };
+    try {
+      const project = await host.getProjectIdentity();
+      const plan = await request("/selections/" + encodeURIComponent(id) + "/plan");
+      current(); message("Importing " + plan.items.length + " original recordings into Premiere…");
+      const result = await host.importSelection(plan, project.id, async jobId => {
+        current();
+        const item = await request("/selections/" + encodeURIComponent(id) + "/items/" + encodeURIComponent(jobId));
+        current(); return item;
+      }, progress => message(progress.synced + "/" + progress.total + " clips imported with searchable metadata…"));
+      message(result.synced + " clips ready in “" + result.bin + "”. " + result.imported + " imported, " + result.reused + " reused. " + result.preserved + " editor fields preserved.");
+    } finally { state.busy.selection = false; controls(); }
+  }
+
   async function syncMetadata() {
     const source = binding();
     if (!source || state.busy.metadata || state.busy.markers || state.busy.analyze || state.busy.selection || isAnalyzing() || state.nativeBlocked) return;
@@ -863,6 +899,7 @@ function createPanel(dependencies) {
         show("connection", expanded);
         el("connection-toggle").setAttribute("aria-expanded", String(expanded));
       });
+      on("saved-selections", "click", savedSelections);
       on("load-selection", "click", loadSelection);
       on("refresh-analysis", "click", async () => {
         if (state.busy.timeline || state.busy.selection) return;
@@ -959,7 +996,7 @@ function createPanel(dependencies) {
     state.searchTimer = null;
     state.token = "";
   }
-  return { init, connect, disconnect, loadSelection, refreshProject, selectAsset, analyze, setTab, search, addMarkers, syncMetadata, exportSubtitles, destroy, getState: () => state };
+  return { init, connect, disconnect, loadSelection, refreshProject, selectAsset, analyze, setTab, search, addMarkers, syncMetadata, savedSelections, importSavedSelection, exportSubtitles, destroy, getState: () => state };
 }
 
 if (typeof module !== "undefined") module.exports = { createPanel, normalizeServer, parseSeconds, validRange, transcriptCues, cueTime, searchTerms, includesQuery, appendHighlight, sourceBinding, cleanSubtitleName, progressText };

@@ -16,6 +16,7 @@ import { MatchCutPanel } from './MatchCutPanel'
 import { forgetMatchCutSession } from './matchCutSession'
 import { TranscriptPanel } from './TranscriptPanel'
 import { RoughCutPanel } from './RoughCutPanel'
+import { CosplayEditor } from './CosplayEditor'
 import { DisplayColorControl } from './DisplayColorControl'
 
 const ASSET_TABS = ['shots', 'match cuts', 'transcript', 'rough cut', 'analysis', 'metadata', 'export'] as const
@@ -85,7 +86,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   const [exportVisit, setExportVisit] = useState(0)
   const [selection, setSelection] = useState<{ run?: string; shots: Shot[] }>({ run: asset.analysis_config?.started_at, shots: [] })
   const [sectionFilter, setSectionFilter] = useState<number | null>(null)
-  const [mode, setMode] = useState<'flash_only' | 'flash_pro'>(() => asset.analysis_config?.mode === 'flash_pro' ? 'flash_pro' : 'flash_only')
+  const [mode, setMode] = useState<'flash_only' | 'flash_pro' | 'cosplay'>(() => asset.analysis_config?.mode === 'cosplay' ? 'cosplay' : asset.analysis_config?.mode === 'flash_pro' ? 'flash_pro' : 'flash_only')
   const [shotMode, setShotMode] = useState<'auto' | 'single_take' | 'detect_cuts'>(asset.analysis_config?.shot_mode || 'auto')
   const [fps, setFps] = useState(() => {
     const saved = asset.analysis_config?.fps
@@ -95,7 +96,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
   if (savedRun !== asset.analysis_config?.started_at) {
     setSavedRun(asset.analysis_config?.started_at)
     setSectionFilter(null)
-    setMode(asset.analysis_config?.mode === 'flash_pro' ? 'flash_pro' : 'flash_only')
+    setMode(asset.analysis_config?.mode === 'cosplay' ? 'cosplay' : asset.analysis_config?.mode === 'flash_pro' ? 'flash_pro' : 'flash_only')
     setShotMode(asset.analysis_config?.shot_mode || 'auto')
     const savedFps = asset.analysis_config?.fps
     setFps(typeof savedFps === 'number' && Number.isFinite(savedFps) && savedFps >= 0.5 && savedFps <= 5 ? savedFps : 1)
@@ -202,7 +203,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
         <label className="vw-proxy-control" title={asset.youtube_url ? 'YouTube uses its URL directly; proxies require a local video.' : 'Auto proxies long videos, large files, heavy camera formats, and data rates of 50 Mb/s or more. Always creates a proxy. Off sends the linked viewing proxy when present, otherwise the original.'}>Proxy<select aria-label="Analysis proxy mode" value={asset.youtube_url ? 'auto' : proxyMode} disabled={!!asset.youtube_url || busy || cutBusy || removing || asset.status === 'deleting'} onChange={event => setProxyMode(event.target.value as ProxyMode)}><option value="auto">Auto</option><option value="always">Always</option><option value="off">Off</option></select></label>
         <button className="lw-button" onClick={() => openExport()}><Icon name="download" size={16} />Export{selection.shots.length > 0 ? ` (${selection.shots.length})` : ''}</button>
       <div className="vw-analyze-control" role="group" aria-label="Start video analysis">
-        <label className="vw-analysis-type"><span className="lw-sr-only">Analysis type</span><select value={mode} disabled={busy || removing || asset.status === 'deleting'} onChange={event => setMode(event.target.value as 'flash_only' | 'flash_pro')}><option value="flash_only">Clips and tags</option><option value="flash_pro">Full analysis</option></select><Icon name="down" size={14} /></label>
+        <label className="vw-analysis-type"><span className="lw-sr-only">Analysis type</span><select value={mode} disabled={busy || removing || asset.status === 'deleting'} onChange={event => setMode(event.target.value as 'flash_only' | 'flash_pro' | 'cosplay')}><option value="flash_only">Clips and tags</option><option value="flash_pro">Full analysis</option><option value="cosplay">Cosplay</option></select><Icon name="down" size={14} /></label>
       <button className="lw-button lw-button-primary lw-analyze-primary" disabled={busy || cutBusy || removing || asset.status === 'deleting'} onClick={analyze}>
         <Icon name="spark" size={20} />
         {displayPreparing ? 'Preparing display...' : busy ? starting && !isActiveAnalysis(asset.status) ? 'Starting…' : asset.status === 'queued' ? 'Queued…' : 'Analyzing…' : !capabilities?.google_configured && !apiKey ? 'Connect Gemini' : asset.status === 'error' ? 'Retry analysis' : asset.flash ? 'Analyze again' : 'Analyze video'}
@@ -260,7 +261,7 @@ export function AssetInspector({ asset, initialSeconds, initialShot, capabilitie
         {asset.custom_result && <details className="lw-details"><summary>Custom analysis<Icon name="down" size={14} /></summary><AnalysisFields value={asset.custom_result} /></details>}
         <details className="lw-details vw-analysis-settings" open={!asset.flash}><summary>Analysis settings<Icon name="down" size={14} /></summary><div className="vw-settings-content">
         <details className="lw-details"><summary>Options<Icon name="down" size={14} /></summary><div style={{ paddingTop: 14 }}>
-          <label className="lw-field">Clip boundaries<select value={shotMode} disabled={busy} onChange={event => setShotMode(event.target.value as typeof shotMode)}><option value="auto">Auto</option><option value="single_take">Single take</option><option value="detect_cuts">Detect cuts</option></select><span className="lw-field-hint">Auto keeps camera RAW recordings as one take and detects cuts in other videos. Single take keeps pans, action changes and slates together.</span></label>
+          <label className="lw-field">Clip boundaries<select value={shotMode} disabled={busy} onChange={event => setShotMode(event.target.value as typeof shotMode)}><option value="auto">Auto</option><option value="single_take">Single take</option><option value="detect_cuts">Detect cuts</option></select><span className="lw-field-hint">Auto keeps Cosplay and camera RAW recordings as one take and detects cuts in other videos. Single take keeps pans, action changes and slates together.</span></label>
           <label className="lw-field">Sampling<select value={fps} onChange={event => setFps(Number(event.target.value))}>{![0.5, 1, 2, 3, 4, 5].includes(fps) && <option value={fps}>{fps} fps</option>}{[0.5, 1, 2, 3, 4, 5].map(value => <option value={value} key={value}>{value} fps{value === 4 ? ' · fast action' : ''}</option>)}</select><span className="lw-field-hint">Higher sampling uses more tokens. Short cuts may be missed.</span></label>
           <label className="lw-field">Instructions<textarea rows={3} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="Optional analysis instructions" /></label>
           <p className="lw-model-note">{capabilities?.models ? `${capabilities.models.analysis}${mode === 'flash_pro' ? ` + ${capabilities.models.deep}` : ''}` : 'Gemini'}</p>
@@ -287,6 +288,7 @@ function MetadataHandoff({ asset, selectedShot }: { asset: AssetDetail; selected
   if (!mapping) return null
   const fields = scope === 'shot' && selectedShot ? mapping.shot_fields[String(selectedShot.shot_number)] || [] : mapping.fields
   return <details className="lw-details" open><summary>Editor metadata<Icon name="down" size={14} /></summary>
+    {fields.some(field => field.key === 'cosplay_description') && <p className="lw-panel-description">Cosplay names and costume details are included in editor metadata. Cosplay mode leads Description with these details and keeps the original scene description below. Corrections update the next export or metadata sync.</p>}
     <label className="lw-field">Scope<select aria-label="Metadata scope" value={scope} onChange={event => setScope(event.target.value as 'asset' | 'shot')}><option value="asset">Whole media</option>{selectedShot && <option value="shot">Clip {String(selectedShot.shot_number).padStart(2, '0')}</option>}</select></label>
     <dl className="vw-analysis-fields">{fields.map(field => <div key={field.key}><dt>{field.label}<small> · {field.origin}</small></dt><dd>{field.key === 'transcript' ? <details className="lw-details"><summary>Read dialogue<Icon name="down" size={13} /></summary><p style={{ whiteSpace: 'pre-wrap' }}>{field.value}</p></details> : <p style={{ whiteSpace: 'pre-wrap' }}>{field.value}</p>}<small>{field.resolve ? `Resolve: ${field.resolve} · ` : 'Resolve: structured record · '}Premiere: {field.premiere.startsWith('VideoAnalyzer') ? 'Video Analyzer field' : field.label} · XMP: {field.xmp}</small></dd></div>)}</dl>
     {scope === 'asset' && mapping.conflicts.map(conflict => <p className="lw-model-note" key={conflict}>{conflict}</p>)}
@@ -367,16 +369,18 @@ function ShotBrowser({ asset, shots, active, busy, selectedShot, selection, stal
       {staleSelection && <div className="lw-inline-error">The analysis changed. Select clips again before exporting. <button className="lw-text-button" onClick={onClearSelection}>Clear selection</button></div>}
     </div>
     {currentResult?.error && <div className="lw-inline-error" role="alert">{currentResult.error}</div>}
-    {shown.length > 0 && <div className="vw-shot-grid">{shown.map(shot => <ShotEditor key={`${shot.shot_number}-${shot.start_time}-${shot.end_time}`} jobId={asset.job_id} shot={shots.find(item => sameShot(item, shot)) || shot} annotation={asset.shot_annotations?.[String(shot.shot_number)]} selected={!!selectedShot && sameShot(shot, selectedShot)} exportSelected={selection.some(item => sameShot(item, shot))} query={search} match={'match_context' in shot ? shot as LibraryShot : undefined} canPreview={!!asset.preview_url} onToggle={() => onToggle(shot)} onExport={() => onExport(shot)} onSeek={() => onSeek(shot)} onRefresh={onRefresh} />)}</div>}
+    {shown.length > 0 && <div className="vw-shot-grid">{shown.map(shot => <ShotEditor key={`${shot.shot_number}-${shot.start_time}-${shot.end_time}`} jobId={asset.job_id} shot={shots.find(item => sameShot(item, shot)) || shot} run={asset.analysis_config?.started_at || ''} cosplayMode={asset.analysis_config?.mode === 'cosplay'} annotation={asset.shot_annotations?.[String(shot.shot_number)]} selected={!!selectedShot && sameShot(shot, selectedShot)} exportSelected={selection.some(item => sameShot(item, shot))} query={search} match={'match_context' in shot ? shot as LibraryShot : undefined} canPreview={!!asset.preview_url} onToggle={() => onToggle(shot)} onExport={() => onExport(shot)} onSeek={() => onSeek(shot)} onRefresh={onRefresh} />)}</div>}
     {!loading && !shown.length && !currentResult?.error && <div className="lw-panel-empty"><Icon name="film" size={30} /><p>{search ? 'No clips match this search.' : busy ? 'Clips appear as each section finishes.' : 'Analyze this video to find clips.'}</p></div>}
     {pageCount > 1 && <nav className="vw-shot-pagination" aria-label="Clip pages"><button className="lw-button" disabled={visiblePage === 0 || loading} onClick={() => setPage(visiblePage - 1)}>Previous</button><span>{visiblePage + 1} / {pageCount}</span><button className="lw-button" disabled={visiblePage >= pageCount - 1 || loading} onClick={() => setPage(visiblePage + 1)}>Next</button></nav>}
   </>
 }
 
-function ShotEditor({ jobId, shot, annotation, selected, exportSelected, match, query, canPreview, onToggle, onExport, onSeek, onRefresh }: {
+function ShotEditor({ jobId, shot, annotation, run, cosplayMode, selected, exportSelected, match, query, canPreview, onToggle, onExport, onSeek, onRefresh }: {
   jobId: string
   shot: Shot & { scene_title: string }
   annotation?: ShotAnnotation
+  run: string
+  cosplayMode: boolean
   selected: boolean
   exportSelected: boolean
   match?: LibraryShot
@@ -407,6 +411,7 @@ function ShotEditor({ jobId, shot, annotation, selected, exportSelected, match, 
     <button className="vw-shot-thumbnail" disabled={!canPreview} onClick={onSeek} aria-label={`Play clip ${shot.shot_number} at ${shot.start_time}`} aria-pressed={selected}>{shot.thumbnail_url ? <img src={shot.thumbnail_url} alt="" loading="lazy" /> : <Icon name="film" size={30} />}<span className="vw-thumbnail-play"><Icon name="play" size={22} /></span></button>
     <div className="vw-shot-caption"><label className="vw-shot-select"><input type="checkbox" checked={exportSelected} onChange={onToggle} aria-label={`Select clip ${shot.shot_number} for export`} /><strong>Clip {String(shot.shot_number).padStart(2, '0')}</strong></label><time>{shot.start_time} — {shot.end_time}</time></div>
     <p><SearchHighlight text={shot.visual_description} query={query} /></p><div className="lw-tags">{[shot.shot_type, shot.camera_movement, shot.mood].filter(Boolean).map((value, i) => <span key={`${value}-${i}`}><SearchHighlight text={value} query={query} /></span>)}</div>
+    {(cosplayMode || !!shot.cosplay?.length || annotation?.cosplay != null) && <CosplayEditor key={`${run}-${shot.shot_number}-${shot.start_time}-${shot.end_time}`} jobId={jobId} shot={shot} annotation={annotation} run={run} onRefresh={onRefresh} />}
     {match?.match_context && <details className="lw-details vw-match-context" open><summary>{match.match_sources?.join(' · ') || 'Search match'}<Icon name="down" size={13} /></summary><p><SearchHighlight text={match.match_context} query={query} /></p>{match.match_sources?.includes('Section analysis') && <details className="lw-details"><summary>Section context<Icon name="down" size={13} /></summary><p><SearchHighlight text={match.section_context?.scene_description || ''} query={query} /></p><AnalysisFields value={match.section_analysis} query={query} /></details>}</details>}
     {match?.match_sources?.includes('Custom analysis') && <details className="lw-details"><summary>Custom analysis · whole video<Icon name="down" size={13} /></summary><AnalysisFields value={match.custom_analysis} query={query} /></details>}
     {match?.match_sources?.includes('Transcript') && <details className="lw-details"><summary>Transcript in this clip<Icon name="down" size={13} /></summary><AnalysisFields value={match.transcript_segments} query={query} /></details>}

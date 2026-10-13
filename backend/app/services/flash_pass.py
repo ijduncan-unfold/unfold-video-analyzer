@@ -26,12 +26,27 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT_SECONDS = 90
 
 
+def provider_schema(schema):
+    """Keep generation structure small; enforce storage limits after decoding."""
+    def clean(value):
+        if isinstance(value, dict):
+            return {key: clean(item) for key, item in value.items()
+                    if key not in {'maxLength', 'minLength', 'maxItems', 'minItems', 'default', 'additionalProperties'}}
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        return value
+    return clean(schema.model_json_schema())
+
+
 async def _generate(client, *, stage: str, schema, contents):
     """Bound transport and await time; use an async request for cancellation."""
     started = time.monotonic()
     config = {
         "system_instruction": EVIDENCE_INSTRUCTION,
-        "response_mime_type": "application/json", "response_schema": schema,
+        # Use native JSON Schema to avoid legacy SDK field rewriting. Limit
+        # generation constraints to reduce provider schema complexity; the full
+        # Pydantic model still validates the decoded response below.
+        "response_mime_type": "application/json", "response_json_schema": provider_schema(schema),
         "max_output_tokens": 16384,
         "http_options": types.HttpOptions(
             timeout=int(REQUEST_TIMEOUT_SECONDS * 1000),
@@ -91,6 +106,7 @@ async def run_shot_detection(
     source_offset: float = 0.0,
     previous_shot: Shot | None = None,
     single_take: bool = False,
+    cosplay: bool = False,
 ) -> tuple[list[Shot], dict]:
     """Stage 2: estimate shots and evidence within a bounded scene.
 
@@ -114,6 +130,11 @@ async def run_shot_detection(
         end_time=format_time(end_secs),
         shot_number_offset=shot_number_offset,
     )
+    if cosplay:
+        from app.prompts.cosplay_prompt import COSPLAY_PROMPT
+        prompt += COSPLAY_PROMPT
+    else:
+        prompt += "\nLeave cosplay empty; costume identification is a separate user-selected mode."
     if scene_outline.scene_title.startswith("Section "):
         prompt += (
             "\nThis interval is a processing section, not an editorial scene. "
@@ -176,6 +197,10 @@ async def run_shot_detection(
     result = ShotDetectionResult.model_validate_json(response_text(response))
     result.shots = validate_shots(result.shots, start_secs, end_secs, shot_number_offset)
     for shot in result.shots:
+        if not cosplay:
+            shot.cosplay = []
+        for costume in shot.cosplay:
+            costume.identification = "suggested" if costume.character else "unknown"
         if shot.transcript.strip():
             shot._dialogue_fragments = [{'start_time': shot.start_time, 'end_time': shot.end_time, 'text': shot.transcript}]
     reviews = []

@@ -35,12 +35,24 @@ def _event(event_name: str, **data) -> dict:
 
 def _failure(stage: str, error: Exception) -> str:
     """Provider messages can contain credential-bearing URLs or private input."""
-    logger.warning("%s failed (%s)", stage, type(error).__name__)
+    code = getattr(error, 'code', None)
+    # Report only known diagnostic categories, never provider payloads or URLs.
+    diagnostic = str(getattr(error, 'message', '')).casefold().replace('_', '')
+    markers = [value for value in ('schema', 'maxlength', 'additionalproperties', 'maxitems',
+               'not found', 'permission', 'api key', 'quota', 'billing', 'unsupported',
+               'too many states', 'complex', 'invalid json', 'thinking', 'video') if value in diagnostic]
+    logger.warning("%s failed (%s, HTTP %s, categories=%s)", stage, type(error).__name__,
+                   code if isinstance(code, int) else None, ','.join(markers))
     if isinstance(error, (ValueError, TypeError)):
         return f"{stage} did not return valid analysis. Retry this asset or use another configured model."
     if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
         return f"{stage} timed out. Retry this asset."
-    code = getattr(error, 'code', None)
+    if code == 400 and 'schema' in diagnostic:
+        return f"{stage}: Gemini rejected the response schema (HTTP 400). This is an application compatibility error; changing your key or retrying the same build will not fix it."
+    if code in {401, 403}:
+        return f"{stage}: Gemini denied access (HTTP {code}). Check the API key and its project/model permissions in Settings."
+    if code == 404:
+        return f"{stage}: Gemini could not find the configured model or uploaded file (HTTP 404). Check model availability and retry the source upload."
     if code in {408, 429, 500, 502, 503, 504}:
         return f"{stage}: Gemini is temporarily unavailable (HTTP {code}) after retries. Saved analysis is preserved; retry later."
     return f"{stage} could not complete. Check provider access, model availability and quota, then retry."
@@ -135,7 +147,7 @@ async def run_analysis(
         persist(flash_result=result, transcript=transcript, shot_annotations=annotations, **changes)
 
     try:
-        if mode not in {"flash_only", "flash_pro"}:
+        if mode not in {"flash_only", "flash_pro", "cosplay"}:
             raise ValueError("Unknown analysis mode")
         if not math.isfinite(fps) or not 0.1 <= fps <= 30:
             raise ValueError("Sampling FPS must be between 0.1 and 30")
@@ -145,7 +157,7 @@ async def run_analysis(
             if duration <= 0:
                 raise ValueError("Source duration must be positive")
         config = dict(job.analysis_config)
-        resolved_mode = resolve_shot_mode(job, shot_mode)
+        resolved_mode = resolve_shot_mode(job, 'single_take' if mode == 'cosplay' and shot_mode == 'auto' else shot_mode)
         config.update(proxy_decision(job, proxy_mode))
         config['proxy_used'] = media is not None
         for key in ('upload_part_seconds', 'proxy_max_resolution', 'summary_input'):
@@ -211,6 +223,7 @@ async def run_analysis(
                     **({'source_offset': offset} if media else {}),
                     **({'previous_shot': previous} if previous is not None else {}),
                     **({'single_take': True} if resolved_mode == 'single_take' else {}),
+                    **({'cosplay': True} if mode == 'cosplay' else {}),
                 )
                 usage_records.append(usage)
                 shots = validate_shots(shots, start, end, shot_counter)

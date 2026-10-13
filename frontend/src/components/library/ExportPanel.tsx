@@ -22,11 +22,11 @@ const FORMATS: { format: ExportFormat; title: string; description: string }[] = 
   { format: 'xmp', title: 'Metadata sidecar', description: 'Asset metadata and clip markers in an XMP file.' },
   { format: 'srt', title: 'Timed transcript', description: 'Subtitles from the available spoken-word transcript.' },
   { format: 'edl', title: 'Edit decision list', description: 'A video-only clip sequence using source timecode.' },
-  { format: 'premiere_xml', title: 'Premiere XML', description: 'A clip timeline with original media, source audio and logging metadata.' },
-  { format: 'fcpxml', title: 'Final Cut Pro XML', description: 'A timeline for Final Cut Pro and Resolve.' },
+  { format: 'premiere_xml', title: 'Final Cut Pro XML — Legacy (.xml)', description: 'For Premiere / Resolve: a clip timeline with original media, source audio and logging metadata.' },
+  { format: 'fcpxml', title: 'Final Cut Pro XML — Modern (.fcpxml)', description: 'A timeline for Final Cut Pro and Resolve.' },
 ]
 const PAGE_SIZE = 50
-const formatLabel = (format: ExportFormat) => format === 'premiere_xml' ? 'Premiere XML' : format.toUpperCase()
+const formatLabel = (format: ExportFormat) => format === 'premiere_xml' ? 'Legacy XML' : format.toUpperCase()
 
 function safeFilename(value: string, format: ExportFormat, selected: boolean) {
   const basename = value.split(/[\\/]/).pop() || 'video'

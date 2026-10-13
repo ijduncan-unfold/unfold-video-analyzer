@@ -1,6 +1,8 @@
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.cosplay import CosplayIdentification
+
 ReviewStatus = Literal['unreviewed', 'reviewed', 'needs_changes']
 RightsStatus = Literal['unknown', 'cleared', 'restricted']
 
@@ -31,6 +33,8 @@ class AssetMetadata(BaseModel):
 
 
 class ShotAnnotation(BaseModel):
+    # None follows the AI result; [] explicitly clears all identifications.
+    cosplay: list[CosplayIdentification] | None = Field(default=None, max_length=100)
     model_config = ConfigDict(extra='forbid')
     tags: list[str] = Field(default_factory=list, max_length=100)
     notes: str = Field(default='', max_length=10000)
@@ -44,7 +48,7 @@ class ShotAnnotation(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    mode: Literal['flash_only', 'flash_pro'] = 'flash_only'
+    mode: Literal['flash_only', 'flash_pro', 'cosplay'] = 'flash_only'
     fps: float = Field(default=1, ge=0.5, le=5)
     custom_prompt: str = Field(default='', max_length=10000)
     proxy_mode: Literal['auto', 'always', 'off'] = 'auto'
@@ -73,3 +77,31 @@ class FolderMove(BaseModel):
 class SourceStatusRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     job_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class MediaExportSelection(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    job_ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class MediaExportOptionsRequest(MediaExportSelection):
+    format: Literal['premiere_xml', 'fcpxml', 'resolve', 'edl'] = 'premiere_xml'
+    layout: Literal['timeline', 'bin'] = 'timeline'
+
+
+class MediaExportRequest(MediaExportOptionsRequest):
+    title: str = Field(default='Video Analyzer selects', min_length=1, max_length=200)
+    include_metadata: bool = True
+    analysis_versions: dict[str, str] = Field(max_length=1000)
+
+
+class PremiereSelectionRequest(MediaExportSelection):
+    name: str = Field(min_length=1, max_length=160)
+
+    @field_validator('name')
+    @classmethod
+    def selection_name(cls, value):
+        value = ' '.join(value.split())
+        if not value:
+            raise ValueError('Enter a selection name')
+        return value

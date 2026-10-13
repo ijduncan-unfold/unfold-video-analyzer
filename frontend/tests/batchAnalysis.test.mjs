@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { queueBatchAnalysis } from '../src/api/batchAnalysis.ts'
 
-for (const mode of ['flash_only', 'flash_pro']) {
+for (const mode of ['flash_only', 'flash_pro', 'cosplay']) {
   test(`queues each selected clip once with ${mode}, without waiting for analysis to finish`, async () => {
     const submitted = [], notified = []
     const results = await queueBatchAnalysis(['a', 'b', 'a', 'c'], mode, async (id, selectedMode) => {

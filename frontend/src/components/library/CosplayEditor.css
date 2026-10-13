@@ -1,0 +1,15 @@
+.cosplay-panel{margin:16px 0;padding:14px;border:1px solid #455568;border-radius:6px;background:#202832;color:#dce5ee}
+.cosplay-heading{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.cosplay-heading h3{margin:0;font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.cosplay-heading>span{font-size:11px;color:#aebdcc}
+.cosplay-observation{padding:13px 0;border-top:1px solid #3a4858;margin-top:12px;overflow-wrap:anywhere}
+.cosplay-observation p{font-size:12px;line-height:1.6;margin:8px 0}
+.cosplay-subtitle{color:#aec6d9}
+.cosplay-status{text-transform:capitalize;white-space:nowrap}
+.cosplay-status.is-confirmed{color:#91d6b0}.cosplay-status.is-unknown{color:#e3c38c}
+.cosplay-panel fieldset{border:0;padding:0;margin:0;min-width:0}
+.cosplay-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.cosplay-actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+.cosplay-badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
+.cosplay-badges span{font-size:11px;line-height:1.4;border:1px solid #50647b;border-radius:4px;padding:3px 7px;color:#d5e6f7;background:#2a394a}
+@media(max-width:600px){.cosplay-fields{grid-template-columns:1fr}.cosplay-heading{flex-wrap:wrap}}

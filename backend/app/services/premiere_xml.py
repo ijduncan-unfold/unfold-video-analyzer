@@ -5,8 +5,8 @@ import xml.etree.ElementTree as ET
 from urllib.parse import quote
 
 from app.services.library_export import job_data, source_filename, segment_times, _public
-from app.services.editor_metadata import map_fields
-from app.services.nle_export import _fcpxml_timing, _frames, _frame_timecode, _nle_shots, _one_line
+from app.services.editor_metadata import map_fields, effective_editor_shot
+from app.services.nle_export import _fcpxml_timing, _frames, _frame_timecode, _nle_shots
 
 
 def source_url(path):
@@ -125,16 +125,17 @@ def export_premiere_xml(job):
                 text(link, 'trackindex', max(1, linked_index)); text(link, 'clipindex', index)
             if track_index == 0:
                 logging = ET.SubElement(item, 'logginginfo')
-                text(logging, 'description', _one_line(shot.get('visual_description')))
                 mapped = {field['key']: field['value'] for field in map_fields(
-                    data.get('metadata') or {}, [shot], dialogue, shot_scope=True)['fields']}
+                    data.get('metadata') or {}, [effective_editor_shot(shot, reviewed)], dialogue, shot_scope=True,
+                    cosplay_primary=(data.get('analysis_config') or {}).get('mode') == 'cosplay')['fields']}
+                text(logging, 'description', mapped.get('description', ''))
                 if mapped.get('scene'):
                     text(logging, 'scene', mapped['scene'])
                 if mapped.get('shot') or mapped.get('take'):
                     text(logging, 'shottake', ' / '.join(mapped[key] for key in ('shot', 'take') if mapped.get(key)))
                 text(logging, 'lognote', json.dumps(_public({'shot': shot, 'annotation': reviewed,
                     'asset_metadata': data.get('metadata', {}), 'section': scene.get('scene_title'),
-                    'section_analysis': section_analysis, 'transcript': dialogue}), ensure_ascii=False))
+                    'section_analysis': section_analysis, 'transcript': dialogue, 'editor_metadata': mapped}), ensure_ascii=False))
         record += last - first
     ET.indent(root)
     return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n' + ET.tostring(root, encoding='unicode')

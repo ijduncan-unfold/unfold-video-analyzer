@@ -104,3 +104,25 @@ test('rejected or incomplete additional metadata writes never report success', a
     await t.test(code, async () => { const f = fixture(options); await assert.rejects(f.host.syncMetadata(binding, mapping), { code }); });
   }
 });
+
+test('cosplay source sync exports descriptions and corrections without accumulating old character keywords', async () => {
+  const f = fixture(); f.edit({ Description: '', Keywords: 'human, Half-Life' });
+  const fields = [
+    { key: 'description', resolve: 'Description', value: 'Gordon Freeman · Half-Life · HEV Suit [Suggested]', label: 'Description' },
+    { key: 'keywords', resolve: 'Keywords', value: 'Cosplay, Gordon Freeman, Half-Life', label: 'Keywords' },
+    { key: 'cosplay_characters', resolve: null, value: 'Gordon Freeman', label: 'Cosplay characters' },
+  ];
+  await f.host.syncMetadata(binding, { ...mapping, fields });
+  assert.equal(f.metadata().Description, fields[0].value);
+  assert.equal(f.third()['Video Analyzer Cosplay characters'], 'Gordon Freeman');
+  assert.match(f.metadata().Comments, /Cosplay characters/);
+  await f.host.syncMetadata(binding, { ...mapping, fields: [
+    { ...fields[0], value: 'Batman · DC [Confirmed by you]' },
+    { ...fields[1], value: 'Cosplay, Batman, DC' },
+    { ...fields[2], value: 'Batman' },
+  ] });
+  assert.equal(f.metadata().Keywords, 'human, Half-Life, Cosplay, Batman, DC');
+  assert.equal(f.metadata().Description, 'Batman · DC [Confirmed by you]');
+  await f.host.syncMetadata(binding, { ...mapping, fields: [] });
+  assert.equal(f.metadata().Keywords, 'human, Half-Life');
+});

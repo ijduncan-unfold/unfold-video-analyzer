@@ -1,5 +1,5 @@
 import { getApiKey } from './apiKey'
-import type { FlashAnalysis, SceneDeepAnalysis, VideoSummary, Shot } from './types'
+import type { FlashAnalysis, SceneDeepAnalysis, VideoSummary, Shot, CosplayIdentification } from './types'
 
 export type ReviewStatus = 'unreviewed' | 'reviewed' | 'needs_changes'
 export type ProxyMode = 'auto' | 'always' | 'off'
@@ -16,6 +16,7 @@ export interface AssetMetadata {
   collections: string[]
 }
 export interface LibraryAsset {
+  cosplay?: CosplayIdentification[]
   folder_id?: string | null
   progress?: { message?: string; pass?: number; scene?: number; total?: number } | string | null
   analysis_progress?: AnalysisProgress | null
@@ -58,10 +59,11 @@ export interface LibraryResponse {
   assets: LibraryAsset[]
   total: number
   active_jobs?: number
-  facets: { projects: string[]; tags: string[]; collections?: string[]; production?: string[]; scene?: string[]; take?: string[]; camera_roll?: string[]; cinematographer?: string[] }
+  facets: { character?: string[]; franchise?: string[]; projects: string[]; tags: string[]; collections?: string[]; production?: string[]; scene?: string[]; take?: string[]; camera_roll?: string[]; cinematographer?: string[] }
   stats: { assets: number; shots: number; reviewed: number; duration_seconds: number }
 }
 export interface ShotAnnotation {
+  cosplay?: CosplayIdentification[] | null
   tags: string[]
   notes: string
   review_status: ReviewStatus
@@ -257,7 +259,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
   return response.json() as Promise<T>
 }
-export function getLibrary(filters: { q?: string; production?: string; scene?: string; take?: string; camera_roll?: string; cinematographer?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number; sort?: string }, signal?: AbortSignal) {
+export function getLibrary(filters: { q?: string; character?: string; franchise?: string; identification?: string; production?: string; scene?: string; take?: string; camera_roll?: string; cinematographer?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number; sort?: string }, signal?: AbortSignal) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
   return request<LibraryResponse>(`/api/library?${params}`, { signal })
@@ -283,7 +285,7 @@ export function getSourceStatus(ids: string[], signal?: AbortSignal) {
 export function getProjects(signal?: AbortSignal, folderId = '') {
   return request<{ projects: LibraryProject[]; total: number }>(`/api/library/projects?${new URLSearchParams({ folder_id: folderId })}`, { signal })
 }
-export function getShots(filters: { q: string; job_id?: string; production?: string; scene?: string; take?: string; camera_roll?: string; cinematographer?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+export function getShots(filters: { q: string; job_id?: string; character?: string; franchise?: string; identification?: string; production?: string; scene?: string; take?: string; camera_roll?: string; cinematographer?: string; project?: string; review_status?: string; tag?: string; rights_status?: string; collection?: string; folder_id?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
   return request<{ shots: LibraryShot[]; total: number }>(`/api/library/search/shots?${params}`, { signal })
@@ -307,13 +309,14 @@ export function saveMetadata(id: string, metadata: Partial<AssetMetadata>) {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metadata),
   })
 }
-export function saveShot(id: string, number: number, annotation: Partial<ShotAnnotation>, expectedRange: { start_time: string; end_time: string }) {
+export function saveShot(id: string, number: number, annotation: Partial<ShotAnnotation>, expectedRange: { start_time: string; end_time: string }, expectedRun?: string) {
   const params = new URLSearchParams({ expected_start_time: expectedRange.start_time, expected_end_time: expectedRange.end_time })
+  if (expectedRun !== undefined) params.set('expected_analysis_started_at', expectedRun)
   return request<ShotAnnotation>(`/api/library/${encodeURIComponent(id)}/shots/${number}?${params}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(annotation),
   })
 }
-export function analyzeAsset(id: string, mode: 'flash_only' | 'flash_pro', fps: number, customPrompt: string, proxyMode: ProxyMode = 'auto', shotMode: 'auto' | 'single_take' | 'detect_cuts' = 'auto') {
+export function analyzeAsset(id: string, mode: 'flash_only' | 'flash_pro' | 'cosplay', fps: number, customPrompt: string, proxyMode: ProxyMode = 'auto', shotMode: 'auto' | 'single_take' | 'detect_cuts' = 'auto') {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const apiKey = getApiKey()
   if (apiKey) headers['X-API-Key'] = apiKey
@@ -332,6 +335,23 @@ export function deleteAsset(id: string) {
   })
 }
 export type ExportFormat = 'json' | 'csv' | 'xmp' | 'srt' | 'edl' | 'fcpxml' | 'premiere_xml'
+export type MediaExportFormat = 'premiere_xml' | 'fcpxml' | 'resolve' | 'edl'
+export interface MediaExportOptions {
+  format: MediaExportFormat
+  layout: 'timeline' | 'bin'
+  reason?: string | null
+  available: boolean
+  items: { id: string; title: string; filename: string; available: boolean; reason: string | null; analysis_version: string; analyzed: boolean; partial: boolean }[]
+}
+export function getMediaExportOptions(ids: string[], format: MediaExportFormat, layout: 'timeline' | 'bin', signal?: AbortSignal) {
+  return request<MediaExportOptions>('/api/library/media-export-options', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_ids: ids, format, layout }), signal,
+  })
+}
+export function downloadMediaExport(ids: string[], title: string, layout: 'timeline' | 'bin', includeMetadata: boolean, versions: Record<string, string>, format: MediaExportFormat, signal?: AbortSignal) {
+  return fetch('/api/library/media-export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_ids: ids, title, layout, include_metadata: includeMetadata, format, analysis_versions: versions }), signal })
+}
 export interface ExportOptions {
   scope: 'selected_shots' | 'asset'
   shot_numbers: number[]
@@ -350,4 +370,16 @@ export function exportUrl(id: string, format: ExportFormat, shotNumbers?: number
   const params = exportParams(shotNumbers, analysisStartedAt)
   params.set('format', format)
   return `/api/library/${encodeURIComponent(id)}/export?${params}`
+}
+
+export interface PremiereSelection {
+  id: string; name: string; job_ids: string[]; count: number; created_at: string
+}
+export function getPremiereSelections() {
+  return request<{ selections: PremiereSelection[] }>('/api/library/premiere-selections')
+}
+export function savePremiereSelection(name: string, ids: string[]) {
+  return request<PremiereSelection>('/api/library/premiere-selections', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, job_ids: ids }),
+  })
 }

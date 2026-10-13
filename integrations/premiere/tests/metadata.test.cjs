@@ -31,11 +31,14 @@ function fixture(options = {}) {
   const schema = [];
   const clip = { kind: "clip", getId: () => "clip", isSequence: async () => false, isOffline: async () => false,
     getMediaFilePath: async () => options.relinked ? "C:\\other.mp4" : binding.media_path, getFootageInterpretation: async () => ({ getFrameRate: () => 24 }) };
-  const root = { getItems: async () => [clip] };
+  let bin, imported = false, imports = 0;
+  const root = { getItems: async () => options.selectionImport ? (bin ? [bin] : []) : [clip], createBinAction(name) { return { type: 'bin', name }; } };
+  function createBin(name) { bin = { kind: 'folder', name, getId: () => 'bin', getItems: async () => imported ? [clip] : [] }; }
   const project = { guid: "project", getRootItem: async () => root,
+    async importFiles(paths, suppressUI, target, numbered) { assert.deepEqual(paths, [binding.media_path]); assert.equal(target, bin); assert.equal(numbered, false); imports++; if (!options.importFailure && !options.falseImport) imported = true; return !options.importFailure; },
     lockedAccess(callback) { locked = true; try { assert.notEqual(callback() instanceof Promise, true); } finally { locked = false; } },
-    executeTransaction(callback) { assert.ok(locked); transactions++; callback({ addAction(action) { if (!options.falseSuccess && !options.reject) { if(action.type === 'xmp') fileProperties = JSON.parse(action.packet); else properties = JSON.parse(action.packet); } return true; } }); return !options.reject; } };
-  const api = { Project: { getActiveProject: async () => project }, ClipProjectItem: { cast: item => item.kind === "clip" ? { ...item, getId: undefined } : null },
+    executeTransaction(callback) { assert.ok(locked); transactions++; callback({ addAction(action) { if (!options.falseSuccess && !options.reject) { if (action.type === 'bin') createBin(action.name); else if(action.type === 'xmp') fileProperties = JSON.parse(action.packet); else properties = JSON.parse(action.packet); } return true; } }); return !options.reject; } };
+  const api = { FolderItem: { cast: item => item.kind === 'folder' ? item : null }, Project: { getActiveProject: async () => project }, ClipProjectItem: { cast: item => item.kind === "clip" ? { ...item, getId: undefined } : null },
     Constants: { MetadataType: { TEXT: 2 } }, Metadata: {
       getProjectMetadata: async item => { assert.equal(item, clip, 'Metadata APIs require the original ProjectItem handle'); if (transactions && options.delayedReadback && !staleReadback) { staleReadback = true; return '{}'; } return JSON.stringify(properties); },
       getXMPMetadata: async item => { assert.equal(item, clip); return JSON.stringify(fileProperties); },
@@ -43,7 +46,7 @@ function fixture(options = {}) {
       createSetProjectMetadataAction(item, packet, fields) { assert.ok(locked); assert.equal(item, clip); assert.ok(fields.includes("VideoAnalyzerAnalysis")); return { packet }; },
       createSetXMPMetadataAction(item, packet) { assert.ok(locked); assert.equal(item, clip); return { packet, type: 'xmp' }; }
     } };
-  return { host: createHost(api, { XMPMeta, XMPConst: { PROP_IS_ARRAY: 512 } }), properties: () => ({ ...properties }), fileProperties: () => structuredClone(fileProperties), edit(values) { Object.assign(properties, values); }, editFile(values) { Object.assign(fileProperties, values); }, transactions: () => transactions, schema };
+  return { host: createHost(api, { XMPMeta, XMPConst: { PROP_IS_ARRAY: 512 } }), properties: () => ({ ...properties }), fileProperties: () => structuredClone(fileProperties), edit(values) { Object.assign(properties, values); }, editFile(values) { Object.assign(fileProperties, values); }, transactions: () => transactions, schema, imports: () => imports, changeProject: () => { project.guid = "other"; } };
 }
 
 const slateMapping = { ...mapping, fields: [...mapping.fields,
@@ -130,4 +133,64 @@ test("changed source, concurrent edits, rejected writes and false success are re
 test("oversized record is rejected without silently truncating dialogue or native writes", async () => {
   const f = fixture(); await assert.rejects(f.host.syncMetadata(binding, { ...mapping, record: { ...mapping.record, huge: 'a'.repeat(4000001) } }), { code: 'METADATA_LIMIT' });
   assert.equal(f.transactions(), 0); assert.equal(f.schema.length, 0);
+});
+
+test('cosplay sync writes standard description and keywords plus dedicated columns, preserving editor edits', async () => {
+  const f = fixture(); f.edit({ 'Column.PropertyText.Description': '' });
+  const fields = [
+    { key: 'description', premiere: 'Column.PropertyText.Description', value: 'Gordon Freeman · Half-Life · HEV Suit [Suggested]\nScene description: Posing at a booth.' },
+    { key: 'keywords', premiere: 'VideoAnalyzerKeywords', value: 'Cosplay, Gordon Freeman, Half-Life', xmp_value: ['Cosplay', 'Gordon Freeman', 'Half-Life'] },
+    { key: 'cosplay_characters', premiere: 'VideoAnalyzerCosplayCharacters', value: 'Gordon Freeman', label: 'Cosplay characters' },
+    { key: 'cosplay_description', premiere: 'VideoAnalyzerCosplayDescription', value: 'HEV Suit [Suggested]', label: 'Cosplay description' },
+    { key: 'scene_description', premiere: 'VideoAnalyzerSceneDescription', value: 'Posing at a booth.', label: 'Scene description' },
+  ];
+  await f.host.syncMetadata(binding, { ...mapping, fields });
+  assert.equal(f.properties().VideoAnalyzerCosplayCharacters, 'Gordon Freeman');
+  assert.equal(f.properties().VideoAnalyzerSceneDescription, 'Posing at a booth.');
+  assert.equal(f.properties()['Column.PropertyText.Description'], fields[0].value);
+  assert.equal(f.fileProperties()[DC+'|description'], fields[0].value);
+  assert.deepEqual(f.fileProperties()[DC+'|subject'], fields[1].xmp_value);
+  f.edit({ VideoAnalyzerCosplayCharacters: 'Editor correction' });
+  await f.host.syncMetadata(binding, { ...mapping, fields: [] });
+  assert.equal(f.properties().VideoAnalyzerCosplayCharacters, 'Editor correction');
+  assert.equal(f.properties().VideoAnalyzerCosplayDescription, '');
+});
+
+const selectionPlan = { schema: 'unfold.premiere-selection', id: '12345678-1234-1234-1234-123456789012', name: 'Wonder Woman',
+  items: [{ id: 'asset', media_path: binding.media_path, filename: 'source.mp4' }] };
+const selectedMapping = { ...slateMapping, record: { ...slateMapping.record, asset: { id: 'asset' } } };
+const selectedMetadata = async () => ({ media_path: binding.media_path, mapping: selectedMapping });
+
+test('saved selection imports actual originals into a named bin and syncs metadata without timing proof', async () => {
+  const f = fixture({ selectionImport: true });
+  const result = await f.host.importSelection(selectionPlan, 'project', selectedMetadata);
+  assert.equal(result.imported, 1); assert.equal(result.synced, 1);
+  assert.equal(result.bin, 'Wonder Woman · 12345678');
+  assert.equal(f.properties().VideoAnalyzerCinematographer, 'Clay Westervelt');
+  assert.deepEqual(JSON.parse(f.properties().VideoAnalyzerAnalysis).asset, { id: 'asset' });
+  f.edit({ VideoAnalyzerCinematographer: 'Human correction' });
+  const again = await f.host.importSelection(selectionPlan, 'project', selectedMetadata);
+  assert.equal(again.imported, 0); assert.equal(again.reused, 1); assert.equal(f.imports(), 1);
+  assert.equal(f.properties().VideoAnalyzerCinematographer, 'Human correction');
+});
+
+test('saved import rejects partial native success, changed project or changed source', async () => {
+  for (const options of [{ importFailure: true }, { falseImport: true }]) {
+    const f = fixture({ selectionImport: true, ...options });
+    await assert.rejects(f.host.importSelection(selectionPlan, 'project', selectedMetadata), { code: 'IMPORT_VERIFY_FAILED' });
+    assert.equal(f.properties().VideoAnalyzerAnalysis, undefined);
+  }
+  const f = fixture({ selectionImport: true });
+  await assert.rejects(f.host.importSelection(selectionPlan, 'project', async () => ({ ...await selectedMetadata(), media_path: '/different.mp4' })), { code: 'SOURCE_CHANGED' });
+  assert.equal(f.imports(), 0);
+  await assert.rejects(f.host.importSelection(selectionPlan, 'project', async () => { f.changeProject(); return selectedMetadata(); }), { code: 'PROJECT_CHANGED' });
+  assert.equal(f.imports(), 0);
+});
+
+test('saved import requires local media references and distinct entries before any write', async () => {
+  for (const items of [[], [...selectionPlan.items, ...selectionPlan.items], [{ id: 'asset', media_path: 'https://example.test/a.mp4' }]]) {
+    const f = fixture({ selectionImport: true });
+    await assert.rejects(f.host.importSelection({ ...selectionPlan, items }, 'project', selectedMetadata), { code: 'INVALID_SELECTION' });
+    assert.equal(f.transactions(), 0);
+  }
 });
